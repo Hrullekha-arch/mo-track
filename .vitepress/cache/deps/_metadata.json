@@ -1,0 +1,25 @@
+{
+  "hash": "117630c5",
+  "configHash": "5bfe8e73",
+  "lockfileHash": "b09e97ca",
+  "browserHash": "5c6fa1a2",
+  "optimized": {
+    "vue": {
+      "src": "C:/Users/Himanshu/AppData/Local/npm-cache/_npx/a3af1b0fdbe56d97/node_modules/vue/dist/vue.runtime.esm-bundler.js",
+      "file": "vue.js",
+      "fileHash": "2ad02c6b",
+      "needsInterop": false
+    },
+    "@theme/index": {
+      "src": "C:/Users/Himanshu/AppData/Local/npm-cache/_npx/a3af1b0fdbe56d97/node_modules/vitepress/dist/client/theme-default/index.js",
+      "file": "@theme_index.js",
+      "fileHash": "a6063523",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-ZIMIWZBJ": {
+      "file": "chunk-ZIMIWZBJ.js"
+    }
+  }
+}

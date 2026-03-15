@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useForm, FormProvider } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -9,7 +9,7 @@ import { DealProduct } from "@/lib/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Trash2, ScanLine, Loader2 } from "lucide-react";
+import { PlusCircle, ScanLine, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -19,35 +19,11 @@ import { roomOptions } from "@/lib/constants";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import Hardwareform from "./Hardwareform";
 import { VasForm } from "./VasForm";
 import { Html5Qrcode } from "html5-qrcode";
 import { Label } from "@/components/ui/label";
 import { getStockSubcategories } from "@/lib/stock-category-rules";
-
-const blindEntrySchema = z.object({
-  id: z.string(),
-  blindType: z.enum(["Roman Blind", "Roller Blind", "Normal Blind"]).optional(),
-  shadeNo: z.string().optional(),
-  width: z.string().optional(),
-  widthUnit: z.string().optional().default("inch"),
-  height: z.string().optional(),
-  heightUnit: z.string().optional().default("inch"),
-  operating: z.enum(["Manual", "motorized"]).optional(),
-  usesType: z
-    .enum(["Direct Fix", "Head Rail", "Plain Cassette", "Decorative Cassette", "One Touch Up", "Moto Down"])
-    .optional(),
-  motorType: z.enum(["Simotic or Ebony (RTS | WT)", "Wire Free (RTS)"]).optional(),
-  remoteType: z.string().optional(),
-  control: z.enum(["LHT", "RHT"]).optional(),
-  bracket: z.enum(["Wall", "Celling"]).optional(),
-  bottomChannel: z.enum(["Square", "Rounded", "Fabric Covered"]).optional(),
-  bottomRailColor: z.string().optional(),
-  otherBottomRailColor: z.string().optional(),
-  locationOfBlind: z.string().optional(),
-  noOfBlind: z.string().optional(),
-});
 
 const newProductEntrySchema = z.object({
   Type: z.string().optional().default(""), // ✅ ADD (used in flooring)
@@ -66,268 +42,6 @@ const productListSchema = z.object({
 });
 
 type ProductListFormValues = z.infer<typeof productListSchema>;
-type BlindEntryFormValues = z.infer<typeof blindEntrySchema>;
-
-const AddBlindsDialog = ({
-  isOpen,
-  onClose,
-  roomName,
-  onSave,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  roomName: string;
-  onSave: (products: DealProduct[]) => void;
-}) => {
-  const { toast } = useToast();
-  const [localBlinds, setLocalBlinds] = useState<Partial<BlindEntryFormValues>[]>([
-    { id: new Date().toISOString() },
-  ]);
-
-  const handleSave = () => {
-    const blindsToSave = localBlinds.map(
-      (blind) =>
-        ({
-          ...blind,
-          isBlind: true,
-          room: roomName,
-          id: `blind-${Date.now()}-${Math.random()}`,
-          collectionBrand: blind.shadeNo || "N/A",
-        } as DealProduct)
-    );
-
-    onSave(blindsToSave);
-    toast({
-      title: "Blinds Added",
-      description: `${blindsToSave.length} blind(s) staged. Use Update Activity to save.`,
-    });
-    onClose();
-  };
-
-  const updateLocalBlind = (index: number, field: keyof BlindEntryFormValues, value: any) => {
-    const newBlinds = [...localBlinds];
-    newBlinds[index] = { ...newBlinds[index], [field]: value };
-    setLocalBlinds(newBlinds);
-  };
-  
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl">
-        <DialogHeader>
-          <DialogTitle>Add Blinds for {roomName}</DialogTitle>
-        </DialogHeader>
-        <ScrollArea className="h-[70vh]">
-          <div className="py-4 space-y-4 pr-4">
-            {localBlinds.map((blind, index) => {
-              const isMotorized = blind.operating === "motorized";
-              const showOtherColor = blind.bottomRailColor === "Other";
-              return (
-                <Card key={blind.id} className="p-4 relative">
-                  <Button
-                    variant="destructive"
-                    size="icon"
-                    className="absolute top-2 right-2 h-7 w-7"
-                    onClick={() => setLocalBlinds((prev) => prev.filter((_, i) => i !== index))}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                  <p className="font-semibold mb-3">Blind #{index + 1}</p>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <FormItem>
-                      <FormLabel>Blind Type</FormLabel>
-                      <Select onValueChange={(val) => updateLocalBlind(index, "blindType", val)} value={blind.blindType}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Roman Blind">Roman Blind</SelectItem>
-                          <SelectItem value="Roller Blind">Roller Blind</SelectItem>
-                          <SelectItem value="Normal Blind">Normal Blind</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                    <FormItem>
-                      <FormLabel>Shade No</FormLabel>
-                      <Input value={blind.shadeNo} onChange={(e) => updateLocalBlind(index, "shadeNo", e.target.value)} />
-                    </FormItem>
-                    <FormItem>
-                      <FormLabel>Width</FormLabel>
-                      <div className="flex items-center gap-1">
-                        <Input value={blind.width} onChange={(e) => updateLocalBlind(index, "width", e.target.value)} />
-                        <Select onValueChange={(val) => updateLocalBlind(index, "widthUnit", val)} value={blind.widthUnit}>
-                          <SelectTrigger className="w-20">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="inch">inch</SelectItem>
-                            <SelectItem value="mm">mm</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </FormItem>
-                    <FormItem>
-                      <FormLabel>Height</FormLabel>
-                      <div className="flex items-center gap-1">
-                        <Input value={blind.height} onChange={(e) => updateLocalBlind(index, "height", e.target.value)} />
-                        <Select onValueChange={(val) => updateLocalBlind(index, "heightUnit", val)} value={blind.heightUnit}>
-                          <SelectTrigger className="w-20">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="inch">inch</SelectItem>
-                            <SelectItem value="mm">mm</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </FormItem>
-                    <FormItem>
-                      <FormLabel>Operating</FormLabel>
-                      <Select onValueChange={(val) => updateLocalBlind(index, "operating", val)} value={blind.operating}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Operating" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Manual">Manual</SelectItem>
-                          <SelectItem value="motorized">motorized</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                    <FormItem>
-                      <FormLabel>Uses Type</FormLabel>
-                      <Select onValueChange={(val) => updateLocalBlind(index, "usesType", val)} value={blind.usesType}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Uses Type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Direct Fix">Direct Fix</SelectItem>
-                          <SelectItem value="Head Rail">Head Rail</SelectItem>
-                          <SelectItem value="Plain Cassette">Plain Cassette</SelectItem>
-                          <SelectItem value="Decorative Cassette">Decorative Cassette</SelectItem>
-                          <SelectItem value="One Touch Up">One Touch Up</SelectItem>
-                          <SelectItem value="Moto Down">Moto Down</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                    {isMotorized && (
-                      <FormItem>
-                        <FormLabel>Motor Type</FormLabel>
-                        <Select onValueChange={(val) => updateLocalBlind(index, "motorType", val)} value={blind.motorType}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select Motor Type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Simotic or Ebony (RTS | WT)">Simotic or Ebony (RTS | WT)</SelectItem>
-                            <SelectItem value="Wire Free (RTS)">Wire Free (RTS)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </FormItem>
-                    )}
-                    {isMotorized && (
-                      <FormItem>
-                        <FormLabel>Remote Type</FormLabel>
-                        <Input
-                          value={blind.remoteType}
-                          onChange={(e) => updateLocalBlind(index, "remoteType", e.target.value)}
-                        />
-                      </FormItem>
-                    )}
-                    <FormItem>
-                      <FormLabel>Control</FormLabel>
-                      <Select onValueChange={(val) => updateLocalBlind(index, "control", val)} value={blind.control}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Control" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="LHT">LHT</SelectItem>
-                          <SelectItem value="RHT">RHT</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                    <FormItem>
-                      <FormLabel>Bracket</FormLabel>
-                      <Select onValueChange={(val) => updateLocalBlind(index, "bracket", val)} value={blind.bracket}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Bracket" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Wall">Wall</SelectItem>
-                          <SelectItem value="Celling">Celling</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                    <FormItem>
-                      <FormLabel>Bottom Channel</FormLabel>
-                      <Select
-                        onValueChange={(val) => updateLocalBlind(index, "bottomChannel", val)}
-                        value={blind.bottomChannel}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Channel" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Square">Square</SelectItem>
-                          <SelectItem value="Rounded">Rounded</SelectItem>
-                          <SelectItem value="Fabric Covered">Fabric Covered</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                    <FormItem>
-                      <FormLabel>Bottom Rail Color</FormLabel>
-                      <Select
-                        onValueChange={(val) => updateLocalBlind(index, "bottomRailColor", val)}
-                        value={blind.bottomRailColor}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Color" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Matching">Matching</SelectItem>
-                          <SelectItem value="Other">Other</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                    {showOtherColor && (
-                      <FormItem>
-                        <FormLabel>Specify Color</FormLabel>
-                        <Input
-                          value={blind.otherBottomRailColor}
-                          onChange={(e) => updateLocalBlind(index, "otherBottomRailColor", e.target.value)}
-                        />
-                      </FormItem>
-                    )}
-                    <FormItem>
-                      <FormLabel>Location of Blind</FormLabel>
-                      <Input
-                        value={blind.locationOfBlind}
-                        onChange={(e) => updateLocalBlind(index, "locationOfBlind", e.target.value)}
-                      />
-                    </FormItem>
-                    <FormItem>
-                      <FormLabel>No Of Blind (Pcs)</FormLabel>
-                      <Input
-                        type="number"
-                        value={blind.noOfBlind}
-                        onChange={(e) => updateLocalBlind(index, "noOfBlind", e.target.value)}
-                      />
-                    </FormItem>
-                  </div>
-                </Card>
-              );
-            })}
-            <Button variant="outline" onClick={() => setLocalBlinds((prev) => [...prev, { id: new Date().toISOString() }])}>
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Add Another Blind
-            </Button>
-          </div>
-        </ScrollArea>
-        <DialogFooter>
-          <Button onClick={handleSave}>Done</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-};
 
 type ProductFormProps = {
   initialProducts?: DealProduct[];
@@ -346,8 +60,6 @@ export function ProductForm({
   const [activeMainSection, setActiveMainSection] = useState("main");
   const [currentProducts, setCurrentProducts] = useState<DealProduct[]>(initialProducts || []);
   const [fabricCategoryGroup, setFabricCategoryGroup] = useState("MAIN");
-  
-  const [internalBlindDialogState, setInternalBlindDialogState] = useState<{ isOpen: boolean; roomName: string | null; }>({ isOpen: false, roomName: null });
 
   useEffect(() => {
     setCurrentProducts(initialProducts || []);
@@ -411,16 +123,14 @@ export function ProductForm({
     setStagedItems((prev) => [
       ...prev,
       {
-        id: `hardware-${Date.now()}`, 
+        id: `hardware-${Date.now()}`,
         productType: "Hardware",
-        productCategory: payload.productCategory,
-        subCategory: payload.subCategory,
-        bcn: payload.bcn || null,
+        ...payload,
         rate: payload.rate || "",
         quantity: payload.quantity || "",
-        room: payload.room,
-        image: payload.image || null,
-        timestamp: payload.timestamp,
+        blindDetails: Array.isArray(payload.blindDetails) ? payload.blindDetails : [],
+        isBlind: Array.isArray(payload.blindDetails) && payload.blindDetails.length > 0,
+        timestamp: payload.timestamp || Date.now(),
       },
     ]);
   };
@@ -585,7 +295,7 @@ const handleStageItem = () => {
         productType: item.productType || 'fabric',
         quantity: (item as any).quantity ?? (item as any).items?.itemQty ?? "0",
         room,
-        isBlind: false,
+        isBlind: Boolean((item as any).isBlind),
       };
     });
 
@@ -602,20 +312,7 @@ const handleStageItem = () => {
     toast({ title: "Products Added", description: `${newProductsForForm.length} item(s) added to the list.` });
   };
 
-  const handleBlindsAdded = (blinds: DealProduct[]) => {
-    setCurrentProducts((prev) => {
-      const merged = [...prev, ...blinds];
-      if (typeof onProductsUpdated === "function") {
-        onProductsUpdated(merged);
-      } else {
-        console.warn("onProductsUpdated not provided; products updated locally only.");
-      }
-      return merged;
-    });
-  };
-
-  const selectedRoom = form.watch("room");
-    const [flooringDialogOpen, setFlooringDialogOpen] = useState(false);
+  const [flooringDialogOpen, setFlooringDialogOpen] = useState(false);
     const [selectedFlooringType, setSelectedFlooringType] = useState("");
 
     const handleSelectFlooring = (type: string) => {
@@ -624,7 +321,6 @@ const handleStageItem = () => {
     setFlooringDialogOpen(false);
     };
 
-    const resolvedBlindDialogState = internalBlindDialogState;
     const scannerContainerId = "product-scan-container";
     const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
     const scanLockRef = useRef(false);
@@ -1009,20 +705,6 @@ const handleStageItem = () => {
                         <Button type="button" variant="outline">
                           <PlusCircle className="mr-2 h-4 w-4" /> Add new Room
                         </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            if (selectedRoom) {
-                              setInternalBlindDialogState({ isOpen: true, roomName: selectedRoom as any });
-                            } else {
-                              toast({ variant: "destructive", title: "No Room Selected" });
-                            }
-                          }}
-                          disabled={!selectedRoom}
-                        >
-                          Add Blind
-                        </Button>
                       </div>
                     </div>
 
@@ -1174,20 +856,6 @@ const handleStageItem = () => {
                       <div className="md:col-span-2 flex items-end gap-2">
                         <Button type="button" variant="outline">
                           <PlusCircle className="mr-2 h-4 w-4" /> Add new Room
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            if (selectedRoom) {
-                              setInternalBlindDialogState({ isOpen: true, roomName: selectedRoom as any });
-                            } else {
-                              toast({ variant: "destructive", title: "No Room Selected" });
-                            }
-                          }}
-                          disabled={!selectedRoom}
-                        >
-                          Add Blind
                         </Button>
                       </div>
                     </div>
@@ -1359,20 +1027,6 @@ const handleStageItem = () => {
                         <Button type="button" variant="outline">
                           <PlusCircle className="mr-2 h-4 w-4" /> Add new Room
                         </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            if (selectedRoom) {
-                              setInternalBlindDialogState({ isOpen: true, roomName: selectedRoom as any });
-                            } else {
-                              toast({ variant: "destructive", title: "No Room Selected" });
-                            }
-                          }}
-                          disabled={!selectedRoom}
-                        >
-                          Add Blind
-                        </Button>
                       </div>
                         <FormField
                         control={form.control}
@@ -1527,6 +1181,9 @@ const handleStageItem = () => {
                             {item.subCategory}
                             {item.quantity && <span>{` (Qty: ${item.quantity})`}</span>}
                             {item.bcn && <span>{` | BCN: ${item.bcn}`}</span>}
+                            {Array.isArray((item as any).blindDetails) && (item as any).blindDetails.length > 0 && (
+                              <span>{` | Blind Details: ${(item as any).blindDetails.length}`}</span>
+                            )}
                           </span>
                         ) : item.productSource === "flooring" ? (
                           <span>
@@ -1611,14 +1268,6 @@ const handleStageItem = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {resolvedBlindDialogState.isOpen && resolvedBlindDialogState.roomName && (
-      <AddBlindsDialog
-        isOpen={resolvedBlindDialogState.isOpen}
-        onClose={() => setInternalBlindDialogState({ isOpen: false, roomName: null })}
-        roomName={resolvedBlindDialogState.roomName}
-        onSave={handleBlindsAdded}
-      />
-    )}
     </FormProvider>
   );
 }

@@ -141,251 +141,6 @@ const riskLabelMap: Record<DashboardOrderRisk, string> = {
   stable: "Stable",
 };
 
-
-const SalesmanDashboard = () => {
-    const { user } = useAuth();
-    const { toast } = useToast();
-    const router = useRouter();
-
-    const [orders, setOrders] = useState<Order[]>([]);
-    const [notifications, setNotifications] = useState<any[]>([]);
-    const [walkinLeads, setWalkinLeads] = useState<Walkin_Customer[]>([]);
-    const [loading, setLoading] = useState(true);
-
-    const [closingLead, setClosingLead] = useState<Walkin_Customer | null>(null);
-    const [closeRemark, setCloseRemark] = useState("");
-    const [isClosing, setIsClosing] = useState(false);
-
-    const [dealCreationLead, setDealCreationLead] = useState<Walkin_Customer | null>(null);
-    const [isCreatingDeal, setIsCreatingDeal] = useState(false);
-
-    useEffect(() => {
-        if (!user) return;
-        setLoading(true);
-        const salesmanName = user.name;
-
-        const ordersQuery = query(collection(db, 'orders'), where('salesPerson', '==', salesmanName));
-        const quotesQuery = query(collectionGroup(db, 'quotations'), where('representativeId', '==', user.id));
-        const purchaseRequestsQuery = query(collection(db, 'purchaseRequests'), where('salesman', '==', salesmanName));
-        const walkinQuery = query(collection(db, 'Walkin_Customer'), where('salesmanId', '==', user.id), where('status', '==', 'Handed Over'));
-
-        const unsubs: (() => void)[] = [];
-
-        unsubs.push(onSnapshot(ordersQuery, (snapshot) => setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order)))));
-        unsubs.push(onSnapshot(quotesQuery, (snapshot) => { /* Handle quote updates if needed */ }));
-        unsubs.push(onSnapshot(purchaseRequestsQuery, (snapshot) => { /* Handle PR updates if needed */ }));
-        unsubs.push(onSnapshot(walkinQuery, (snapshot) => {
-            setWalkinLeads(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Walkin_Customer)));
-            setLoading(false);
-        }));
-
-        return () => unsubs.forEach(unsub => unsub());
-    }, [user]);
-
-    const handleCreateDeal = async (lead: Walkin_Customer) => {
-        if (!user) return;
-        
-        setIsCreatingDeal(true);
-        setDealCreationLead(lead);
-
-        try {
-            // Step 1: Check if customer exists by mobile number
-            const customersRef = collection(db, "customers");
-            const q = query(customersRef, where("phone", "==", lead.mobile));
-            const querySnapshot = await getDocs(q);
-
-            let customerId: string;
-
-            if (querySnapshot.empty) {
-                // Step 2a: Customer doesn't exist, so create them
-                const customerData = {
-                    name: `${lead.firstName} ${lead.familyName}`,
-                    phone: lead.mobile,
-                    email: lead.email || '',
-                    createdBy: user.name,
-                };
-                const customerResult = await addCustomerAction(customerData);
-                if (!customerResult.success || !customerResult.customer) {
-                    throw new Error(customerResult.message || "Failed to create a new customer record.");
-                }
-                customerId = customerResult.customer.id;
-            } else {
-                // Step 2b: Customer exists, use their ID
-                customerId = querySnapshot.docs[0].id;
-            }
-            
-            // Step 3: Create the deal
-            const dealData = {
-                customerId: customerId,
-                dealName: "WalkIn",
-                dealAmount: 1, // Default amount
-                representativeId: user.id,
-                description: `Deal created from walk-in lead for ${lead.firstName} ${lead.familyName}.`,
-                measurementRequired: 'No' as const,
-                advanceForMeasurement: 'No' as const,
-            };
-            
-            const dealResult = await addDealAction(dealData);
-
-            if (dealResult.success && dealResult.deal) {
-                // Step 4: Update the lead status
-                await updateDoc(doc(db, "Walkin_Customer", lead.id), { status: "Deal Created" });
-                toast({ title: "Deal Created!", description: `Redirecting to deal #${dealResult.deal.dealId}...`});
-                // Step 5: Redirect to the product tab of the new deal
-                router.push(`/dashboard/customers/${customerId}/${dealResult.deal.id}?tab=products`);
-            } else {
-                 throw new Error(dealResult.message || "Failed to create deal.");
-            }
-
-        } catch (error: any) {
-            toast({ variant: "destructive", title: "Deal Creation Failed", description: error.message });
-        } finally {
-            setIsCreatingDeal(false);
-            setDealCreationLead(null);
-        }
-    };
-
-    const handleCloseLead = async () => {
-        if (!closingLead) return;
-        setIsClosing(true);
-        try {
-            const leadRef = doc(db, "Walkin_Customer", closingLead.id);
-            await updateDoc(leadRef, {
-                status: 'Closed',
-                action: 'Close',
-                remarks: closeRemark,
-            });
-            toast({ title: "Lead Closed", description: "The lead has been marked as closed."});
-            setClosingLead(null);
-            setCloseRemark("");
-        } catch (error) {
-            toast({ variant: "destructive", title: "Error", description: "Failed to close the lead."});
-        } finally {
-            setIsClosing(false);
-        }
-    };
-
-
-    return (
-        <>
-            <div className="p-4 md:p-6 lg:p-8 space-y-6">
-                <header className="mb-2">
-                    <h1 className="text-3xl font-bold tracking-tight">Welcome, {user?.name.split(' ')[0]}</h1>
-                    <p className="text-muted-foreground">Here are your active leads and orders.</p>
-                </header>
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <Card className="lg:col-span-2">
-                         <CardHeader>
-                            <CardTitle className="flex items-center gap-2"><Briefcase /> Active Leads</CardTitle>
-                            <CardDescription>New walk-in customers assigned to you.</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                             {loading ? (
-                                <Skeleton className="h-24 w-full" />
-                            ) : walkinLeads.length > 0 ? (
-                                <div className="space-y-3">
-                                    {walkinLeads.map(lead => (
-                                        <div key={lead.id} className="p-4 border rounded-lg flex justify-between items-center">
-                                            <div>
-                                                <p className="font-semibold">{lead.firstName} {lead.familyName}</p>
-                                                <p className="text-sm text-muted-foreground">{lead.mobile}</p>
-                                                {lead.lookingFor && <p className="text-xs text-muted-foreground pt-1">Looking for: {lead.lookingFor}</p>}
-                                            </div>
-                                            <div className="flex gap-2">
-                                                <AlertDialog>
-                                                    <AlertDialogTrigger asChild>
-                                                        <Button size="sm">Create Deal</Button>
-                                                    </AlertDialogTrigger>
-                                                    <AlertDialogContent>
-                                                        <AlertDialogHeader>
-                                                            <AlertDialogTitle>Create a New Deal?</AlertDialogTitle>
-                                                            <AlertDialogDescription>
-                                                                This will create a new deal named "WalkIn" for {lead.firstName} {lead.familyName}. Are you sure you want to proceed?
-                                                            </AlertDialogDescription>
-                                                        </AlertDialogHeader>
-                                                        <AlertDialogFooter>
-                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                            <AlertDialogAction onClick={() => handleCreateDeal(lead)} disabled={isCreatingDeal && dealCreationLead?.id === lead.id}>
-                                                                {isCreatingDeal && dealCreationLead?.id === lead.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                                                Yes, Create Deal
-                                                            </AlertDialogAction>
-                                                        </AlertDialogFooter>
-                                                    </AlertDialogContent>
-                                                </AlertDialog>
-                                                <Button size="sm" variant="outline" onClick={() => setClosingLead(lead)}>Close</Button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <p className="text-center text-sm text-muted-foreground py-10">No new leads assigned.</p>
-                            )}
-                        </CardContent>
-                    </Card>
-                    <Card className="lg:col-span-1">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2"><Bell /> Recent Notifications</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4 max-h-[75vh] overflow-y-auto">
-                            {/* Notification rendering logic can be placed here if needed */}
-                             <p className="text-center text-sm text-muted-foreground py-4">No new notifications.</p>
-                        </CardContent>
-                    </Card>
-                    <Card className="lg:col-span-3">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2"><ListOrdered /> All Orders And Updates</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4 max-h-[75vh] overflow-y-auto">
-                            {loading ? (
-                                Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)
-                            ) : orders.length > 0 ? (
-                                orders.map(order => (
-                                    <Link key={order.id} href={`/dashboard/orders/${order.id}`}>
-                                    <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
-                                        <div>
-                                            <p className="font-semibold text-primary">{order.customerName}</p>
-                                            <p className="text-sm text-muted-foreground">{order.id}</p>
-                                        </div>
-                                    <div className="text-right">
-                                            <Badge variant={isOrderWorkflowComplete(order) ? 'default' : 'secondary'} className={cn('capitalize', isOrderWorkflowComplete(order) ? 'bg-green-600' : '')}>
-                                                {getNormalizedOrderMilestones(order).slice().reverse().find(m => m.completed)?.name.toLowerCase() || 'Order Received'}
-                                            </Badge>
-                                            <p className="text-sm text-muted-foreground mt-1">{format(new Date(order.createdAt), 'dd MMM yyyy')}</p>
-                                        </div>
-                                    </div>
-                                    </Link>
-                                ))
-                            ) : (
-                                <p className="text-center text-muted-foreground py-10">No orders found.</p>
-                            )}
-                        </CardContent>
-                    </Card>
-                </div>
-            </div>
-
-            <Dialog open={!!closingLead} onOpenChange={() => setClosingLead(null)}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Close Lead: {closingLead?.firstName} {closingLead?.familyName}</DialogTitle>
-                        <DialogDescription>Please provide a reason for closing this lead.</DialogDescription>
-                    </DialogHeader>
-                    <div className="py-4">
-                        <Label htmlFor="close-remark">Remark</Label>
-                        <Textarea id="close-remark" value={closeRemark} onChange={(e) => setCloseRemark(e.target.value)} placeholder="e.g., Customer not interested, will visit later..." />
-                    </div>
-                    <DialogFooter>
-                        <Button variant="ghost" onClick={() => setClosingLead(null)}>Cancel</Button>
-                        <Button onClick={handleCloseLead} disabled={isClosing || !closeRemark}>
-                            {isClosing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            Confirm & Close
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-        </>
-    )
-}
-
 const SalesmanDashboardV2 = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -401,7 +156,7 @@ const SalesmanDashboardV2 = () => {
   const [leadSearch, setLeadSearch] = useState("");
 
   const [closingLead, setClosingLead] = useState<Walkin_Customer | null>(null);
-  const [closeRemark, setCloseRemark] = useState("");
+  const [wentBackRemark, setWentBackRemark] = useState("");
   const [isClosing, setIsClosing] = useState(false);
   const [dealCreationLead, setDealCreationLead] = useState<Walkin_Customer | null>(null);
   const [isCreatingDeal, setIsCreatingDeal] = useState(false);
@@ -535,13 +290,13 @@ const SalesmanDashboardV2 = () => {
     setIsClosing(true);
     try {
       await updateDoc(doc(db, "Walkin_Customer", closingLead.id), {
-        status: "Closed",
-        action: "Close",
-        remarks: closeRemark,
+        status: "went-back",
+        action: "went-back",
+        remarks: wentBackRemark,
       });
-      toast({ title: "Lead Closed", description: "Lead has been marked as closed." });
+      toast({ title: "Lead moved", description: "Lead has been marked as moved." });
       setClosingLead(null);
-      setCloseRemark("");
+      setWentBackRemark("");
     } catch {
       toast({ variant: "destructive", title: "Error", description: "Failed to close lead." });
     } finally {
@@ -814,11 +569,11 @@ const SalesmanDashboardV2 = () => {
           </DialogHeader>
           <div className="py-4">
             <Label htmlFor="close-remark">Remark</Label>
-            <Textarea id="close-remark" value={closeRemark} onChange={(event) => setCloseRemark(event.target.value)} placeholder="e.g., customer postponed, not interested, duplicate..." />
+            <Textarea id="close-remark" value={wentBackRemark} onChange={(event) => setWentBackRemark(event.target.value)} placeholder="e.g., customer postponed, not interested, duplicate..." />
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setClosingLead(null)}>Cancel</Button>
-            <Button onClick={() => void handleCloseLead()} disabled={isClosing || !closeRemark}>
+            <Button onClick={() => void handleCloseLead()} disabled={isClosing || !wentBackRemark}>
               {isClosing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Confirm And Close
             </Button>

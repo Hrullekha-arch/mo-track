@@ -823,6 +823,27 @@ export interface Customer {
     savedAddresses?: Array<{ address: string; landmark?: string }>;
 }
 
+export interface BlindDetailEntry {
+    id: string;
+    blindType?: "Roman Blind" | "Roller Blind" | "Normal Blind";
+    shadeNo?: string;
+    width?: string;
+    widthUnit?: "inch" | "mm";
+    height?: string;
+    heightUnit?: "inch" | "mm";
+    operating?: "Manual" | "motorized";
+    usesType?: "Direct Fix" | "Head Rail" | "Plain Cassette" | "Decorative Cassette" | "One Touch Up" | "Moto Down";
+    motorType?: "Simotic or Ebony (RTS | WT)" | "Wire Free (RTS)";
+    remoteType?: string;
+    control?: "LHT" | "RHT";
+    bracket?: "Wall" | "Celling";
+    bottomChannel?: "Square" | "Rounded" | "Fabric Covered";
+    bottomRailColor?: string;
+    otherBottomRailColor?: string;
+    locationOfBlind?: string;
+    noOfBlind?: string;
+}
+
 export interface DealProduct {
     id?: string;
     productType?: string;
@@ -858,6 +879,7 @@ export interface DealProduct {
     categoryGroup?: string;
     productId?: string;
     group?: string;
+    blindDetails?: BlindDetailEntry[];
 }
 
 export interface DealProductItem {

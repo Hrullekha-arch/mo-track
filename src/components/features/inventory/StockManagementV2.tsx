@@ -39,7 +39,12 @@ import {
   Tags,
   Building2,
   Ruler,
-  ArrowUpCircle
+  ArrowUpCircle,
+  Trash,
+  InfoIcon,
+  CircleAlert,
+  SquarePen,
+  X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -48,6 +53,10 @@ import {
   resolveStockCategory,
   resolveStockCategoryGroup,
 } from "@/lib/stock-category-rules";
+import { db } from "@/lib/firebase";
+import { deleteDoc, doc } from "firebase/firestore";
+import { useRouter } from "next/navigation";
+
 
 // ==================== HELPERS ====================
 const toNumber = (value: any) => {
@@ -95,6 +104,8 @@ export function StockManagementV2() {
 
   // ========== STATE: Add Length Dialog ==========
   const [isAddLengthOpen, setIsAddLengthOpen] = React.useState(false);
+  const [isEditName, setIsEditName] = React.useState(false);
+  const [deleteStockOpen, setDeleteStockOpen] = React.useState(false);
   const [addLengthQty, setAddLengthQty] = React.useState("");
   const [addLengthUnit, setAddLengthUnit] = React.useState("MTR");
   const [addBatchNo, setAddBatchNo] = React.useState("");
@@ -140,6 +151,8 @@ export function StockManagementV2() {
     rack: "",
     isActive: true,
   });
+  
+const router = useRouter();
 
   // ========== LOAD OPTIONS FOR CREATE FORM ==========
   React.useEffect(() => {
@@ -255,6 +268,7 @@ React.useEffect(() => {
       return;
     }
     toast({ title: "✅ Updated", description: result.message });
+    setIsEditName(false);
   };
 
   const handleAddLength = async () => {
@@ -298,6 +312,23 @@ React.useEffect(() => {
     } catch (error) {
       console.error(error);
       toast({ variant: "destructive", title: "Add length failed" });
+    } finally {
+      setIsAdding(false);
+    }
+  };
+  
+  const handledeleteStock = async (docId: string) => {
+    setIsAdding(true);
+    try {
+      
+      const docRef = doc(db, "stocks", docId);
+      await deleteDoc(docRef);
+      toast({ title: "✅ Stock Deleted", description: `Stock deleted successfully` });
+      router.refresh();
+      setIsAddLengthOpen(false);
+    } catch (error) {
+      console.error(error);
+      toast({ variant: "destructive", title: "stock delete Failed" });
     } finally {
       setIsAdding(false);
     }
@@ -550,16 +581,39 @@ React.useEffect(() => {
                           {selected.isActive ? "Active" : "Inactive"}
                         </Badge>
                       </div>
-                      <h2 className="text-2xl font-bold">{selected.name || selected.itemName}</h2>
+                      <div className="flex gap-2 items-center" >
+                      <h2 className="text-2xl font-bold">{selected.name || selected.itemName} </h2> 
+                      { isEditName ?<Button variant={"ghost"}  onClick={() => setIsEditName(false)}>
+                                       <X className="h-8 w-8" />
+                                    </Button>
+                                  :<Button variant={"ghost"} onClick={() => setIsEditName(true)}>
+                                       <SquarePen className="h-8 w-8" />
+                                    </Button>
+                      }
+                      </div>
+                      {isEditName&&(
+                        <Input
+                              value={selected.name || selected.itemName}
+                              onChange={(e) => setSelected((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+                            />
+                      )}
                       <p className="text-sm text-muted-foreground">
                         {selected.category} • {selected.categoryGroup} • {selected.unit}
                       </p>
                     </div>
                     <div className="flex gap-2">
+                    <div className="flex gap-2">
                       <Button onClick={() => setIsAddLengthOpen(true)} className="gap-2">
                         <ArrowUpCircle className="h-4 w-4" />
                         Add Stock
                       </Button>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant={"destructive"} onClick={() => setDeleteStockOpen(true)} className="gap-2">
+                        <Trash className="h-4 w-4" />
+                        Delete Stock
+                      </Button>
+                    </div>
                     </div>
                   </div>
                 </CardContent>
@@ -1189,6 +1243,29 @@ React.useEffect(() => {
               Cancel
             </Button>
             <Button onClick={handleAddLength} disabled={isAdding} className="gap-2">
+              {isAdding && <Loader2 className="h-4 w-4 animate-spin" />}
+              {isAdding ? "Adding..." : "Add Stock"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* ==================== Delete stock DIALOG ==================== */}
+          <Dialog open={deleteStockOpen} onOpenChange={setDeleteStockOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CircleAlert className="h-5 w-5" />
+              Delete Stock 
+            </DialogTitle>
+            <DialogDescription>
+              This will Delete <span className="font-semibold">{selected?.bcn}</span> from Server and data base!!
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddLengthOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={()=>handledeleteStock(selected?.id)} disabled={isAdding} className="gap-2">
               {isAdding && <Loader2 className="h-4 w-4 animate-spin" />}
               {isAdding ? "Adding..." : "Add Stock"}
             </Button>

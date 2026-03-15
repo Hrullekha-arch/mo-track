@@ -63,26 +63,18 @@ function toISTMidnight(date: Date | string): Date {
 
 export async function getFollowUpItems(): Promise<PoFollowUpItem[]> {
   try {
-    console.log("========== FOLLOW UP FETCH START ==========");
 
     const todayIST = toISTMidnight(new Date());
-
-    console.log("Today IST:", todayIST.toDateString());
 
     const poRequestsSnapshot = await adminDb
       .collection("purchaseRequests")
       .where("status", "in", ["PO Generated", "Completed"])
       .get();
 
-    console.log("Total purchaseRequests fetched:", poRequestsSnapshot.size);
-
     const followUpItems: PoFollowUpItem[] = [];
 
     poRequestsSnapshot.forEach((doc: any) => {
       const request = { id: doc.id, ...doc.data() } as PurchaseRequest;
-
-      console.log("------------------------------------------------");
-      console.log("Processing Request:", request.id);
 
       if (!request.promiseDeliveryDate) {
         console.log("❌ No promiseDeliveryDate");
@@ -94,26 +86,16 @@ export async function getFollowUpItems(): Promise<PoFollowUpItem[]> {
       const followUpDate = new Date(promiseDate);
       followUpDate.setDate(followUpDate.getDate() - 2);
 
-      console.log("Promise Date IST:", promiseDate.toDateString());
-      console.log("FollowUp Date IST:", followUpDate.toDateString());
-
       if (todayIST < followUpDate) {
         console.log("⏳ Follow-up not reached yet");
         return;
       }
-
-      console.log("✅ Follow-up condition passed");
-
       const fabricDetails = request.fabricDetails || [];
 
-      console.log("Fabric items:", fabricDetails.length);
 
       const itemsWithPo = fabricDetails.filter((item: any) => item.poNumber);
 
-      console.log("Items with PO:", itemsWithPo.length);
-
       itemsWithPo.forEach((item: any) => {
-        console.log("Checking:", item.fabricName);
 
         const milestones = request.poMilestones || [];
         const itemName = (item.fabricName || "").trim();
@@ -126,8 +108,6 @@ export async function getFollowUpItems(): Promise<PoFollowUpItem[]> {
           console.log("⚠️ Already followed up:", itemName);
           return;
         }
-
-        console.log("✅ Adding item:", itemName);
 
         followUpItems.push({
           id: `${request.id}-${itemName}`,
@@ -148,9 +128,6 @@ export async function getFollowUpItems(): Promise<PoFollowUpItem[]> {
         });
       });
     });
-
-    console.log("========== FOLLOW UP RESULT ==========");
-    console.log("Total Items:", followUpItems.length);
 
     return JSON.parse(JSON.stringify(followUpItems));
   } catch (error) {

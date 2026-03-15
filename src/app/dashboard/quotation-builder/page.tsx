@@ -13,6 +13,7 @@ import {
   getInstantQuotationBootstrapAction,
   InstantCustomerOption,
   InstantItemInput,
+  InstantVasInput,
   searchInstantCustomersAction,
 } from "./actions";
 
@@ -55,6 +56,15 @@ type DraftItem = {
   stockId?: string;
 };
 
+type DraftVas = {
+  vasName: string;
+  quantity: string;
+  rate: string;
+  gstPercent: string;
+  room: string;
+  hsnCode: string;
+};
+
 const defaultDraftCustomer: DraftCustomer = {
   name: "",
   mobile: "",
@@ -74,6 +84,15 @@ const defaultDraftItem: DraftItem = {
   room: "",
   remark: "",
   stockId: undefined,
+};
+
+const defaultDraftVas: DraftVas = {
+  vasName: "",
+  quantity: "1",
+  rate: "",
+  gstPercent: "0",
+  room: "",
+  hsnCode: "",
 };
 
 const toNumber = (value: unknown, fallback = 0) => {
@@ -104,6 +123,12 @@ const lineAmount = (item: InstantItemInput) => {
   const gross = qty * rate;
   const afterDiscount = gross * (1 - discountPercent / 100);
   return gstMode === "EXCL" ? afterDiscount * (1 + gstPercent / 100) : afterDiscount;
+};
+
+const vasLineAmount = (vas: InstantVasInput) => {
+  const qty = Math.max(0, toNumber(vas.quantity));
+  const rate = Math.max(0, toNumber(vas.rate));
+  return qty * rate;
 };
 
 export default function QuotationBuilderPage() {
@@ -162,14 +187,21 @@ const searchParams = useSearchParams();
 
   const [items, setItems] = useState<InstantItemInput[]>([]);
   const [draftItem, setDraftItem] = useState<DraftItem>(defaultDraftItem);
+  const [vasItems, setVasItems] = useState<InstantVasInput[]>([]);
+  const [draftVas, setDraftVas] = useState<DraftVas>(defaultDraftVas);
   const [stockSuggestions, setStockSuggestions] = useState<Stock[]>([]);
   const [stockSuggestionOpen, setStockSuggestionOpen] = useState(false);
   const [isSearchingStock, setIsSearchingStock] = useState(false);
 
-  const totalAmount = useMemo(
+  const goodsTotalAmount = useMemo(
     () => items.reduce((sum, item) => sum + lineAmount(item), 0),
     [items]
   );
+  const vasTotalAmount = useMemo(
+    () => vasItems.reduce((sum, vas) => sum + vasLineAmount(vas), 0),
+    [vasItems]
+  );
+  const totalAmount = goodsTotalAmount + vasTotalAmount;
 
   useEffect(() => {
     let active = true;
@@ -273,10 +305,20 @@ const searchParams = useSearchParams();
         gstMode: "INCL",
       }))
     );
+    setVasItems((prev) =>
+      prev.map((vas) => ({
+        ...vas,
+        gstPercent: 0,
+      }))
+    );
     setDraftItem((prev) => ({
       ...prev,
       gstPercent: "0",
       gstMode: "INCL",
+    }));
+    setDraftVas((prev) => ({
+      ...prev,
+      gstPercent: "0",
     }));
   }, [isCashsale]);
 
@@ -383,6 +425,37 @@ const searchParams = useSearchParams();
     setItems((prev) => prev.filter((_, idx) => idx !== index));
   };
 
+  const handleAddVas = () => {
+    const vasName = draftVas.vasName.trim();
+    const quantity = Math.max(0, toNumber(draftVas.quantity));
+    const rate = Math.max(0, toNumber(draftVas.rate));
+
+    if (!vasName || quantity <= 0) {
+      toast({
+        variant: "destructive",
+        title: "Invalid VAS",
+        description: "VAS name and quantity are required.",
+      });
+      return;
+    }
+
+    const row: InstantVasInput = {
+      vasName,
+      quantity,
+      rate,
+      gstPercent: isCashsale ? 0 : Math.max(0, toNumber(draftVas.gstPercent, 0)),
+      room: draftVas.room || undefined,
+      hsnCode: draftVas.hsnCode.trim() || undefined,
+    };
+
+    setVasItems((prev) => [...prev, row]);
+    setDraftVas(defaultDraftVas);
+  };
+
+  const handleRemoveVas = (index: number) => {
+    setVasItems((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
   const handleSubmit = async () => {
     if (!user?.id || !user?.name) {
       toast({
@@ -416,11 +489,11 @@ const searchParams = useSearchParams();
       });
       return;
     }
-    if (items.length === 0) {
+    if (items.length === 0 && vasItems.length === 0) {
       toast({
         variant: "destructive",
-        title: "Items missing",
-        description: "Add at least one item.",
+        title: "Lines missing",
+        description: "Add at least one item or one VAS line.",
       });
       return;
     }
@@ -431,6 +504,10 @@ const searchParams = useSearchParams();
         dealName === "Cashsale"
           ? items.map((item) => ({ ...item, gstPercent: 0, gstMode: "INCL" as const }))
           : items;
+      const normalizedVas =
+        dealName === "Cashsale"
+          ? vasItems.map((vas) => ({ ...vas, gstPercent: 0 }))
+          : vasItems;
 
       const result = await createInstantQuotationOrderAction({
         customerId: selectedCustomer.id,
@@ -444,6 +521,7 @@ const searchParams = useSearchParams();
         store,
         orderType: dealName === "Cashsale" ? "delivery" : orderType,
         items: normalizedItems,
+        vasDetails: normalizedVas,
         creator: {
           id: user.id,
           name: user.name,
@@ -472,6 +550,7 @@ const searchParams = useSearchParams();
       const boot = await getInstantQuotationBootstrapAction();
       setNextDealIdPreview(boot.nextDealId);
       setItems([]);
+      setVasItems([]);
     } finally {
       setIsSubmitting(false);
     }
@@ -671,7 +750,7 @@ const searchParams = useSearchParams();
                     <TableCell colSpan={isCashsale ? 5 : 7} className="text-right font-semibold">
                       Total
                     </TableCell>
-                    <TableCell className="font-semibold">{totalAmount.toFixed(2)}</TableCell>
+                    <TableCell className="font-semibold">{goodsTotalAmount.toFixed(2)}</TableCell>
                     <TableCell colSpan={2} />
                   </TableRow>
                 </TableBody>
@@ -834,11 +913,149 @@ const searchParams = useSearchParams();
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">VAS Details</CardTitle>
+          <CardDescription>These lines are included in quotation and pushed to stock verification/purchase flow.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {vasItems.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No VAS added yet.</p>
+          ) : (
+            <div className="border rounded-md overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>#</TableHead>
+                    <TableHead>VAS</TableHead>
+                    <TableHead>Qty</TableHead>
+                    <TableHead>Rate</TableHead>
+                    {!isCashsale && <TableHead>GST %</TableHead>}
+                    <TableHead>Room</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead className="text-right">Delete</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {vasItems.map((vas, index) => (
+                    <TableRow key={`${vas.vasName}-${index}`}>
+                      <TableCell>{index + 1}</TableCell>
+                      <TableCell>
+                        <p className="font-medium">{vas.vasName}</p>
+                        <p className="text-xs text-muted-foreground">{vas.hsnCode || "-"}</p>
+                      </TableCell>
+                      <TableCell>{vas.quantity}</TableCell>
+                      <TableCell>{vas.rate}</TableCell>
+                      {!isCashsale && <TableCell>{vas.gstPercent || 0}</TableCell>}
+                      <TableCell>{vas.room || "-"}</TableCell>
+                      <TableCell>{vasLineAmount(vas).toFixed(2)}</TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="icon" onClick={() => handleRemoveVas(index)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow>
+                    <TableCell colSpan={isCashsale ? 5 : 6} className="text-right font-semibold">
+                      VAS Total
+                    </TableCell>
+                    <TableCell className="font-semibold">{vasTotalAmount.toFixed(2)}</TableCell>
+                    <TableCell />
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">Add VAS</CardTitle>
+          <CardDescription>Add value-added service/material lines.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
+            <div className="space-y-1 lg:col-span-2">
+              <Label>VAS Name</Label>
+              <Input
+                placeholder="Enter VAS name"
+                value={draftVas.vasName}
+                onChange={(event) => setDraftVas((prev) => ({ ...prev, vasName: event.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Quantity</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={draftVas.quantity}
+                onChange={(event) => setDraftVas((prev) => ({ ...prev, quantity: event.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Rate</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={draftVas.rate}
+                onChange={(event) => setDraftVas((prev) => ({ ...prev, rate: event.target.value }))}
+              />
+            </div>
+
+            {!isCashsale && (
+              <div className="space-y-1">
+                <Label>GST %</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={draftVas.gstPercent}
+                  onChange={(event) => setDraftVas((prev) => ({ ...prev, gstPercent: event.target.value }))}
+                />
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <Label>Room</Label>
+              <Select value={draftVas.room} onValueChange={(value) => setDraftVas((prev) => ({ ...prev, room: value }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="--SELECT--" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roomOptions.map((room) => (
+                    <SelectItem key={room.value} value={room.value}>
+                      {room.label as string}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label>HSN (Optional)</Label>
+              <Input
+                placeholder="HSN code"
+                value={draftVas.hsnCode}
+                onChange={(event) => setDraftVas((prev) => ({ ...prev, hsnCode: event.target.value }))}
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button type="button" variant="secondary" onClick={handleAddVas}>
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Add VAS
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
       <div className="flex items-center justify-between gap-3">
         <div className="text-sm text-muted-foreground">
           {selectedSalesman ? `Salesman: ${selectedSalesman.name}` : "Select salesman"} |{" "}
-          {selectedCustomer ? `Customer: ${selectedCustomer.name}` : "Select customer"} | Total: ₹
-          {totalAmount.toFixed(2)}
+          {selectedCustomer ? `Customer: ${selectedCustomer.name}` : "Select customer"} | Goods: Rs {goodsTotalAmount.toFixed(2)} | VAS: Rs {vasTotalAmount.toFixed(2)} | Total: Rs {totalAmount.toFixed(2)}
         </div>
         <Button onClick={handleSubmit} disabled={isBootLoading || isSubmitting}>
           {(isBootLoading || isSubmitting) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

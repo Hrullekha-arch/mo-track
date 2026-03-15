@@ -33,6 +33,15 @@ export type InstantItemInput = {
   stockId?: string;
 };
 
+export type InstantVasInput = {
+  vasName: string;
+  quantity: number;
+  rate: number;
+  gstPercent?: number;
+  room?: string;
+  hsnCode?: string;
+};
+
 type CreateInstantQuotationInput = {
   customerId?: string;
   customerName?: string;
@@ -45,6 +54,7 @@ type CreateInstantQuotationInput = {
   store: string;
   orderType?: OrderType;
   items: InstantItemInput[];
+  vasDetails?: InstantVasInput[];
   creator: {
     id: string;
     name: string;
@@ -87,6 +97,12 @@ const computeLineTotal = (item: InstantItemInput) => {
   }
 
   return afterDiscount;
+};
+
+const computeVasTotal = (vas: InstantVasInput) => {
+  const qty = Math.max(0, toNumber(vas.quantity));
+  const rate = Math.max(0, toNumber(vas.rate));
+  return qty * rate;
 };
 
 async function allocateInstantDealId(): Promise<string> {
@@ -246,13 +262,13 @@ export async function createInstantQuotationOrderAction(
     if (!payload?.store) {
       return { success: false, message: 'Store is required.' };
     }
-    if (!Array.isArray(payload?.items) || payload.items.length === 0) {
-      return { success: false, message: 'Add at least one item.' };
+    if ((!Array.isArray(payload?.items) || payload.items.length === 0) && (!Array.isArray(payload?.vasDetails) || payload.vasDetails.length === 0)) {
+      return { success: false, message: 'Add at least one item or one VAS line.' };
     }
 
     const isCashsale = payload.dealName === 'Cashsale';
 
-    const cleanItems = payload.items
+    const cleanItems: InstantItemInput[] = payload.items
       .map((item) => ({
         ...item,
         bcn: String(item?.bcn || '').trim(),
@@ -261,11 +277,23 @@ export async function createInstantQuotationOrderAction(
         rate: Math.max(0, toNumber(item?.rate)),
         discountPercent: Math.max(0, Math.min(100, toNumber(item?.discountPercent))),
         gstPercent: isCashsale ? 0 : Math.max(0, toNumber(item?.gstPercent ?? 5)),
-        gstMode: isCashsale ? 'INCL' : item?.gstMode === 'EXCL' ? 'EXCL' : 'INCL',
+        gstMode: (isCashsale ? 'INCL' : item?.gstMode === 'EXCL' ? 'EXCL' : 'INCL') as 'EXCL' | 'INCL',
       }))
       .filter((item) => item.bcn && item.description && item.quantity > 0);
 
-    if (!cleanItems.length) {
+    const cleanVas = (Array.isArray(payload.vasDetails) ? payload.vasDetails : [])
+      .map((vas) => ({
+        ...vas,
+        vasName: String(vas?.vasName || '').trim(),
+        quantity: Math.max(0, toNumber(vas?.quantity)),
+        rate: Math.max(0, toNumber(vas?.rate)),
+        gstPercent: isCashsale ? 0 : Math.max(0, toNumber(vas?.gstPercent ?? 0)),
+        room: String(vas?.room || '').trim() || undefined,
+        hsnCode: String(vas?.hsnCode || '').trim() || undefined,
+      }))
+      .filter((vas) => vas.vasName && vas.quantity > 0);
+
+    if (!cleanItems.length && !cleanVas.length) {
       return { success: false, message: 'No valid line items were provided.' };
     }
 
@@ -331,7 +359,9 @@ export async function createInstantQuotationOrderAction(
     const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealDocId);
     const o2dRef = adminDb.collection('o2d').doc(dealDocId);
 
-    const expectedValue = cleanItems.reduce((sum, item) => sum + computeLineTotal(item), 0);
+    const goodsExpectedValue = cleanItems.reduce((sum, item) => sum + computeLineTotal(item), 0);
+    const vasExpectedValue = cleanVas.reduce((sum, vas) => sum + computeVasTotal(vas), 0);
+    const expectedValue = goodsExpectedValue + vasExpectedValue;
     const dealTitle = payload.dealName;
 
     const dealPayload: any = {
@@ -402,6 +432,15 @@ export async function createInstantQuotationOrderAction(
       gstMode: item.gstMode ?? 'INCL',
     }));
 
+    const quotationVasDetails = cleanVas.map((vas) => ({
+      vasName: vas.vasName,
+      rate: String(vas.rate),
+      quantity: String(vas.quantity),
+      room: vas.room || '',
+      gstPercent: vas.gstPercent ?? 0,
+      hsnCode: vas.hsnCode || '',
+    }));
+
     const quotationPayload: any = {
       company: 'MO DESIGNS PRIVATE LIMITED',
       store: payload.store,
@@ -412,7 +451,7 @@ export async function createInstantQuotationOrderAction(
       dealName: dealTitle,
       selectedCpdId: '',
       items: quotationItems,
-      vasDetails: [],
+      vasDetails: quotationVasDetails,
       sendEmail: false,
       sendSms: false,
       representativeId: payload.salesmanId,
@@ -445,22 +484,23 @@ export async function createInstantQuotationOrderAction(
     if (!orderResult.success || !orderResult.order) {
       return { success: false, message: orderResult.message || 'Failed to create order.' };
     }
+    const createdOrder = orderResult.order;
 
     const invoiceRequired = payload.dealName !== 'Cashsale';
-    const orderRef = adminDb.collection('orders').doc(orderResult.order.id);
+    const orderRef = adminDb.collection('orders').doc(createdOrder.id);
     await orderRef.set(
       {
         status: 'Approved',
         approvedAt: nowIso,
         orderType: resolvedOrderType,
         invoicing: {
-          ...(orderResult.order.invoicing || {}),
+          ...(createdOrder.invoicing || {}),
           invoiceRequired,
           canCreateGoodsInvoice: invoiceRequired
-            ? Boolean(orderResult.order.invoicing?.canCreateGoodsInvoice ?? true)
+            ? Boolean(createdOrder.invoicing?.canCreateGoodsInvoice ?? true)
             : false,
           canCreateVasInvoice: invoiceRequired
-            ? Boolean(orderResult.order.invoicing?.canCreateVasInvoice ?? false)
+            ? Boolean(createdOrder.invoicing?.canCreateVasInvoice ?? false)
             : false,
         },
         instantQuotationMeta: {
@@ -487,6 +527,69 @@ export async function createInstantQuotationOrderAction(
       { merge: true }
     );
 
+    const approvedStockLines = [
+      ...cleanItems.map((item) => ({
+        fabricName: item.bcn,
+        quantity: String(item.quantity),
+        itemDetail: {
+          fabricName: item.bcn,
+          quantity: String(item.quantity),
+          status: 'pending for po',
+          rate: item.rate,
+          discountPercent: item.discountPercent || 0,
+          unit: 'Mtr',
+          type: 'fabric',
+          room: item.room || undefined,
+          hsnCode: undefined,
+        },
+      })),
+      ...cleanVas.map((vas) => ({
+        fabricName: vas.vasName,
+        quantity: String(vas.quantity),
+        itemDetail: {
+          fabricName: vas.vasName,
+          quantity: String(vas.quantity),
+          status: 'pending for po',
+          rate: vas.rate,
+          discountPercent: 0,
+          unit: 'Pcs',
+          type: 'vas',
+          room: vas.room || undefined,
+          hsnCode: vas.hsnCode || undefined,
+        },
+      })),
+    ].filter((line) => line.fabricName && Number(line.quantity) > 0);
+
+    if (approvedStockLines.length > 0) {
+      const existingApprovedStock = await adminDb
+        .collection('approvedStock')
+        .where('orderId', '==', createdOrder.id)
+        .limit(1)
+        .get();
+
+      if (existingApprovedStock.empty) {
+        const approvedStockBatch = adminDb.batch();
+        const approvedStockRef = adminDb.collection('approvedStock');
+        approvedStockLines.forEach((line) => {
+          const lineRef = approvedStockRef.doc();
+          approvedStockBatch.set(lineRef, {
+            orderId: createdOrder.id,
+            crmOrderNo: createdOrder.crmOrderNo || createdOrder.quotationNo || '',
+            dealId: createdOrder.dealId || dealDocId,
+            customerName,
+            salesPerson: salesmanName,
+            fabricName: line.fabricName,
+            quantity: line.quantity,
+            status: 'Pending Stock Verification',
+            createdAt: nowIso,
+            createdBy: payload.creator,
+            itemDetail: line.itemDetail,
+          });
+        });
+        await approvedStockBatch.commit();
+      }
+    }
+
     const instantDocId = buildInstantCustomerDocId(customerName, customerMobile);
     const instantRef = adminDb.collection('instantQuoation').doc(instantDocId);
     await instantRef.set(
@@ -500,14 +603,14 @@ export async function createInstantQuotationOrderAction(
         pincode: customerPincode || null,
         latestDealId: dealDocId,
         latestQuotationNo: quotationResult.quotation.quotationNo,
-        latestOrderId: orderResult.order.id,
+        latestOrderId: createdOrder.id,
         lastUpdatedAt: nowIso,
         createdAt: nowIso,
       },
       { merge: true }
     );
 
-    await instantRef.collection('entries').doc(orderResult.order.id).set({
+    await instantRef.collection('entries').doc(createdOrder.id).set({
       createdAt: nowIso,
       createdBy: payload.creator,
       customerId,
@@ -520,25 +623,28 @@ export async function createInstantQuotationOrderAction(
         name: salesmanName,
       },
       store: payload.store,
-      orderId: orderResult.order.id,
+      orderId: createdOrder.id,
       orderType: resolvedOrderType,
       invoiceRequired,
       quotationId: quotationResult.quotation.id,
       quotationNo: quotationResult.quotation.quotationNo,
       items: cleanItems,
+      vasDetails: cleanVas,
+      goodsExpectedValue,
+      vasExpectedValue,
       expectedValue,
     });
 
     return {
       success: true,
       message: invoiceRequired
-        ? `Instant quotation created. Order ${orderResult.order.id} is ready for stock/purchase flow.`
-        : `Cash sale order ${orderResult.order.id} created with invoice bypass.`,
+        ? `Instant quotation created. Order ${createdOrder.id} is ready for stock/purchase flow.`
+        : `Cash sale order ${createdOrder.id} created with invoice bypass.`,
       customerId,
       dealId: dealDocId,
       quotationId: quotationResult.quotation.id,
       quotationNo: quotationResult.quotation.quotationNo,
-      orderId: orderResult.order.id,
+      orderId: createdOrder.id,
     };
   } catch (error: any) {
     console.error('Error creating instant quotation order:', error);
