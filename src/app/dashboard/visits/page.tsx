@@ -1077,7 +1077,7 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign, onShare, onViewDet
 
                     {/* Actions */}
                     <TableCell className="text-right">
-                      <DropdownMenu>
+                      <DropdownMenu modal={false}>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" className="h-8 w-8 p-0 rounded-lg hover:bg-slate-100">
                             <MoreHorizontal className="h-4 w-4 text-slate-500" />
@@ -1087,7 +1087,12 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign, onShare, onViewDet
                           <DropdownMenuItem onClick={() => onViewDetails(visit)} className="rounded-lg text-sm">
                             <Eye className="mr-2 h-3.5 w-3.5" /> View Details
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => onAssign(visit)} className="rounded-lg text-sm">
+                          <DropdownMenuItem
+                            className="rounded-lg text-sm"
+                            onSelect={() => {
+                              window.setTimeout(() => onAssign(visit), 0);
+                            }}
+                          >
                             <UserCheck className="mr-2 h-3.5 w-3.5" /> {visit.assignedTo ? "Re-assign" : "Assign"}
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => onEdit(visit)} className="rounded-lg text-sm">
