@@ -363,25 +363,37 @@ function CreatePoDialog({
                     <FormMessage />
                   </FormItem>
                 )} />
-                <FormField control={control} name="promiseDeliveryDate" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Delivery Date *</FormLabel>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button variant="outline" className={cn("w-full h-9 pl-3 text-left font-normal text-sm", !field.value && "text-muted-foreground")}>
-                            {field.value ? format(field.value, "dd MMM yyyy") : "Pick date"}
-                            <CalendarIcon className="ml-auto h-3.5 w-3.5 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar mode="single" selected={field.value} onSelect={field.onChange} disabled={(date) => date < new Date()} initialFocus />
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                )} />
+                <FormField
+                  control={control}
+                  name="promiseDeliveryDate"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col gap-1">
+                      <FormLabel className="text-sm font-medium text-gray-700">
+                        Delivery Date *
+                      </FormLabel>
+
+                      <input
+                        type="date"
+                        min={new Date().toISOString().split("T")[0]}
+                        value={
+                          field.value
+                            ? new Date(field.value).toISOString().split("T")[0]
+                            : ""
+                        }
+                        onChange={(e) =>
+                          field.onChange(e.target.value ? new Date(e.target.value) : null)
+                        }
+                        className="w-full h-9 px-3 rounded-md border border-gray-300 bg-white text-sm text-gray-900
+                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                          disabled:opacity-50 disabled:cursor-not-allowed
+                          [&::-webkit-calendar-picker-indicator]:opacity-50
+                          [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                      />
+
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
 
               <Separator />
