@@ -413,6 +413,9 @@ function Combobox({
     showClear && !disabled && (Boolean(selectedValue) || Boolean(inputValue))
 
   const resolvedPlaceholder = searchPlaceholder || placeholder
+  const resultLabel = isSearching
+    ? "Searching..."
+    : `${filteredOptions.length} option${filteredOptions.length === 1 ? "" : "s"}`
 
   return (
     <PopoverPrimitive.Root
@@ -424,13 +427,16 @@ function Combobox({
         <div ref={anchorRef} className="w-full">
           <InputGroup
             className={cn(
-              "w-full border-input/70 bg-background/95 shadow-xs transition-[border,box-shadow] duration-150",
-              open && "border-primary/50 ring-2 ring-primary/15",
+              "w-full border-input/70 bg-background/95 shadow-xs transition-all duration-200",
+              open && "border-primary/60 bg-background shadow-sm ring-2 ring-primary/15",
               className
             )}
           >
-            <InputGroupAddon align="inline-start" className="text-muted-foreground">
-              <SearchIcon className="size-4" />
+            <InputGroupAddon
+              align="inline-start"
+              className="text-muted-foreground transition-colors duration-150"
+            >
+              <SearchIcon className={cn("size-4", open && "text-primary")} />
             </InputGroupAddon>
             <InputGroupInput
               id={id}
@@ -452,7 +458,10 @@ function Combobox({
               }}
               onChange={handleInputChange}
               onKeyDown={handleInputKeyDown}
-              className={cn("h-9", inputClassName)}
+              className={cn(
+                "h-9 font-medium placeholder:font-normal",
+                inputClassName
+              )}
             />
             <InputGroupAddon align="inline-end" className="gap-1">
               {showClearButton && (
@@ -462,6 +471,7 @@ function Combobox({
                   variant="ghost"
                   onClick={handleClear}
                   aria-label="Clear selection"
+                  className="text-muted-foreground hover:text-foreground"
                 >
                   <XIcon className="size-3.5" />
                 </InputGroupButton>
@@ -473,6 +483,10 @@ function Combobox({
                 disabled={disabled}
                 onClick={handleToggleOpen}
                 aria-label={open ? "Close options" : "Open options"}
+                className={cn(
+                  "text-muted-foreground hover:text-foreground",
+                  open && "text-primary"
+                )}
               >
                 <ChevronDownIcon
                   className={cn(
@@ -497,22 +511,34 @@ function Combobox({
           onOpenAutoFocus={(event) => event.preventDefault()}
           onCloseAutoFocus={(event) => event.preventDefault()}
           className={cn(
-            "z-50 overflow-hidden rounded-xl border border-border/70 bg-popover text-popover-foreground shadow-xl outline-none",
-            "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+            "z-50 overflow-hidden rounded-2xl border border-border/70 bg-popover/98 text-popover-foreground shadow-2xl outline-none backdrop-blur-sm",
+            "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=open]:slide-in-from-top-1",
             contentClassName
           )}
           style={dropdownWidth ? { width: dropdownWidth } : undefined}
         >
-          <div id={listId} role="listbox" className="max-h-72 overflow-y-auto p-1">
+          <div className="border-b bg-muted/30 px-2.5 py-1.5">
+            <div className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="text-muted-foreground font-medium tracking-wide uppercase">
+                {resultLabel}
+              </span>
+              {selectedLabel ? (
+                <span className="max-w-[55%] truncate rounded-md bg-background px-1.5 py-0.5 text-foreground/80">
+                  {selectedLabel}
+                </span>
+              ) : null}
+            </div>
+          </div>
+          <div id={listId} role="listbox" className="max-h-72 overflow-y-auto p-1.5">
             {isSearching && (
-              <div className="text-muted-foreground flex items-center gap-2 rounded-md px-2 py-2 text-xs">
+              <div className="text-muted-foreground flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs">
                 <Loader2Icon className="size-3.5 animate-spin" />
                 Searching...
               </div>
             )}
 
             {!isSearching && filteredOptions.length === 0 && (
-              <div className="text-muted-foreground px-2 py-3 text-center text-sm">
+              <div className="text-muted-foreground px-2 py-6 text-center text-sm">
                 {emptyPlaceholder}
               </div>
             )}
@@ -537,22 +563,36 @@ function Combobox({
                   }}
                   onClick={() => chooseOption(option)}
                   className={cn(
-                    "flex w-full items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left text-sm transition-colors",
+                    "group/item flex w-full items-center justify-between gap-3 rounded-xl border border-transparent px-2.5 py-2 text-left text-sm transition-all duration-150",
                     "hover:bg-accent hover:text-accent-foreground",
-                    isHighlighted && "bg-accent text-accent-foreground",
+                    isHighlighted &&
+                      "border-primary/15 bg-accent text-accent-foreground shadow-sm",
                     isSelected && "font-medium"
                   )}
+                  style={{
+                    transitionDelay: open ? `${Math.min(index, 8) * 8}ms` : undefined,
+                  }}
                 >
                   <span className="truncate">{option.label}</span>
                   <CheckIcon
                     className={cn(
-                      "size-4 shrink-0 text-primary transition-opacity",
+                      "size-4 shrink-0 text-primary transition-opacity duration-150",
                       isSelected ? "opacity-100" : "opacity-0"
                     )}
                   />
                 </button>
               )
             })}
+          </div>
+          <div className="border-t bg-muted/20 px-2.5 py-1.5">
+            <div className="text-muted-foreground flex items-center gap-2 text-[11px]">
+              <span className="rounded border bg-background px-1">Up/Down</span>
+              <span>Navigate</span>
+              <span className="rounded border bg-background px-1">Enter</span>
+              <span>Select</span>
+              <span className="rounded border bg-background px-1">Esc</span>
+              <span>Close</span>
+            </div>
           </div>
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>

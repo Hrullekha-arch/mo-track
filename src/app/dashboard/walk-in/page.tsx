@@ -53,7 +53,8 @@ export default function WalkinDataPage() {
     const { toast } = useToast();
     const { user } = useAuth();
     const isCrm = user?.designation === 'CRM';
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user?.role === 'admin';
+    const isSalesmanager = user?.designation === 'salesmanager';
 
     useEffect(() => {
     if (!user?.id) {
@@ -65,12 +66,13 @@ export default function WalkinDataPage() {
     setLoading(true);
 
     // 🔹 build query based on role
-    const q = user.role === "admin"
+    const q = isAdmin||isSalesmanager
         ? query(collection(db, "Walkin_Customer"))
         : query(
             collection(db, "Walkin_Customer"),
             where("createdById", "==", user.id)
         );
+        console.log("User =",user.name);
 
     const unsubscribe = onSnapshot(
         q,
@@ -117,7 +119,7 @@ export default function WalkinDataPage() {
     setLoading(true);
 
     // 🔹 build query based on role
-    const q = user.role === "admin"
+    const q = isAdmin || isSalesmanager
         ? query(collection(db, "Walkin_Customer"))
         : query(
             collection(db, "Walkin_Customer"),
@@ -135,7 +137,7 @@ export default function WalkinDataPage() {
                     return bt - at;
                 });
 
-            setWalkinData(data);
+            setWentBackData(data);
             setLoading(false);
         },
         (error) => {
@@ -236,16 +238,13 @@ export default function WalkinDataPage() {
                 <p className="text-muted-foreground">Information submitted through the public walk-in form.</p>
             </header>
 
-            <Tabs defaultValue="account" className="w-[400px]">
+            <Tabs defaultValue="account">
                 <TabsList>
                     <TabsTrigger value="account">All Leads</TabsTrigger>
                     <TabsTrigger value="password">Went-Back</TabsTrigger>
                 </TabsList>
-                <TabsContent value="account">Make changes to your account here.</TabsContent>
-                <TabsContent value="password">Change your password here.</TabsContent>
-            </Tabs>
-
-            <Card>
+                <TabsContent value="account">
+            <Card >
                 <CardContent className="pt-6">
                     <div className="border rounded-md">
                         <Table>
@@ -401,6 +400,11 @@ export default function WalkinDataPage() {
                     </div>
                 </CardContent>
             </Card>
+            </TabsContent>
+                <TabsContent value="password">Change your password here.</TabsContent>
+            </Tabs>
+
+            
         </div>
     );
 }
