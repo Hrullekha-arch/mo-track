@@ -25,7 +25,6 @@ import { useForm, useFieldArray, FormProvider } from "react-hook-form";
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
@@ -132,6 +131,10 @@ function AllocateDialog({
              toast({ variant: 'destructive', title: 'Quantity Mismatch', description: `You must allocate exactly ${requiredQty}. You have allocated ${totalAllocated}.` });
              return;
         }
+        const isConfirmed = window.confirm(
+            `Reserve ${totalAllocated.toFixed(2)} units from selected rolls? This can be reversed only before ${invoiceRequired ? "invoicing" : "dispatch"}.`
+        );
+        if (!isConfirmed) return;
 
         setIsSubmitting(true);
         try {
@@ -240,29 +243,10 @@ function AllocateDialog({
                         </div>
 
                         <DialogFooter className="pt-4">
-                             <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                    <Button type="button" disabled={isSubmitting || Math.abs(totalAllocated - requiredQty) > 0.01}>
-                                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                        Reserve Stock
-                                    </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                            This will reserve {totalAllocated.toFixed(2)} units from the selected rolls.
-                                            {invoiceRequired
-                                                ? ' This action can be reversed if the order is cancelled before invoicing.'
-                                                : ' This action can be reversed if the order is cancelled before dispatch.'}
-                                        </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                        <AlertDialogAction onClick={handleSubmit(onSubmit)}>Continue</AlertDialogAction>
-                                    </AlertDialogFooter>
-                                </AlertDialogContent>
-                            </AlertDialog>
+                            <Button type="submit" disabled={isSubmitting || Math.abs(totalAllocated - requiredQty) > 0.01}>
+                                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Reserve Stock
+                            </Button>
                         </DialogFooter>
                     </form>
                 </FormProvider>

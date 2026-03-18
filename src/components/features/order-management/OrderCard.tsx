@@ -20,7 +20,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Link from 'next/link';
 import {
@@ -52,6 +52,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentOrder, setCurrentOrder] = useState(order);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   const { user, role } = useAuth();
   const { toast } = useToast();
@@ -299,6 +300,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
         title: "Order Deleted",
         description: `${currentOrder.id} has been permanently deleted.`,
       });
+      setIsDeleteDialogOpen(false);
     } catch (error) {
       console.error("Error deleting order:", error);
       toast({
@@ -382,7 +384,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                     {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                 </Button>
                 { canDeleteOrder && (
-                <AlertDialog>
+                <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon">
@@ -391,13 +393,14 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                             <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                            <AlertDialogTrigger asChild>
-                                <DropdownMenuItem 
+                                <DropdownMenuItem
+                                onSelect={() => {
+                                  window.setTimeout(() => setIsDeleteDialogOpen(true), 0);
+                                }}
                                 className="text-destructive focus:text-destructive focus:bg-destructive/10"
                                 >
                                     <Trash2 className="mr-2 h-4 w-4" />Delete Order
                                 </DropdownMenuItem>
-                            </AlertDialogTrigger>
                         </DropdownMenuContent>
                     </DropdownMenu>
                     <AlertDialogContent>

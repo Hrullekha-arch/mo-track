@@ -982,8 +982,11 @@ export default function PendingPOPage() {
           isNewVendor={isNewVendor}
         />
         <QuotationDetailDialog
-          isOpen={isDialogLoading || !!selectedQuotation}
-          onClose={() => setSelectedQuotation(null)}
+          isOpen={!!selectedQuotation}
+          onClose={() => {
+            setSelectedQuotation(null);
+            setIsDialogLoading(false);
+          }}
           quotation={selectedQuotation}
           deal={selectedDeal}
           salesmen={salesmen}

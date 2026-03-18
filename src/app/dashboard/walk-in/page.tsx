@@ -238,12 +238,12 @@ export default function WalkinDataPage() {
                 <p className="text-muted-foreground">Information submitted through the public walk-in form.</p>
             </header>
 
-            <Tabs defaultValue="account">
+            <Tabs defaultValue="AllLeads">
                 <TabsList>
-                    <TabsTrigger value="account">All Leads</TabsTrigger>
-                    <TabsTrigger value="password">Went-Back</TabsTrigger>
+                    <TabsTrigger value="AllLeads">All Leads</TabsTrigger>
+                    <TabsTrigger value="WentBack">Went-Back</TabsTrigger>
                 </TabsList>
-                <TabsContent value="account">
+                <TabsContent value="AllLeads">
             <Card >
                 <CardContent className="pt-6">
                     <div className="border rounded-md">
@@ -401,7 +401,164 @@ export default function WalkinDataPage() {
                 </CardContent>
             </Card>
             </TabsContent>
-                <TabsContent value="password">Change your password here.</TabsContent>
+                <TabsContent value="WentBack">
+                                <Card >
+                <CardContent className="pt-6">
+                    <div className="border rounded-md">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Date</TableHead>
+                                    <TableHead>Name</TableHead>
+                                    <TableHead>Mobile</TableHead>
+                                    <TableHead>Looking For</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead>Attended By</TableHead>
+                                    <TableHead>Handed To</TableHead>
+                                    <TableHead>Action</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {loading ? (
+                                    Array.from({ length: 5 }).map((_, i) => (
+                                        <TableRow key={i}>
+                                            <TableCell colSpan={8}>
+                                                <Skeleton className="h-8 w-full" />
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                ) : walkinData.length > 0 ? (
+                                    walkinData.map(customer => (
+                                        <TableRow key={customer.id}>
+                                            <TableCell>{customer.createdAt ? format(new Date(customer.createdAt), 'PPP') : 'N/A'}</TableCell>
+                                            <TableCell>{customer.firstName} {customer.familyName}</TableCell>
+                                            <TableCell>{customer.mobile}</TableCell>
+                                            <TableCell className="max-w-xs truncate">{formatLookingFor(customer.lookingFor)}</TableCell>
+                                            <TableCell>{getStatusBadge(customer.status)}</TableCell>
+                                            <TableCell>{customer.attendedBy?.name || '-'}</TableCell>
+                                            <TableCell>{customer.salesmanName || '-'}</TableCell>
+                                            <TableCell>
+                                                {isCrm && (
+                                                    <div className="flex gap-2">
+                                                    {customer.status === 'Pending' && (
+                                                        <Button size="sm" onClick={() => handleAttend(customer.id)} disabled={updatingId === customer.id}>
+                                                            {updatingId === customer.id ? <Loader2 className="h-4 w-4 animate-spin"/> : <UserCheck className="h-4 w-4"/>}
+                                                            Attend
+                                                        </Button>
+                                                    )}
+                                                    {customer.status === 'Attended' && customer.attendedBy?.id === user.id && (
+                                                         <DropdownMenu>
+                                                            <DropdownMenuTrigger asChild>
+                                                                <Button size="sm" variant="outline" disabled={updatingId === customer.id}>
+                                                                    {updatingId === customer.id ? <Loader2 className="h-4 w-4 animate-spin"/> : <Users className="h-4 w-4"/>}
+                                                                    Handover
+                                                                </Button>
+                                                            </DropdownMenuTrigger>
+                                                            <DropdownMenuContent>
+                                                                {salesmen.map(s => (
+                                                                    <DropdownMenuItem key={s.id} onSelect={() => handleHandover(customer.id, s)}>
+                                                                        {s.name}
+                                                                    </DropdownMenuItem>
+                                                                ))}
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                    )}
+                                                    </div>
+                                                )}
+                                                {isAdmin && (
+                                                    <div className="flex gap-2">
+                                                    {customer.status === 'Pending' && (
+                                                        <Button size="sm" onClick={() => handleAttend(customer.id)} disabled={updatingId === customer.id}>
+                                                            {updatingId === customer.id ? <Loader2 className="h-4 w-4 animate-spin"/> : <UserCheck className="h-4 w-4"/>}
+                                                            Attend
+                                                        </Button>
+                                                    )}
+                                                    {customer.status === 'Attended' && customer.attendedBy?.id === user.id && (
+                                                         <DropdownMenu>
+                                                            <DropdownMenuTrigger asChild>
+                                                                <Button size="sm" variant="outline" disabled={updatingId === customer.id}>
+                                                                    {updatingId === customer.id ? <Loader2 className="h-4 w-4 animate-spin"/> : <Users className="h-4 w-4"/>}
+                                                                    Handover
+                                                                </Button>
+                                                            </DropdownMenuTrigger>
+                                                            <DropdownMenuContent>
+                                                                {salesmen.map(s => (
+                                                                    <DropdownMenuItem key={s.id} onSelect={() => handleHandover(customer.id, s)}>
+                                                                        {s.name}
+                                                                    </DropdownMenuItem>
+                                                                ))}
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                    )}
+                                                    <div className="flex gap-2">
+                                                        <AlertDialog>
+                                                        <AlertDialogTrigger asChild>
+                                                            <Button variant="outline">
+                                                                <Trash />
+                                                            </Button>
+                                                        </AlertDialogTrigger>
+                                                        <AlertDialogContent>
+                                                            <AlertDialogHeader>
+                                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                            <AlertDialogDescription>
+                                                                This action cannot be undone. This will permanently delete this customer deatails from server.
+                                                            </AlertDialogDescription>
+                                                            </AlertDialogHeader>
+                                                            <AlertDialogFooter>
+                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                            <AlertDialogAction onClick={()=>deleteWalkinCustomer(customer.id)}>Continue</AlertDialogAction>
+                                                            </AlertDialogFooter>
+                                                        </AlertDialogContent>
+                                                        </AlertDialog>
+                                                        <Drawer>
+                                                            <DrawerTrigger>
+                                                                <Button>
+                                                                    <Eye />
+                                                                    View Details
+                                                                </Button>
+                                                            </DrawerTrigger>
+                                                            <DrawerContent>
+                                                                <DrawerHeader>
+                                                                <DrawerTitle>Customer Details</DrawerTitle>
+                                                                </DrawerHeader>
+                                                                    <div>
+                                                                        <Card className="p-10">
+                                                                            <div>Date Of Creation: {customer.createdAt ? format(new Date(customer.createdAt), 'PPP') : 'N/A'}</div>
+                                                                            <div> Customer Name: {customer.firstName} {customer.familyName}</div>
+                                                                            <div>Customer phone No:{customer.mobile}</div>
+                                                                            <div className="max-w-xs truncate"> Customer looking for: {formatLookingFor(customer.lookingFor)}</div>
+                                                                            <div>Status: {getStatusBadge(customer.status)}</div>
+                                                                            <div>Attend By: {customer.attendedBy?.name || '-'}</div>
+                                                                            <div>HandOver To: {customer.salesmanName || '-'}</div>
+                                                                        </Card>
+                                                                    </div>
+                                                                <DrawerFooter>
+                                                                <Button>Submit</Button>
+                                                                <DrawerClose>
+                                                                    <Button variant="outline">Cancel</Button>
+                                                                </DrawerClose>
+                                                                </DrawerFooter>
+                                                            </DrawerContent>
+                                                         </Drawer>
+                                                    </div>
+                                                    </div>
+                                                )}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                ) : (
+                                    <TableRow>
+                                        <TableCell colSpan={8} className="h-24 text-center">
+                                            No walk-in data found.
+                                        </TableCell>
+                                    </TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </CardContent>
+            </Card>
+                </TabsContent>
             </Tabs>
 
             

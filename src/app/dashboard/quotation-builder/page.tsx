@@ -148,6 +148,7 @@ const searchParams = useSearchParams();
   const leaddata = useMemo<Walkin_Customer | null>(() => {
     if (!payload) return null;
     try {
+      console.log("payload Data :",JSON.parse(decodeURIComponent(payload)) as Walkin_Customer);
       return JSON.parse(decodeURIComponent(payload)) as Walkin_Customer;
     } catch (e) {
       console.error("Payload parse failed:", e);

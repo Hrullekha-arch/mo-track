@@ -7,6 +7,7 @@ import { format } from "date-fns";
 import Image from 'next/image';
 
 interface PrintableQuotationProps {
+    type:string;
     values: Quotation;
     creatorName?: string;
     salesmanName?: string;
@@ -51,7 +52,8 @@ interface CalculatedVas extends VasDetail {
     taxRate: number;
 }
 
-export function PrintableQuotationProfessional({ values, creatorName, salesmanName }: PrintableQuotationProps) {
+export function PrintableQuotationProfessional({ type, values, creatorName, salesmanName }: PrintableQuotationProps) {
+    
     const validDate = parseDate(values.date);
     const shouldApplyTax = values.applyTax !== false;
 
@@ -113,18 +115,43 @@ export function PrintableQuotationProfessional({ values, creatorName, salesmanNa
     
     const roundedTotal = Math.round(totals.totalAmount);
     const roundOff = roundedTotal - totals.totalAmount;
+    const company =
+  type === "GOODS"
+    ? {
+        name: "MO DESIGNS PRIVATE LIMITED",
+        address: `A-6, M G Road,`,
+        address1: `B-50, Sushant Lok-2, Sec- 56`,
+        address2: `Gurgaon - 122011 (HARYANA) INDIA`,
+        gst: "06AAMCM5012B1ZY",
+        pan: "AAMCM5012B",
+      }
+    : {
+        name: "MO SPACES PRIVATE LIMITED",
+        address: `B-50, 2nd Floor`,
+        address1:`Sushant Lok-2, Sec- 56`,
+        address2:`Gurgaon - 122011 (HARYANA) INDIA`,
+        gst: "06AAMCM7223J1Z8",
+        pan: "AAMCM7223J",
+      }
 
     return (
         <div style={{ width: '210mm', minHeight: '297mm', margin: 'auto', padding: '2rem 1.5rem', backgroundColor: 'white', color: 'black', fontFamily: 'Arial, sans-serif', fontSize: '12px' }}>
             <header style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #333', paddingBottom: '1rem' }}>
-                <div>
-                    <h1 style={{ fontSize: '24px', fontWeight: 'bold', margin: 0 }}>Quotation</h1>
-                    <h2 style={{ fontSize: '14px', fontWeight: 'bold', margin: '0.5rem 0 0.25rem' }}>MO DESIGNS PRIVATE LIMITED</h2>
-                    <p style={{ margin: 0, fontSize: '11px', lineHeight: 1.4 }}>
-                        A-6, Sushant Lok-1, M G Road, Gurgaon- 122022,B-50, Sushant Lok-2, Sec- 56,<br />
-                        Gurgaon - 122011 GURGAON - (HARYANA) INDIA<br />
-                        GSTIN: 06AAMCM5012B1ZY, PAN No: AAMCM5012B,<br />
-                        Email Id : info@mofurnishings.com, Contact No: 0124-4777888
+                  <div>
+                    <h1 className="text-2xl font-bold">Quotation</h1>
+
+                    <h2 className="text-sm font-bold mt-2">{company.name}</h2>
+
+                    <p className="text-[11px] leading-4 whitespace-pre-line">
+                    {company.address}
+                    <br />
+                    {company.address1}
+                    <br />
+                    {company.address2}
+                    <br />
+                    GSTIN: {company.gst}, PAN No: {company.pan}
+                    <br />
+                    Email: info@mofurnishings.com, Contact: 0124-4777888
                     </p>
                 </div>
                 <div style={{ textAlign: 'right' }}>

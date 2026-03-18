@@ -25,7 +25,6 @@ import { useForm, useFieldArray, FormProvider } from "react-hook-form";
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
@@ -225,6 +224,10 @@ function AllocateDialog({
              toast({ variant: 'destructive', title: 'Quantity Mismatch', description: `You must allocate exactly ${requiredQty}. You have allocated ${totalAllocated}.` });
              return;
         }
+        const isConfirmed = window.confirm(
+            `Reserve ${totalAllocated.toFixed(2)} units from selected rolls? This can be reversed only before ${invoiceRequired ? "invoicing" : "dispatch"}.`
+        );
+        if (!isConfirmed) return;
 
         setIsSubmitting(true);
         try {
@@ -333,29 +336,10 @@ function AllocateDialog({
                         </div>
 
                         <DialogFooter className="pt-4">
-                             <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                    <Button type="button" disabled={isSubmitting || Math.abs(totalAllocated - requiredQty) > 0.01}>
-                                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                        Reserve Stock
-                                    </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                            This will reserve {totalAllocated.toFixed(2)} units from the selected rolls.
-                                            {invoiceRequired
-                                                ? ' This action can be reversed if the order is cancelled before invoicing.'
-                                                : ' This action can be reversed if the order is cancelled before dispatch.'}
-                                        </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                        <AlertDialogAction onClick={handleSubmit(onSubmit)}>Continue</AlertDialogAction>
-                                    </AlertDialogFooter>
-                                </AlertDialogContent>
-                            </AlertDialog>
+                            <Button type="submit" disabled={isSubmitting || Math.abs(totalAllocated - requiredQty) > 0.01}>
+                                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Reserve Stock
+                            </Button>
                         </DialogFooter>
                     </form>
                 </FormProvider>
@@ -386,13 +370,10 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             }
 
             const stockId = bcn.replace(/\//g, '-');
-            console.log('Fetching stock for BCN:', bcn, 'with stock ID:', stockId);
             const stockPromise = getStockById(stockId);
             
             const stockRef = doc(db, 'stocks', stockId);
-            console.log('Stock document reference:', stockRef);
             const lengthsCollectionRef = collection(stockRef, 'lengths');
-            console.log('Lengths collection reference:', lengthsCollectionRef);
             const lengthsSnapshotPromise = getDocs(lengthsCollectionRef);
 
             const prQuery = query(collection(db, 'purchaseRequests'), where("dealId", "==", orderCrmNo));
@@ -407,7 +388,6 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
                 poPromise,
                 invoicePromise
             ]);
-            console.log('Fetched data:', { stock, lengths: lengthsSnapshot.docs.map(d => ({ id: d.id, ...d.data() })), poSnaps: poSnaps.docs.map(d => ({ id: d.id, ...d.data() })), invoiceSnaps: invoiceSnaps.docs.map(d => ({ id: d.id, ...d.data() })) });
             const sumAvailableFromLengths = lengthsSnapshot.docs.reduce((sum, docSnap) => {
                 const data = docSnap.data() as any;
                 const available = Number(data?.availableLength ?? data?.availableQty ?? 0);
@@ -496,8 +476,6 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
 
     const name = (item as any).fabricName || (item as any).furnitureName;
     const unit = item.type === 'Fabric' ? 'Mtr' : '';
-
-    console.log('OrderItemRow render:', { item, stockInfo, allocatedQty, status });
 
     return (
         <TableRow>
@@ -864,8 +842,6 @@ function VasDetailsTable({ order }: { order: Order }) {
     }, [order]);
 
     if (!vasItems.length) return null;
-    console.log('VAS Items:', vasItems);
-
     return (
         <Card>
             <CardHeader>
