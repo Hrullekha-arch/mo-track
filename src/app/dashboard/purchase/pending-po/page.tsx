@@ -96,6 +96,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
+import { deleteDoc, doc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { useRouter } from "next/navigation";
 
 // ─── Schema ────────────────────────────────────────────────────────────────────
 const createPoSchema = z.object({
@@ -744,6 +747,48 @@ export default function PendingPOPage() {
     return map.size;
   }, [data]);
 
+
+const router = useRouter();
+
+const handleDeleteSelected = async () => {
+  try {
+    console.log("📦 Selected Items:", selectedItems);
+
+    if (!selectedItems || selectedItems.length === 0) {
+      alert("No items selected");
+      return;
+    }
+
+    const confirmDelete = confirm(`Delete ${selectedItems.length} items?`);
+    if (!confirmDelete) return;
+
+    const deletePromises = selectedItems.map((item, index) => {
+      if (!item.purchaseRequestId) {
+        console.error(`❌ Missing ID at index ${index}`, item);
+        return Promise.resolve();
+      }
+
+      console.log("🧹 Deleting:", item.purchaseRequestId);
+
+      return deleteDoc(
+        doc(db, "purchaseRequests", item.purchaseRequestId)
+      );
+    });
+
+    await Promise.all(deletePromises);
+    router.refresh();
+    console.log("✅ Delete completed");
+
+    alert("✅ Selected items deleted successfully");
+
+    
+
+  } catch (error) {
+    console.error("🔥 Delete Error:", error);
+    alert("❌ Failed to delete items");
+  }
+};
+
   return (
     <>
       <TooltipProvider>
@@ -852,6 +897,7 @@ export default function PendingPOPage() {
                   </Tooltip>
 
                   {isAdmin && (
+                    <div className="flex gap-1 justify-center items-center">
                     <Button
                       variant="outline"
                       size="sm"
@@ -861,6 +907,14 @@ export default function PendingPOPage() {
                       <Trash2 className="h-4 w-4" />
                       Delete PO
                     </Button>
+                    <Button 
+                      // disabled={!canDelete}
+                      onClick={handleDeleteSelected}
+                      variant="destructive"
+                    >
+                      Delete Selected
+                    </Button>
+                    </div>
                   )}
                 </div>
               </div>

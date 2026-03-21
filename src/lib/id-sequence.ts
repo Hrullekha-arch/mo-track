@@ -1,6 +1,6 @@
 import { adminDb } from "@/lib/firebase-admin";
 
-type SequenceKey = "dealId" | "quotationNo" | "instantDealId";
+type SequenceKey = "dealId" | "quotationNo" | "instantDealId" | "walkinId";
 
 const COUNTERS_COLLECTION = "systemCounters";
 
@@ -8,6 +8,7 @@ const START_VALUES: Record<SequenceKey, number> = {
   dealId: 10000,
   quotationNo: 50000,
   instantDealId: 1,
+  walkinId: 1,
 };
 
 export async function getNextSequenceValue(key: SequenceKey): Promise<string> {

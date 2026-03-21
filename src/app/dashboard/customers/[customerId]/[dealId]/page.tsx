@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getSalesmen } from "../../actions";
-import { getDealById, getDealProducts, getQuotationsForDeal, getOrdersForDeal, getVisitsForDeal, getMeasurementsForDeal, getCpdsForDeal, getSelectionsForDeal, updateSelectionStatusAction, updateDealProducts, createSelectionAction, getReceiptsForDeal, getMeasurementById, updateQuotationStatusAction } from "./actions";
+import { getDealById, getDealProducts, getQuotationsForDeal, getOrdersForDeal, getVisitsForDeal, getMeasurementsForDeal, getCpdsForDeal, getSelectionsForDeal, updateSelectionStatusAction, updateDealProducts, createSelectionAction, getReceiptsForDeal, getMeasurementById, updateQuotationStatusAction, deleteQuotationCascadeAction } from "./actions";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
@@ -119,9 +119,12 @@ const mapDealProductsDocToUi = (doc?: DealProductsDoc | null): DealProduct[] => 
 function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onCloneQuotation }: { customerId: string, dealId: string, deal: Deal, salesmen: User[], cpds: Cpd[], onCloneQuotation: (quotation: Quotation) => void }) {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingQuotationId, setDeletingQuotationId] = useState<string | null>(null);
   const [selectedQuotation, setSelectedQuotation] = useState<Quotation | null>(null);
   const router = useRouter();
   const { toast } = useToast();
+  const { role, user } = useAuth();
+  const isAdmin = role === "admin";
 
   const parseDate = (date: any): Date => {
     if (date instanceof Date) return date;
@@ -164,6 +167,48 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onCloneQuotat
       fetchQuotations();
     } else {
       toast({ variant: "destructive", title: "Close Failed", description: result.message });
+    }
+  };
+
+  const handleDeleteQuotation = async (quotation: Quotation) => {
+    if (!isAdmin) {
+      toast({
+        variant: "destructive",
+        title: "Access denied",
+        description: "Only admin can delete quotation with cascade.",
+      });
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete quotation ${quotation.quotationNo}? This will also delete linked order, order allocation, and generated invoices.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingQuotationId(quotation.id);
+      const result = await deleteQuotationCascadeAction(customerId, dealId, quotation.id, {
+        id: user?.id,
+        name: user?.name || user?.email || "System",
+        role: role || undefined,
+      });
+      if (!result.success) {
+        toast({ variant: "destructive", title: "Delete Failed", description: result.message });
+        return;
+      }
+      toast({ title: "Quotation Deleted", description: result.message });
+      await fetchQuotations();
+      if (selectedQuotation?.id === quotation.id) {
+        setSelectedQuotation(null);
+      }
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Delete Failed",
+        description: error?.message || "Unable to delete quotation.",
+      });
+    } finally {
+      setDeletingQuotationId(null);
     }
   };
 
@@ -259,6 +304,18 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onCloneQuotat
                               >
                                 Close Quotation
                               </DropdownMenuItem>
+                              {isAdmin && (
+                                <DropdownMenuItem
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleDeleteQuotation(q);
+                                  }}
+                                  disabled={deletingQuotationId === q.id}
+                                  className="text-destructive focus:text-destructive"
+                                >
+                                  {deletingQuotationId === q.id ? "Deleting..." : "Delete Quotation"}
+                                </DropdownMenuItem>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -335,6 +392,18 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onCloneQuotat
                               >
                                 Close Quotation
                               </DropdownMenuItem>
+                              {isAdmin && (
+                                <DropdownMenuItem
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleDeleteQuotation(q);
+                                  }}
+                                  disabled={deletingQuotationId === q.id}
+                                  className="text-destructive focus:text-destructive"
+                                >
+                                  {deletingQuotationId === q.id ? "Deleting..." : "Delete Quotation"}
+                                </DropdownMenuItem>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>

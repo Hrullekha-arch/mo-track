@@ -148,7 +148,6 @@ const searchParams = useSearchParams();
   const leaddata = useMemo<Walkin_Customer | null>(() => {
     if (!payload) return null;
     try {
-      console.log("payload Data :",JSON.parse(decodeURIComponent(payload)) as Walkin_Customer);
       return JSON.parse(decodeURIComponent(payload)) as Walkin_Customer;
     } catch (e) {
       console.error("Payload parse failed:", e);
@@ -348,6 +347,7 @@ const searchParams = useSearchParams();
         addressLine1: draftCustomer.addressLine1 || undefined,
         pincode: draftCustomer.pincode || undefined,
         createdBy: user?.name,
+        leadId: undefined
       });
 
       if (!result.success || !result.customer) {
@@ -511,6 +511,7 @@ const searchParams = useSearchParams();
           : vasItems;
 
       const result = await createInstantQuotationOrderAction({
+        leadId:leaddata?.id,
         customerId: selectedCustomer.id,
         customerName: selectedCustomer.name,
         mobile: selectedCustomer.mobile,

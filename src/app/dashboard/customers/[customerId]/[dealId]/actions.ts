@@ -826,6 +826,458 @@ export async function updateQuotationStatusAction(
   }
 }
 
+type DeleteQuotationActor = {
+  id?: string;
+  name?: string;
+  role?: string;
+};
+
+type InventoryDelta = {
+  availableQty?: number;
+  availableLength?: number;
+  reservedQty?: number;
+  cutQty?: number;
+};
+
+const DELTA_EPSILON = 0.0001;
+
+const toPositiveNumber = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+};
+
+const addInventoryDelta = (
+  map: Map<string, InventoryDelta>,
+  key: string,
+  delta: InventoryDelta
+) => {
+  if (!key) return;
+  const existing = map.get(key) || {};
+  map.set(key, {
+    availableQty: (existing.availableQty || 0) + (delta.availableQty || 0),
+    availableLength: (existing.availableLength || 0) + (delta.availableLength || 0),
+    reservedQty: (existing.reservedQty || 0) + (delta.reservedQty || 0),
+    cutQty: (existing.cutQty || 0) + (delta.cutQty || 0),
+  });
+};
+
+const hasDelta = (delta: InventoryDelta) =>
+  Math.abs(delta.availableQty || 0) > DELTA_EPSILON ||
+  Math.abs(delta.availableLength || 0) > DELTA_EPSILON ||
+  Math.abs(delta.reservedQty || 0) > DELTA_EPSILON ||
+  Math.abs(delta.cutQty || 0) > DELTA_EPSILON;
+
+const buildStockKey = (stockId?: string, bcn?: string) => {
+  const safeStockId = String(stockId || "").trim();
+  if (safeStockId) return `id:${safeStockId}`;
+  const safeBcn = String(bcn || "").trim().toUpperCase();
+  return safeBcn ? `bcn:${safeBcn}` : "";
+};
+
+const sanitizeStockDocId = (value: string) => String(value || "").trim().replace(/\//g, "-");
+
+export async function deleteQuotationCascadeAction(
+  customerId: string,
+  dealId: string,
+  quotationId: string,
+  actor?: DeleteQuotationActor
+): Promise<{
+  success: boolean;
+  message: string;
+  summary?: {
+    ordersDeleted: number;
+    dealOrdersDeleted: number;
+    invoicesDeleted: number;
+    allocationReservationsDeleted: number;
+  };
+}> {
+  try {
+    const requestedRole = String(actor?.role || "").trim().toLowerCase();
+    let isAdmin = requestedRole === "admin";
+
+    if (actor?.id) {
+      const actorSnap = await adminDb.collection("users").doc(actor.id).get();
+      if (actorSnap.exists) {
+        const persistedRole = String(actorSnap.data()?.role || "").trim().toLowerCase();
+        isAdmin = persistedRole === "admin";
+      }
+    }
+
+    if (!isAdmin) {
+      return { success: false, message: "Only admin can delete quotations with cascade." };
+    }
+
+    const dealRef = adminDb.collection("customers").doc(customerId).collection("deals").doc(dealId);
+    const quotationRef = dealRef.collection("quotations").doc(quotationId);
+    const quotationSnap = await quotationRef.get();
+
+    if (!quotationSnap.exists) {
+      return { success: false, message: "Quotation not found." };
+    }
+
+    const quotationData = quotationSnap.data() as Quotation & Record<string, any>;
+    const quotationNo = String(quotationData?.quotationNo || "").trim();
+    const directOrderId = String(quotationData?.orderNo || "").trim();
+
+    const ordersRef = adminDb.collection("orders");
+    const orderDocs = new Map<string, FirebaseFirestore.DocumentSnapshot>();
+
+    if (directOrderId) {
+      const directOrderSnap = await ordersRef.doc(directOrderId).get();
+      if (directOrderSnap.exists) {
+        orderDocs.set(directOrderSnap.id, directOrderSnap);
+      }
+    }
+
+    const orderQueryPromises: Promise<FirebaseFirestore.QuerySnapshot>[] = [
+      ordersRef.where("quotationId", "==", quotationId).get(),
+    ];
+
+    if (quotationNo) {
+      orderQueryPromises.push(
+        ordersRef.where("quotationNo", "==", quotationNo).get(),
+        ordersRef.where("crmOrderNo", "==", quotationNo).get()
+      );
+    }
+
+    const orderQueryResults = await Promise.all(orderQueryPromises);
+    orderQueryResults.forEach((snapshot) => {
+      snapshot.forEach((docSnap) => orderDocs.set(docSnap.id, docSnap));
+    });
+
+    const stockHints = new Map<string, { stockId?: string; bcn?: string }>();
+    const stockDeltas = new Map<string, InventoryDelta>();
+    const lengthDeltas = new Map<string, { stockKey: string; lengthId: string; delta: InventoryDelta }>();
+    const reservationCleanupTargets = new Map<string, { stockKey: string; lengthId: string; orderId: string }>();
+
+    const registerStockDelta = (stockId: unknown, bcn: unknown, delta: InventoryDelta) => {
+      const key = buildStockKey(
+        String(stockId || "").trim() || undefined,
+        String(bcn || "").trim() || undefined
+      );
+      if (!key) return;
+      if (!stockHints.has(key)) {
+        stockHints.set(key, {
+          stockId: String(stockId || "").trim() || undefined,
+          bcn: String(bcn || "").trim() || undefined,
+        });
+      }
+      addInventoryDelta(stockDeltas, key, delta);
+    };
+
+    const registerLengthDelta = (
+      stockId: unknown,
+      bcn: unknown,
+      lengthId: unknown,
+      delta: InventoryDelta
+    ) => {
+      const safeLengthId = String(lengthId || "").trim();
+      if (!safeLengthId) return;
+      const stockKey = buildStockKey(
+        String(stockId || "").trim() || undefined,
+        String(bcn || "").trim() || undefined
+      );
+      if (!stockKey) return;
+      registerStockDelta(stockId, bcn, {});
+      const key = `${stockKey}::${safeLengthId}`;
+      const existing = lengthDeltas.get(key);
+      if (!existing) {
+        lengthDeltas.set(key, { stockKey, lengthId: safeLengthId, delta: { ...delta } });
+        return;
+      }
+      existing.delta = {
+        availableQty: (existing.delta.availableQty || 0) + (delta.availableQty || 0),
+        availableLength: (existing.delta.availableLength || 0) + (delta.availableLength || 0),
+        reservedQty: (existing.delta.reservedQty || 0) + (delta.reservedQty || 0),
+        cutQty: (existing.delta.cutQty || 0) + (delta.cutQty || 0),
+      };
+    };
+
+    const registerReservationTarget = (
+      stockId: unknown,
+      bcn: unknown,
+      lengthId: unknown,
+      orderId: string
+    ) => {
+      const safeLengthId = String(lengthId || "").trim();
+      if (!safeLengthId || !orderId) return;
+      const stockKey = buildStockKey(
+        String(stockId || "").trim() || undefined,
+        String(bcn || "").trim() || undefined
+      );
+      if (!stockKey) return;
+      const key = `${stockKey}::${safeLengthId}::${orderId}`;
+      reservationCleanupTargets.set(key, { stockKey, lengthId: safeLengthId, orderId });
+    };
+
+    let invoicesDeleted = 0;
+    let ordersDeleted = 0;
+    let dealOrdersDeleted = 0;
+    let allocationReservationsDeleted = 0;
+
+    const MAX_BATCH_OPS = 400;
+    let batch = adminDb.batch();
+    let pendingOps = 0;
+
+    const flushBatch = async () => {
+      if (pendingOps === 0) return;
+      await batch.commit();
+      batch = adminDb.batch();
+      pendingOps = 0;
+    };
+
+    const queueDelete = async (docRef: FirebaseFirestore.DocumentReference) => {
+      batch.delete(docRef);
+      pendingOps += 1;
+      if (pendingOps >= MAX_BATCH_OPS) {
+        await flushBatch();
+      }
+    };
+
+    const queueUpdate = async (
+      docRef: FirebaseFirestore.DocumentReference,
+      data: FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData>
+    ) => {
+      batch.update(docRef, data);
+      pendingOps += 1;
+      if (pendingOps >= MAX_BATCH_OPS) {
+        await flushBatch();
+      }
+    };
+
+    for (const [orderId, orderDocSnap] of orderDocs.entries()) {
+      if (!orderDocSnap.exists) continue;
+      const orderData = orderDocSnap.data() as Order;
+
+      const invoiceSnapshot = await adminDb.collection("invoices").where("orderId", "==", orderId).get();
+      for (const invoiceDoc of invoiceSnapshot.docs) {
+        const invoiceData = invoiceDoc.data() as any;
+        const normalItems = Array.isArray(invoiceData?.sections?.NORMAL?.items)
+          ? invoiceData.sections.NORMAL.items
+          : [];
+
+        normalItems.forEach((item: any) => {
+          const qty = toPositiveNumber(item?.qty);
+          if (qty <= 0) return;
+          const stockItemId = String(item?.allocationRef?.stockItemId || "").trim() || undefined;
+          const bcn = String(item?.bcn || "").trim() || undefined;
+          registerStockDelta(stockItemId, bcn, { reservedQty: qty, cutQty: -qty });
+
+          const lengthId = String(item?.allocationRef?.lengthId || "").trim();
+          if (lengthId && !lengthId.startsWith("MIG-LEN-")) {
+            registerLengthDelta(stockItemId, bcn, lengthId, {
+              reservedQty: qty,
+              cutQty: -qty,
+            });
+          }
+        });
+
+        await queueDelete(invoiceDoc.ref);
+        invoicesDeleted += 1;
+      }
+
+      const normalOrderItems = Array.isArray(orderData?.sections?.NORMAL?.items)
+        ? orderData.sections?.NORMAL?.items || []
+        : Array.isArray((orderData as any)?.items)
+        ? (orderData as any).items
+        : [];
+
+      normalOrderItems.forEach((item: any) => {
+        const bcn = String(item?.bcn || item?.collectionBrand || "").trim() || undefined;
+        const stockItemId =
+          String(
+            item?.stockId || item?.stockItemId || item?.allocation?.stockItemId || ""
+          ).trim() || undefined;
+        const allocation = item?.allocation || {};
+        const lengths = Array.isArray(allocation?.lengths) ? allocation.lengths : [];
+        const lots = Array.isArray(allocation?.lots) ? allocation.lots : [];
+
+        let allocatedTotal = 0;
+
+        lengths.forEach((entry: any) => {
+          const lengthId = String(entry?.lengthId || "").trim();
+          const allocatedQty = toPositiveNumber(entry?.allocatedQty ?? entry?.qty ?? entry?.quantity);
+          if (!lengthId || allocatedQty <= 0) return;
+          allocatedTotal += allocatedQty;
+          registerLengthDelta(stockItemId, bcn, lengthId, {
+            availableQty: allocatedQty,
+            availableLength: allocatedQty,
+            reservedQty: -allocatedQty,
+          });
+          registerReservationTarget(stockItemId, bcn, lengthId, orderId);
+        });
+
+        lots.forEach((entry: any) => {
+          const allocatedQty = toPositiveNumber(entry?.allocatedQty ?? entry?.qty ?? entry?.quantity);
+          if (allocatedQty <= 0) return;
+          allocatedTotal += allocatedQty;
+        });
+
+        if (allocatedTotal > 0) {
+          registerStockDelta(stockItemId, bcn, {
+            availableQty: allocatedTotal,
+            reservedQty: -allocatedTotal,
+          });
+        }
+      });
+
+      const dealOrdersRef = dealRef.collection("orders");
+      const dealOrderRefs = new Map<string, FirebaseFirestore.DocumentReference>();
+
+      const dealOrderDocId = String(orderData?.dealOrderDocId || "").trim();
+      if (dealOrderDocId) {
+        const dealOrderSnap = await dealOrdersRef.doc(dealOrderDocId).get();
+        if (dealOrderSnap.exists) {
+          dealOrderRefs.set(dealOrderSnap.id, dealOrderSnap.ref);
+        }
+      }
+
+      const orderNo = String(orderData?.orderNo || orderId).trim();
+      const dealOrderQueryPromises: Promise<FirebaseFirestore.QuerySnapshot>[] = [
+        dealOrdersRef.where("orderId", "==", orderId).get(),
+      ];
+
+      if (orderNo) {
+        dealOrderQueryPromises.push(dealOrdersRef.where("orderNo", "==", orderNo).get());
+      }
+
+      const dealOrderQueryResults = await Promise.all(dealOrderQueryPromises);
+      dealOrderQueryResults.forEach((snapshot) => {
+        snapshot.forEach((docSnap) => dealOrderRefs.set(docSnap.id, docSnap.ref));
+      });
+
+      for (const dealOrderRef of dealOrderRefs.values()) {
+        await queueDelete(dealOrderRef);
+        dealOrdersDeleted += 1;
+      }
+
+      await queueDelete(orderDocSnap.ref);
+      ordersDeleted += 1;
+    }
+
+    const stockRefCache = new Map<string, FirebaseFirestore.DocumentReference | null>();
+    const resolveStockRef = async (stockKey: string) => {
+      if (stockRefCache.has(stockKey)) return stockRefCache.get(stockKey) || null;
+      const hint = stockHints.get(stockKey);
+      if (!hint) {
+        stockRefCache.set(stockKey, null);
+        return null;
+      }
+
+      const stocksRef = adminDb.collection("stocks");
+      const stockId = String(hint.stockId || "").trim();
+      if (stockId) {
+        const stockDoc = await stocksRef.doc(stockId).get();
+        if (stockDoc.exists) {
+          stockRefCache.set(stockKey, stockDoc.ref);
+          return stockDoc.ref;
+        }
+      }
+
+      const bcn = String(hint.bcn || "").trim();
+      if (bcn) {
+        const sanitizedDocId = sanitizeStockDocId(bcn);
+        if (sanitizedDocId) {
+          const docBySanitizedId = await stocksRef.doc(sanitizedDocId).get();
+          if (docBySanitizedId.exists) {
+            stockRefCache.set(stockKey, docBySanitizedId.ref);
+            return docBySanitizedId.ref;
+          }
+        }
+
+        const stockByBcnSnapshot = await stocksRef.where("bcn", "==", bcn).limit(1).get();
+        if (!stockByBcnSnapshot.empty) {
+          const resolvedRef = stockByBcnSnapshot.docs[0].ref;
+          stockRefCache.set(stockKey, resolvedRef);
+          return resolvedRef;
+        }
+      }
+
+      stockRefCache.set(stockKey, null);
+      return null;
+    };
+
+    const updateTimestamp = new Date().toISOString();
+
+    for (const [stockKey, delta] of stockDeltas.entries()) {
+      if (!hasDelta(delta)) continue;
+      const stockRef = await resolveStockRef(stockKey);
+      if (!stockRef) continue;
+      const payload: FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData> = {
+        lastUpdatedAt: updateTimestamp,
+      };
+      if (Math.abs(delta.availableQty || 0) > DELTA_EPSILON) {
+        payload.availableQty = FieldValue.increment(delta.availableQty || 0);
+      }
+      if (Math.abs(delta.reservedQty || 0) > DELTA_EPSILON) {
+        payload.reservedQty = FieldValue.increment(delta.reservedQty || 0);
+      }
+      if (Math.abs(delta.cutQty || 0) > DELTA_EPSILON) {
+        payload.cutQty = FieldValue.increment(delta.cutQty || 0);
+      }
+      await queueUpdate(stockRef, payload);
+    }
+
+    for (const target of lengthDeltas.values()) {
+      if (!hasDelta(target.delta)) continue;
+      const stockRef = await resolveStockRef(target.stockKey);
+      if (!stockRef) continue;
+
+      const lengthRef = stockRef.collection("lengths").doc(target.lengthId);
+      const lengthSnap = await lengthRef.get();
+      if (!lengthSnap.exists) continue;
+
+      const payload: FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData> = {
+        lastUpdatedAt: updateTimestamp,
+      };
+      if (Math.abs(target.delta.availableQty || 0) > DELTA_EPSILON) {
+        payload.availableQty = FieldValue.increment(target.delta.availableQty || 0);
+      }
+      if (Math.abs(target.delta.availableLength || 0) > DELTA_EPSILON) {
+        payload.availableLength = FieldValue.increment(target.delta.availableLength || 0);
+      }
+      if (Math.abs(target.delta.reservedQty || 0) > DELTA_EPSILON) {
+        payload.reservedQty = FieldValue.increment(target.delta.reservedQty || 0);
+      }
+      if (Math.abs(target.delta.cutQty || 0) > DELTA_EPSILON) {
+        payload.cutQty = FieldValue.increment(target.delta.cutQty || 0);
+      }
+      await queueUpdate(lengthRef, payload);
+    }
+
+    for (const target of reservationCleanupTargets.values()) {
+      const stockRef = await resolveStockRef(target.stockKey);
+      if (!stockRef) continue;
+      const lengthRef = stockRef.collection("lengths").doc(target.lengthId);
+      const reservedSnapshot = await lengthRef.collection("reservedQty").where("orderId", "==", target.orderId).get();
+      for (const reservedDoc of reservedSnapshot.docs) {
+        await queueDelete(reservedDoc.ref);
+        allocationReservationsDeleted += 1;
+      }
+    }
+
+    await queueDelete(quotationRef);
+    await flushBatch();
+
+    const summary = {
+      ordersDeleted,
+      dealOrdersDeleted,
+      invoicesDeleted,
+      allocationReservationsDeleted,
+    };
+
+    const label = quotationNo || quotationId;
+    return {
+      success: true,
+      message: `Quotation ${label} deleted. Removed ${ordersDeleted} order(s), ${dealOrdersDeleted} deal-order record(s), ${invoicesDeleted} invoice(s), and ${allocationReservationsDeleted} allocation reservation record(s).`,
+      summary,
+    };
+  } catch (error: any) {
+    console.error("Error deleting quotation with cascade:", error);
+    return { success: false, message: `Failed to delete quotation: ${error.message}` };
+  }
+}
+
 export async function getOrdersForDeal(customerId: string, dealId: string): Promise<DealOrder[]> {
     try {
         const snapshot = await adminDb

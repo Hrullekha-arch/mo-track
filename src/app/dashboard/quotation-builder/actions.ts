@@ -43,6 +43,7 @@ export type InstantVasInput = {
 };
 
 type CreateInstantQuotationInput = {
+  leadId:string | undefined;
   customerId?: string;
   customerName?: string;
   mobile?: string;
@@ -197,6 +198,7 @@ export async function searchInstantCustomersAction(searchTerm: string): Promise<
 }
 
 export async function createInstantCustomerAction(input: {
+  leadId:string | undefined;
   name: string;
   mobile: string;
   email?: string;
@@ -266,11 +268,13 @@ export async function createInstantQuotationOrderAction(
       return { success: false, message: 'Add at least one item or one VAS line.' };
     }
 
+    const normalizedLeadId = String(payload?.leadId || '').trim();
+    const leadIdForFirestore = normalizedLeadId || null;
+
     const isCashsale = payload.dealName === 'Cashsale';
 
     const cleanItems: InstantItemInput[] = payload.items
       .map((item) => ({
-        ...item,
         bcn: String(item?.bcn || '').trim(),
         description: String(item?.description || '').trim(),
         quantity: Math.max(0, toNumber(item?.quantity)),
@@ -278,18 +282,21 @@ export async function createInstantQuotationOrderAction(
         discountPercent: Math.max(0, Math.min(100, toNumber(item?.discountPercent))),
         gstPercent: isCashsale ? 0 : Math.max(0, toNumber(item?.gstPercent ?? 5)),
         gstMode: (isCashsale ? 'INCL' : item?.gstMode === 'EXCL' ? 'EXCL' : 'INCL') as 'EXCL' | 'INCL',
+        room: String(item?.room || '').trim(),
+        noOfPcs: String(item?.noOfPcs || '').trim(),
+        remark: String(item?.remark || '').trim(),
+        stockId: String(item?.stockId || '').trim(),
       }))
       .filter((item) => item.bcn && item.description && item.quantity > 0);
 
     const cleanVas = (Array.isArray(payload.vasDetails) ? payload.vasDetails : [])
       .map((vas) => ({
-        ...vas,
         vasName: String(vas?.vasName || '').trim(),
         quantity: Math.max(0, toNumber(vas?.quantity)),
         rate: Math.max(0, toNumber(vas?.rate)),
         gstPercent: isCashsale ? 0 : Math.max(0, toNumber(vas?.gstPercent ?? 0)),
-        room: String(vas?.room || '').trim() || undefined,
-        hsnCode: String(vas?.hsnCode || '').trim() || undefined,
+        room: String(vas?.room || '').trim(),
+        hsnCode: String(vas?.hsnCode || '').trim(),
       }))
       .filter((vas) => vas.vasName && vas.quantity > 0);
 
@@ -316,6 +323,7 @@ export async function createInstantQuotationOrderAction(
 
     if (!customerId) {
       const quickCreate = await createInstantCustomerAction({
+        leadId: normalizedLeadId || undefined,
         name: String(payload.customerName || '').trim(),
         mobile: String(payload.mobile || '').trim(),
         email: customerEmail,
@@ -335,19 +343,94 @@ export async function createInstantQuotationOrderAction(
       customerAddressLine1 = quickCreate.customer.addressLine1;
       customerPincode = quickCreate.customer.pincode;
     } else {
-      const customerSnap = await adminDb.collection('customers').doc(customerId).get();
-      if (!customerSnap.exists) {
-        return { success: false, message: 'Selected customer not found.' };
+      let customerDoc = await adminDb.collection('customers').doc(customerId).get();
+
+      if (!customerDoc.exists) {
+        const customerByCodeSnap = await adminDb
+          .collection('customers')
+          .where('customerCode', '==', customerId)
+          .limit(1)
+          .get();
+        if (!customerByCodeSnap.empty) {
+          customerDoc = customerByCodeSnap.docs[0];
+        }
       }
 
-      const customerData = customerSnap.data() as any;
-      customerName = String(customerData?.name || payload.customerName || '').trim();
-      customerMobile = String(customerData?.phone || customerData?.mobileNo || payload.mobile || '').trim();
-      customerEmail = String(customerData?.email || payload.email || '').trim() || undefined;
-      customerAddressLine1 =
-        String(customerData?.billingAddress?.line1 || payload.addressLine1 || '').trim() || undefined;
-      customerPincode =
-        String(customerData?.billingAddress?.pincode || customerData?.pinCode || payload.pincode || '').trim() || undefined;
+      if (!customerDoc.exists) {
+        customerName = String(payload.customerName || '').trim();
+        customerMobile = normalizePhone(String(payload.mobile || '').trim());
+        customerEmail = String(payload.email || '').trim() || undefined;
+        customerAddressLine1 = String(payload.addressLine1 || '').trim() || undefined;
+        customerPincode = String(payload.pincode || '').trim() || undefined;
+
+        if (!customerName || !customerMobile) {
+          return { success: false, message: 'Customer name and mobile are required.' };
+        }
+
+        const now = new Date().toISOString();
+        const docId = buildInstantCustomerDocId(customerName, customerMobile);
+
+        await adminDb.collection('customers').doc(docId).set({
+          customerId: docId,
+          customerCode: String(payload.customerId || '').trim() || docId,
+          name: customerName,
+          phone: customerMobile,
+          email: customerEmail || '',
+          customerType: 'INDIVIDUAL',
+          status: 'ACTIVE',
+          gstin: '',
+          isGstRegistered: false,
+          billingAddress: {
+            line1: customerAddressLine1 || '',
+            line2: '',
+            city: '',
+            state: '',
+            pincode: customerPincode || '',
+          },
+          shippingAddress: {
+            line1: customerAddressLine1 || '',
+            line2: '',
+            city: '',
+            state: '',
+            pincode: customerPincode || '',
+          },
+          stats: {
+            totalOrders: 0,
+            totalQuotations: 0,
+            totalVisits: 0,
+            approvedQuotations: 0,
+            completedOrders: 0,
+            totalInvoicedAmount: 0,
+            totalPaidAmount: 0,
+            totalPendingAmount: 0,
+            lastOrderDate: null,
+            lastVisitDate: null,
+            lastInvoiceDate: null,
+          },
+          recent: {
+            orders: [],
+            quotations: [],
+            visits: [],
+          },
+          tags: [],
+          createdAt: now,
+          lastUpdatedAt: now,
+        });
+
+        customerId = docId;
+      } else {
+        customerId = customerDoc.id;
+        const customerData = customerDoc.data() as any;
+        customerName = String(customerData?.name || payload.customerName || '').trim();
+        customerMobile = normalizePhone(
+          String(customerData?.phone || customerData?.mobileNo || payload.mobile || '').trim()
+        );
+        customerEmail = String(customerData?.email || payload.email || '').trim() || undefined;
+        customerAddressLine1 =
+          String(customerData?.billingAddress?.line1 || payload.addressLine1 || '').trim() || undefined;
+        customerPincode =
+          String(customerData?.billingAddress?.pincode || customerData?.pinCode || payload.pincode || '').trim() || undefined;
+      }
     }
 
     if (!customerName || !customerMobile) {
@@ -412,6 +495,8 @@ export async function createInstantQuotationOrderAction(
       createdAt: nowIso,
       isAcknowledged: true,
     };
+
+    
 
     const setupBatch = adminDb.batch();
     setupBatch.set(dealRef, dealPayload, { merge: true });
@@ -539,8 +624,8 @@ export async function createInstantQuotationOrderAction(
           discountPercent: item.discountPercent || 0,
           unit: 'Mtr',
           type: 'fabric',
-          room: item.room || undefined,
-          hsnCode: undefined,
+          room: item.room || '',
+          hsnCode: '',
         },
       })),
       ...cleanVas.map((vas) => ({
@@ -554,8 +639,8 @@ export async function createInstantQuotationOrderAction(
           discountPercent: 0,
           unit: 'Pcs',
           type: 'vas',
-          room: vas.room || undefined,
-          hsnCode: vas.hsnCode || undefined,
+          room: vas.room || '',
+          hsnCode: vas.hsnCode || '',
         },
       })),
     ].filter((line) => line.fabricName && Number(line.quantity) > 0);
@@ -606,6 +691,7 @@ export async function createInstantQuotationOrderAction(
         latestOrderId: createdOrder.id,
         lastUpdatedAt: nowIso,
         createdAt: nowIso,
+        leadId: leadIdForFirestore,
       },
       { merge: true }
     );
@@ -635,6 +721,91 @@ export async function createInstantQuotationOrderAction(
       expectedValue,
     });
 
+    if (isCashsale) {
+      try {
+        const resolvedOrderNo = String(
+          (createdOrder as any)?.orderNo ||
+          (createdOrder as any)?.crmOrderNo ||
+          (createdOrder as any)?.id ||
+          ''
+        ).trim();
+        const resolvedCrmOrderNo = String((createdOrder as any)?.crmOrderNo || '').trim();
+        const resolvedTotalOrderAmount = Math.max(
+          0,
+          toNumber(
+            (createdOrder as any)?.totalAmount ??
+              (createdOrder as any)?.overallSummary?.grandTotal ??
+              expectedValue
+          )
+        );
+
+        let walkinRef = normalizedLeadId
+          ? adminDb.collection('Walkin_Customer').doc(normalizedLeadId)
+          : null;
+        let walkinSnap = walkinRef ? await walkinRef.get() : null;
+
+        if ((!walkinRef || !walkinSnap?.exists) && customerMobile) {
+          const walkinByMobile = await adminDb
+            .collection('Walkin_Customer')
+            .where('mobile', '==', customerMobile)
+            .limit(1)
+            .get();
+
+          if (!walkinByMobile.empty) {
+            walkinRef = walkinByMobile.docs[0].ref;
+            walkinSnap = walkinByMobile.docs[0];
+          }
+        }
+
+        if (walkinRef && walkinSnap?.exists) {
+          const walkinData = walkinSnap.data() as any;
+          const existingCashsale = walkinData?.cashsale as any;
+          const cashsaleAlreadyCreated = Boolean(existingCashsale?.created);
+
+          if (cashsaleAlreadyCreated) {
+            console.info(
+              `[createInstantQuotationOrderAction] Cashsale already marked for lead "${walkinRef.id}" (OrderId="${String(existingCashsale?.OrderId || '')}")`
+            );
+          } else {
+            const walkinCreatedAt =
+              typeof walkinData?.createdAt === 'string' && walkinData.createdAt.trim()
+                ? walkinData.createdAt
+                : nowIso;
+
+            const cashsaleUpdate = {
+              created: true,
+              OrderId: createdOrder.id,
+              dealId: String((createdOrder as any)?.dealId || dealDocId || '').trim(),
+              orderNo: resolvedOrderNo || createdOrder.id,
+              orderNumber: resolvedOrderNo || createdOrder.id,
+              crmOrderNo: resolvedCrmOrderNo || '',
+              totalOrderAmount: resolvedTotalOrderAmount,
+              dealType: 'CASHSALE',
+              status: 'PURCHASED',
+              type: 'INSTANT',
+              updatedAt: nowIso,
+              createdAt: walkinCreatedAt,
+            };
+
+            await walkinRef.set(
+              {
+                cashsale: cashsaleUpdate,
+                status: 'Deal Created',
+                lastUpdatedAt: nowIso,
+              },
+              { merge: true }
+            );
+          }
+        } else {
+          console.warn(
+            `[createInstantQuotationOrderAction] Walk-in lead not found for cashsale update. leadId="${normalizedLeadId}", mobile="${customerMobile}"`
+          );
+        }
+      } catch (error) {
+        console.error('Walk-in cashsale update error:', error);
+      }
+    }
+
     return {
       success: true,
       message: invoiceRequired
@@ -654,3 +825,4 @@ export async function createInstantQuotationOrderAction(
     };
   }
 }
+

@@ -3,6 +3,7 @@
 import { adminDb, adminMessaging } from '@/lib/firebase-admin';
 import { User, OwnerRef } from '@/lib/types';
 import { computeAssignment } from '@/lib/handover';
+import { getNextSequenceValue } from '@/lib/id-sequence';
 
 interface WalkinCustomerData {
     firstName: string;
@@ -11,12 +12,22 @@ interface WalkinCustomerData {
     email?: string;
     lookingFor?: string[];
     customerType?: string;
+    store?: string;
 }
 
 type WalkinCreator = {
     id: string;
     name: string;
     email: string;
+};
+
+const formatWalkinId = (sequenceValue: string) => {
+    const numeric = Number(sequenceValue);
+    if (Number.isFinite(numeric) && numeric > 0) {
+        return `WALKIN-${String(Math.floor(numeric)).padStart(3, '0')}`;
+    }
+    const normalized = String(sequenceValue || '').trim();
+    return normalized ? `WALKIN-${normalized}` : `WALKIN-${Date.now()}`;
 };
 
 export async function addWalkinCustomer(
@@ -26,6 +37,7 @@ export async function addWalkinCustomer(
     try {
         const walkinRef = adminDb.collection('Walkin_Customer');
         const createdAtIso = new Date().toISOString();
+        const walkinId = formatWalkinId(await getNextSequenceValue('walkinId'));
         const autoAttend = Boolean(creator?.id && creator?.name);
         const attendedBy = autoAttend && creator
             ? {
@@ -33,6 +45,12 @@ export async function addWalkinCustomer(
                 name: creator.name,
             }
             : null;
+        let creatorStore = '';
+        if (creator?.id) {
+            const creatorSnap = await adminDb.collection('users').doc(creator.id).get();
+            creatorStore = String((creatorSnap.data() as any)?.store || '').trim();
+        }
+        const resolvedStore = String(data?.store || creatorStore || '').trim();
 
         const mobileQuery = await walkinRef.where('mobile', '==', data.mobile).limit(1).get();
         if (!mobileQuery.empty) {
@@ -111,8 +129,10 @@ export async function addWalkinCustomer(
               })),
         });
 
-        const newCustomerDoc = await walkinRef.add({
+        await walkinRef.add({
             ...data,
+            walkinId,
+            store: resolvedStore || null,
             createdAt: createdAtIso,
             status: autoAttend ? 'Attended' : 'Pending',
             attendedBy,
@@ -121,6 +141,7 @@ export async function addWalkinCustomer(
                     id: creator.id,
                     name: creator.name,
                     email: creator.email,
+                    store: creatorStore || null,
                 }
                 : null,
             createdById: creator?.id || null,

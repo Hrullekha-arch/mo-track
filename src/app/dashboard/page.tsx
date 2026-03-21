@@ -52,11 +52,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { addCustomerAction, addDealAction } from "./customers/actions";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getNormalizedOrderMilestones, isOrderComplete as isOrderWorkflowComplete } from "@/lib/order-workflow";
 
 type DashboardOrderRisk = "critical" | "watch" | "stable";
@@ -160,6 +160,8 @@ const SalesmanDashboardV2 = () => {
   const [isClosing, setIsClosing] = useState(false);
   const [dealCreationLead, setDealCreationLead] = useState<Walkin_Customer | null>(null);
   const [isCreatingDeal, setIsCreatingDeal] = useState(false);
+  const [measurementRequiredAnswer, setMeasurementRequiredAnswer] = useState<"Yes" | "No">("No");
+  const [advanceReceivedAnswer, setAdvanceReceivedAnswer] = useState<"Yes" | "No" | "Old">("No");
 
   useEffect(() => {
     if (!user) return;
@@ -236,10 +238,25 @@ const SalesmanDashboardV2 = () => {
     };
   }, [user]);
 
-  const handleCreateDeal = async (lead: Walkin_Customer) => {
+  const resetDealCreationDialog = () => {
+    if (isCreatingDeal) return;
+    setDealCreationLead(null);
+    setMeasurementRequiredAnswer("No");
+    setAdvanceReceivedAnswer("No");
+  };
+
+  const openDealCreationDialog = (lead: Walkin_Customer) => {
+    if (isCreatingDeal) return;
+    setDealCreationLead(lead);
+    setMeasurementRequiredAnswer("No");
+    setAdvanceReceivedAnswer("No");
+  };
+
+  const handleCreateDeal = async () => {
+    const lead = dealCreationLead;
+    if (!lead) return;
     if (!user) return;
     setIsCreatingDeal(true);
-    setDealCreationLead(lead);
     try {
       const customersRef = collection(db, "customers");
       const customerQuery = query(customersRef, where("phone", "==", lead.mobile));
@@ -266,15 +283,34 @@ const SalesmanDashboardV2 = () => {
         dealAmount: 1,
         representativeId: user.id,
         description: `Deal created from walk-in lead for ${lead.firstName} ${lead.familyName}.`,
-        measurementRequired: "No" as const,
-        advanceForMeasurement: "No" as const,
+        measurementRequired: measurementRequiredAnswer,
+        advanceForMeasurement: advanceReceivedAnswer,
       });
 
       if (!dealResult.success || !dealResult.deal) {
         throw new Error(dealResult.message || "Failed to create deal.");
       }
 
-      await updateDoc(doc(db, "Walkin_Customer", lead.id), { status: "Deal Created" });
+      const nowIso = new Date().toISOString();
+      const inquiryStatus = "Inquery made";
+      await updateDoc(doc(db, "Walkin_Customer", lead.id), {
+        status: "Deal Created",
+        inquiryStatus,
+        advanceReceived: advanceReceivedAnswer,
+        measurementRequired: measurementRequiredAnswer,
+        latestDealId: dealResult.deal.dealId,
+        latestDealDocId: dealResult.deal.id,
+        dealSnapshot: {
+          status: inquiryStatus,
+          dealDocId: dealResult.deal.id,
+          dealId: dealResult.deal.dealId,
+          customerId,
+          dealName: dealResult.deal.title || dealResult.deal.dealName || "WalkIn",
+          measurementRequired: measurementRequiredAnswer,
+          advanceReceived: advanceReceivedAnswer,
+          createdAt: nowIso,
+        },
+      });
       toast({ title: "Deal Created", description: `Redirecting to deal #${dealResult.deal.dealId}` });
       router.push(`/dashboard/customers/${customerId}/${dealResult.deal.id}?tab=products`);
     } catch (error: any) {
@@ -282,6 +318,8 @@ const SalesmanDashboardV2 = () => {
     } finally {
       setIsCreatingDeal(false);
       setDealCreationLead(null);
+      setMeasurementRequiredAnswer("No");
+      setAdvanceReceivedAnswer("No");
     }
   };
 
@@ -302,6 +340,12 @@ const SalesmanDashboardV2 = () => {
     } finally {
       setIsClosing(false);
     }
+  };
+
+  const resetCloseLeadDialog = () => {
+    if (isClosing) return;
+    setClosingLead(null);
+    setWentBackRemark("");
   };
 
   const orderRows = useMemo(() => orders.map(deriveDashboardOrderRow), [orders]);
@@ -529,26 +573,13 @@ const SalesmanDashboardV2 = () => {
                           >
                       Cashsale
                     </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button size="sm">Create Deal</Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Create a New Deal?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This creates a new deal named &quot;WalkIn&quot; for {lead.firstName} {lead.familyName}.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => void handleCreateDeal(lead)} disabled={isCreatingDeal && dealCreationLead?.id === lead.id}>
-                              {isCreatingDeal && dealCreationLead?.id === lead.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                              Yes, Create Deal
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      <Button
+                        size="sm"
+                        onClick={() => openDealCreationDialog(lead)}
+                        disabled={isCreatingDeal}
+                      >
+                        Create Deal
+                      </Button>
                       <Button size="sm" variant="outline" onClick={() => setClosingLead(lead)}>Close</Button>
                     </div>
                   </div>
@@ -561,7 +592,68 @@ const SalesmanDashboardV2 = () => {
         </Card>
       </div>
 
-      <Dialog open={!!closingLead} onOpenChange={() => setClosingLead(null)}>
+      <Dialog
+        open={!!dealCreationLead}
+        onOpenChange={(open) => {
+          if (!open) resetDealCreationDialog();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Deal: {dealCreationLead?.firstName} {dealCreationLead?.familyName}</DialogTitle>
+            <DialogDescription>
+              Confirm the required details before creating this walk-in deal.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="measurement-required">Measurement Required</Label>
+              <Select
+                value={measurementRequiredAnswer}
+                onValueChange={(value) => setMeasurementRequiredAnswer(value as "Yes" | "No")}
+              >
+                <SelectTrigger id="measurement-required">
+                  <SelectValue placeholder="Select answer" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Yes">Yes</SelectItem>
+                  <SelectItem value="No">No</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="advance-received">Advance Received</Label>
+              <Select
+                value={advanceReceivedAnswer}
+                onValueChange={(value) => setAdvanceReceivedAnswer(value as "Yes" | "No" | "Old")}
+              >
+                <SelectTrigger id="advance-received">
+                  <SelectValue placeholder="Select answer" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Yes">Yes</SelectItem>
+                  <SelectItem value="No">No</SelectItem>
+                  <SelectItem value="Old">Old</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={resetDealCreationDialog} disabled={isCreatingDeal}>Cancel</Button>
+            <Button onClick={() => void handleCreateDeal()} disabled={isCreatingDeal}>
+              {isCreatingDeal ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Create Deal
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!closingLead}
+        onOpenChange={(open) => {
+          if (!open) resetCloseLeadDialog();
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Close Lead: {closingLead?.firstName} {closingLead?.familyName}</DialogTitle>
@@ -572,7 +664,7 @@ const SalesmanDashboardV2 = () => {
             <Textarea id="close-remark" value={wentBackRemark} onChange={(event) => setWentBackRemark(event.target.value)} placeholder="e.g., customer postponed, not interested, duplicate..." />
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setClosingLead(null)}>Cancel</Button>
+            <Button variant="ghost" onClick={resetCloseLeadDialog} disabled={isClosing}>Cancel</Button>
             <Button onClick={() => void handleCloseLead()} disabled={isClosing || !wentBackRemark}>
               {isClosing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Confirm And Close

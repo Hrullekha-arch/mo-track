@@ -5,3 +5,73 @@ runConfig:
   maxInstances: 10
   minInstances: 1
   timeoutSeconds: 300
+
+  env:
+  # 🌐 Environment
+  - variable: NODE_ENV
+    value: production
+    
+  # 🔐 Secure secrets
+  - variable: FIREBASE_SERVICE_ACCOUNT_KEY
+    secret: FIREBASE_SERVICE_ACCOUNT_KEY
+
+  # 🔥 Firebase (Frontend - Next.js)
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: "AIzaSyBUb3wNulHplcgEkuqpv2K5v711K7hxLzo"
+
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: "studio-3799785967-d0d9d.firebaseapp.com"
+
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: "studio-3799785967-d0d9d"
+
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: "studio-3799785967-d0d9d.firebasestorage.app"
+
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "190186132582"
+
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: "1:190186132582:web:a384cfd7d537547b7a09a7"
+
+  - variable: NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
+    value: "G-M7M6X69SNF"
+
+  # 🌍 Base URL
+  - variable: NEXT_PUBLIC_BASE_URL
+    value: "https://your-app.web.app"
+
+  # ⚙️ Flags
+  - variable: MIGRATE_DRY_RUN
+    value: "false"
+
+  - variable: MIGRATE_DELETE_OLD
+    value: "true"
+
+  # 📱 Expo (if using same backend)
+  - variable: EXPO_PUBLIC_FIREBASE_API_KEY
+    value: "https://studio--studio-3799785967-d0d9d.us-central1.hosted.app"
+
+  - variable: EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: "studio-3799785967-d0d9d.firebaseapp.com"
+
+  - variable: EXPO_PUBLIC_FIREBASE_PROJECT_ID
+    value: "studio-3799785967-d0d9d"
+
+  - variable: EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: "studio-3799785967-d0d9d.firebasestorage.app"
+
+  - variable: EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "190186132582"
+
+  - variable: EXPO_PUBLIC_FIREBASE_APP_ID
+    value: "1:190186132582:web:a384cfd7d537547b7a09a7"
+
+  - variable: EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID
+    value: "G-M7M6X69SNF"
+
+  - variable: EXPO_PUBLIC_BASE_URL
+    value: "https://studio--studio-3799785967-d0d9d.us-central1.hosted.app"
+
+  - variable: EXPO_PUBLIC_TRACKING_API_URL
+    value: "https://studio--studio-3799785967-d0d9d.us-central1.hosted.app"
