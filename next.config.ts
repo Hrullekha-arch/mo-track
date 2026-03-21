@@ -10,7 +10,6 @@ const pwaConfig = withPWA({
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  reactCompiler: true,
 
   // 👇 THIS IS THE KEY LINE
   turbopack: {},

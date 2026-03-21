@@ -8,24 +8,6 @@
   "storage": {
     "rules": "storage.rules"
   },
-  "functions": {
-    "source": "functions",
-    "runtime": "nodejs24"
-  },
-  "hosting": {
-    "public": "functions",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "rewrites": [
-      {
-        "source": "**",
-        "destination": "/index.html"
-      }
-    ]
-  },
   "apphosting": {
     "backendId": "studio",
     "rootDir": ".",
@@ -33,8 +15,7 @@
       "node_modules",
       ".git",
       "firebase-debug.log",
-      "firebase-debug.*.log",
-      "functions"
+      "firebase-debug.*.log"
     ],
     "alwaysDeployFromSource": true
   }

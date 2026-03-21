@@ -1,85 +1,21 @@
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Allow read/write access to all users on the 'users' collection
-    match /users/{userId} {
-      allow read, write: if true;
-    }
     
-    match /salesmanCrmAssignments/{salesmanId} {
-      allow read, write: if request.auth != null;
+    // Helper function to check if the user is an admin.
+    function isAdmin() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
-    // Allow authenticated users to perform actions based on their role
-    match /orders/{orderId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      // Allow update if the user is an admin or employee
-      allow update: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'employee'];
-      allow delete: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-    }
-    
-    // Allow read/write access to all users on all subcollections of 'customers'
-    match /customers/{customerId}/{document=**} {
-        allow read, write: if request.auth != null;
-    }
-    
-    match /purchaseRequests/{requestId} {
-        allow read, write: if request.auth != null;
-    }
-    
-     match /o2d/{o2dId} {
-        allow read, write: if request.auth != null;
-    }
-
-    match /stocks/{stockId}/{document=**} {
-        allow read, write: if request.auth != null;
-    }
-    
-    match /taxDetails/{taxId} {
-        allow read, write: if request.auth != null;
-    }
-    
-    match /invoices/{invoiceId} {
-        allow read, write: if request.auth != null;
-    }
-
-    match /invoiceBatches/{batchId} {
-        allow read, write: if request.auth != null;
-    }
-    
-    match /Cutting/{cuttingId} {
-      allow read, write: if request.auth != null;
-    }
-
-    match /installers/{installerId}/{document=**} {
-      allow read, write: if request.auth != null;
-    }
-
-    match /installerTracking/{installerId}/{document=**} {
-      allow read: if request.auth != null;
-      allow write: if false;
-    }
-
-    match /visitTracking/{visitId}/{document=**} {
-      allow read: if request.auth != null;
-      allow write: if false;
-    }
-
-    match /approvedStock/{stockId} {
-        allow read, write: if request.auth != null;
-    }
-
-    match /pmsSettings/{docId} {
-      allow read, write: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-    }
-
-    // Default deny all other access
+    // Match all documents in the database
     match /{document=**} {
-      allow read, write: if false;
+      // Admins can do anything.
+      allow read, write, delete: if isAdmin();
+      
+      // Any other authenticated user can read and write, but not delete.
+      // This rule is evaluated only if the isAdmin() rule above is false.
+      allow read, write: if request.auth != null;
     }
   }
 }
