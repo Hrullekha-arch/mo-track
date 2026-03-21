@@ -10,10 +10,10 @@ const pwaConfig = withPWA({
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-
-  // 👇 THIS IS THE KEY LINE
-  turbopack: {},
-
+  devIndicators: false,
+  experimental: {
+    devtoolSegmentExplorer: false,
+  },
   typescript: {
     ignoreBuildErrors: true,
   },

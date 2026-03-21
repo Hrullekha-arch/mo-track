@@ -9,6 +9,7 @@
     "deploy:ssr": "npm run build:ssr && firebase deploy --only functions,hosting",
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
     "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
+    "prebuild": "node -e \"const fs=require('fs');['.next','.next-dev','node_modules/.cache'].forEach((d)=>{try{fs.rmSync(d,{recursive:true,force:true});}catch(e){}});\"",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

@@ -6,11 +6,11 @@ runConfig:
   minInstances: 1
   timeoutSeconds: 300
 
-  env:
+env:
   # 🌐 Environment
   - variable: NODE_ENV
     value: production
-    
+
   # 🔐 Secure secrets
   - variable: FIREBASE_SERVICE_ACCOUNT_KEY
     secret: FIREBASE_SERVICE_ACCOUNT_KEY
@@ -39,7 +39,7 @@ runConfig:
 
   # 🌍 Base URL
   - variable: NEXT_PUBLIC_BASE_URL
-    value: "https://your-app.web.app"
+    value: "https://studio--studio-3799785967-d0d9d.us-central1.hosted.app"
 
   # ⚙️ Flags
   - variable: MIGRATE_DRY_RUN
@@ -48,9 +48,9 @@ runConfig:
   - variable: MIGRATE_DELETE_OLD
     value: "true"
 
-  # 📱 Expo (if using same backend)
+  # 📱 Expo
   - variable: EXPO_PUBLIC_FIREBASE_API_KEY
-    value: "https://studio--studio-3799785967-d0d9d.us-central1.hosted.app"
+    value: "AIzaSyBUb3wNulHplcgEkuqpv2K5v711K7hxLzo"
 
   - variable: EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN
     value: "studio-3799785967-d0d9d.firebaseapp.com"

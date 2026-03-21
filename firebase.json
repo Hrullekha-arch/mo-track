@@ -13,6 +13,8 @@
     "rootDir": ".",
     "ignore": [
       "node_modules",
+      ".next",
+      ".next-dev",
       ".git",
       "firebase-debug.log",
       "firebase-debug.*.log"
