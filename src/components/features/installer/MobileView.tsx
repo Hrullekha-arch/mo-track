@@ -769,6 +769,49 @@ export function MobileView() {
   );
 }
 
+type InstallerOrderCardProps = {
+  order: Order;
+  location?: { latitude: number; longitude: number } | null;
+  locationError?: string | null;
+};
+
+export function InstallerOrderCard({ order }: InstallerOrderCardProps) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">{order.customerName}</CardTitle>
+            <CardDescription>ID: {order.id}</CardDescription>
+          </div>
+          <Badge variant="secondary">Completed</Badge>
+        </div>
+        <Badge className="w-fit mt-1" variant="outline">
+          {order.orderType?.replace("+", " + ") || "Order"}
+        </Badge>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        <p className="flex items-start gap-2 text-muted-foreground">
+          <MapPin className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>{order.customerAddress || "No address available"}</span>
+        </p>
+        <p className="flex items-center gap-2 text-muted-foreground">
+          <Phone className="h-4 w-4 shrink-0" />
+          <span>{order.customerPhone || "No phone available"}</span>
+        </p>
+      </CardContent>
+      <CardFooter className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>Completed At</span>
+        <span>
+          {order.completedAt
+            ? new Date(order.completedAt).toLocaleString()
+            : "Not available"}
+        </span>
+      </CardFooter>
+    </Card>
+  );
+}
+
 // const InstallerTaskCard = ({
 //   task,
 //   location,
