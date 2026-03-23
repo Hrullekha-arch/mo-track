@@ -2,7 +2,10 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2, PlusCircle, Trash2, UserPlus } from "lucide-react";
+import {
+  Loader2, PlusCircle, UserPlus, ChevronRight,
+  Search, Package, Wrench, FileText, CheckCircle2, X, User,
+} from "lucide-react";
 
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -21,367 +24,294 @@ import { Stock, Walkin_Customer } from "@/lib/types";
 import { roomOptions, storeOptions } from "@/lib/constants";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Dialog, DialogContent, DialogDescription,
+  DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
+import { Separator } from "@/components/ui/separator";
 
-type SalesmanOption = {
-  id: string;
-  name: string;
-  salesmanCode?: string;
-};
-
+/* ─────────────────────────────────────────────────────────────────────────────
+   Types
+───────────────────────────────────────────────────────────────────────────── */
+type SalesmanOption = { id: string; name: string; salesmanCode?: string };
 type DraftCustomer = {
-  name: string;
-  mobile: string;
-  email: string;
-  addressLine1: string;
-  pincode: string;
+  name: string; mobile: string; email: string; addressLine1: string; pincode: string;
 };
-
 type DraftItem = {
-  bcn: string;
-  description: string;
-  quantity: string;
-  rate: string;
-  discountPercent: string;
-  gstPercent: string;
-  gstMode: "EXCL" | "INCL";
-  room: string;
-  remark: string;
-  stockId?: string;
+  bcn: string; description: string; quantity: string; rate: string;
+  discountPercent: string; gstPercent: string; gstMode: "EXCL" | "INCL";
+  room: string; remark: string; stockId?: string;
 };
-
 type DraftVas = {
-  vasName: string;
-  quantity: string;
-  rate: string;
-  gstPercent: string;
-  room: string;
-  hsnCode: string;
+  vasName: string; quantity: string; rate: string;
+  gstPercent: string; room: string; hsnCode: string;
 };
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Defaults
+───────────────────────────────────────────────────────────────────────────── */
 const defaultDraftCustomer: DraftCustomer = {
-  name: "",
-  mobile: "",
-  email: "",
-  addressLine1: "",
-  pincode: "",
+  name: "", mobile: "", email: "", addressLine1: "", pincode: "",
 };
-
 const defaultDraftItem: DraftItem = {
-  bcn: "",
-  description: "",
-  quantity: "1",
-  rate: "",
-  discountPercent: "0",
-  gstPercent: "5",
-  gstMode: "INCL",
-  room: "",
-  remark: "",
-  stockId: undefined,
+  bcn: "", description: "", quantity: "1", rate: "",
+  discountPercent: "0", gstPercent: "5", gstMode: "INCL",
+  room: "", remark: "", stockId: undefined,
 };
-
 const defaultDraftVas: DraftVas = {
-  vasName: "",
-  quantity: "1",
-  rate: "",
-  gstPercent: "0",
-  room: "",
-  hsnCode: "",
+  vasName: "", quantity: "1", rate: "", gstPercent: "0", room: "", hsnCode: "",
 };
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Helpers
+───────────────────────────────────────────────────────────────────────────── */
 const toNumber = (value: unknown, fallback = 0) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
 };
 
 const getStockRate = (stock?: Stock | null) => {
   if (!stock) return 0;
-  const rrp = Number((stock as { rrpWithGstRs?: number }).rrpWithGstRs);
-  if (Number.isFinite(rrp) && rrp > 0) return rrp;
-  const mrp = Number(stock.mrp);
-  if (Number.isFinite(mrp) && mrp > 0) return mrp;
-  const cl = Number(stock.clPrice);
-  if (Number.isFinite(cl) && cl > 0) return cl;
-  const rl = Number(stock.rlPrice);
-  if (Number.isFinite(rl) && rl > 0) return rl;
+  for (const key of ["rrpWithGstRs", "mrp", "clPrice", "rlPrice"] as const) {
+    const v = Number((stock as Record<string, unknown>)[key]);
+    if (Number.isFinite(v) && v > 0) return v;
+  }
   return 0;
 };
 
 const lineAmount = (item: InstantItemInput) => {
-  const qty = Math.max(0, toNumber(item.quantity));
+  const qty  = Math.max(0, toNumber(item.quantity));
   const rate = Math.max(0, toNumber(item.rate));
-  const discountPercent = Math.max(0, Math.min(100, toNumber(item.discountPercent)));
-  const gstPercent = Math.max(0, toNumber(item.gstPercent || 0));
-  const gstMode = item.gstMode === "EXCL" ? "EXCL" : "INCL";
-
-  const gross = qty * rate;
-  const afterDiscount = gross * (1 - discountPercent / 100);
-  return gstMode === "EXCL" ? afterDiscount * (1 + gstPercent / 100) : afterDiscount;
+  const disc = Math.max(0, Math.min(100, toNumber(item.discountPercent)));
+  const gst  = Math.max(0, toNumber(item.gstPercent ?? 0));
+  const after = qty * rate * (1 - disc / 100);
+  return item.gstMode === "EXCL" ? after * (1 + gst / 100) : after;
 };
 
-const vasLineAmount = (vas: InstantVasInput) => {
-  const qty = Math.max(0, toNumber(vas.quantity));
-  const rate = Math.max(0, toNumber(vas.rate));
-  return qty * rate;
-};
+const vasLineAmount = (v: InstantVasInput) =>
+  Math.max(0, toNumber(v.quantity)) * Math.max(0, toNumber(v.rate));
 
+const fmt = (n: number) =>
+  new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Small layout primitives
+───────────────────────────────────────────────────────────────────────────── */
+function FormField({
+  label, required, children,
+}: { label: string; required?: boolean; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+        {label}{required && <span className="text-destructive ml-0.5">*</span>}
+      </Label>
+      {children}
+    </div>
+  );
+}
+
+function SectionIcon({ icon: Icon }: { icon: React.ElementType }) {
+  return (
+    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground">
+      <Icon className="h-4 w-4" />
+    </div>
+  );
+}
+
+function EmptyRow({ message }: { message: string }) {
+  return (
+    <p className="rounded-md border bg-muted/20 py-6 text-center text-sm text-muted-foreground">
+      {message}
+    </p>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Page export
+───────────────────────────────────────────────────────────────────────────── */
 export default function QuotationBuilderPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-muted-foreground">Loading...</div>}>
+    <Suspense
+      fallback={
+        <div className="flex h-screen items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
       <QuotationBuilderInner />
     </Suspense>
   );
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Inner component
+───────────────────────────────────────────────────────────────────────────── */
 function QuotationBuilderInner() {
-
-const searchParams = useSearchParams();
-
+  const searchParams = useSearchParams();
   const payload = searchParams.get("payload");
 
   const leaddata = useMemo<Walkin_Customer | null>(() => {
     if (!payload) return null;
-    try {
-      return JSON.parse(decodeURIComponent(payload)) as Walkin_Customer;
-    } catch (e) {
-      console.error("Payload parse failed:", e);
-      return null;
-    }
+    try { return JSON.parse(decodeURIComponent(payload)) as Walkin_Customer; }
+    catch (e) { console.error("Payload parse failed:", e); return null; }
   }, [payload]);
 
   const leadAppliedRef = useRef(false);
+  const router         = useRouter();
+  const { toast }      = useToast();
+  const { user }       = useAuth();
 
-  useEffect(() => {
-    console.log("payload raw:", payload);
-    console.log("lead Data:", leaddata);
-  }, [payload, leaddata]);
-
-  const router = useRouter();
-  const { toast } = useToast();
-  const { user } = useAuth();
-
-  const [isBootLoading, setIsBootLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const [salesmen, setSalesmen] = useState<SalesmanOption[]>([]);
+  /* ── State ─────────────────────────────────────────────────── */
+  const [isBootLoading, setIsBootLoading]         = useState(true);
+  const [isSubmitting, setIsSubmitting]           = useState(false);
+  const [salesmen, setSalesmen]                   = useState<SalesmanOption[]>([]);
   const [nextDealIdPreview, setNextDealIdPreview] = useState("INQ-001");
 
-  const [customerQuery, setCustomerQuery] = useState("");
-  const [customerOptions, setCustomerOptions] = useState<InstantCustomerOption[]>([]);
+  const [customerQuery, setCustomerQuery]               = useState("");
+  const [customerOptions, setCustomerOptions]           = useState<InstantCustomerOption[]>([]);
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<InstantCustomerOption | null>(null);
+  const [selectedCustomer, setSelectedCustomer]         = useState<InstantCustomerOption | null>(null);
   const [isCustomerDialogOpen, setIsCustomerDialogOpen] = useState(false);
-  const [draftCustomer, setDraftCustomer] = useState<DraftCustomer>(defaultDraftCustomer);
-  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
+  const [draftCustomer, setDraftCustomer]               = useState<DraftCustomer>(defaultDraftCustomer);
+  const [isCreatingCustomer, setIsCreatingCustomer]     = useState(false);
 
   const [salesmanId, setSalesmanId] = useState("");
-  const [dealName, setDealName] = useState<"Cashsale" | "Walkin-sale">("Walkin-sale");
-  const [store, setStore] = useState("");
-  const [orderType, setOrderType] = useState<"delivery" | "stitching" | "stitching+installation">("delivery");
+  const [dealName, setDealName]     = useState<"Cashsale" | "Walkin-sale">("Walkin-sale");
+  const [store, setStore]           = useState("");
+  const [orderType, setOrderType]   = useState<"delivery" | "stitching" | "stitching+installation">("delivery");
 
-  const [items, setItems] = useState<InstantItemInput[]>([]);
-  const [draftItem, setDraftItem] = useState<DraftItem>(defaultDraftItem);
+  const [items, setItems]                             = useState<InstantItemInput[]>([]);
+  const [draftItem, setDraftItem]                     = useState<DraftItem>(defaultDraftItem);
+  const [stockSuggestions, setStockSuggestions]       = useState<Stock[]>([]);
+  const [stockSuggestionOpen, setStockSuggestionOpen] = useState(false);
+  const [isSearchingStock, setIsSearchingStock]       = useState(false);
+
   const [vasItems, setVasItems] = useState<InstantVasInput[]>([]);
   const [draftVas, setDraftVas] = useState<DraftVas>(defaultDraftVas);
-  const [stockSuggestions, setStockSuggestions] = useState<Stock[]>([]);
-  const [stockSuggestionOpen, setStockSuggestionOpen] = useState(false);
-  const [isSearchingStock, setIsSearchingStock] = useState(false);
 
-  const goodsTotalAmount = useMemo(
-    () => items.reduce((sum, item) => sum + lineAmount(item), 0),
-    [items]
+  /* ── Computed ───────────────────────────────────────────────── */
+  const goodsTotal = useMemo(() => items.reduce((s, i) => s + lineAmount(i), 0), [items]);
+  const vasTotal   = useMemo(() => vasItems.reduce((s, v) => s + vasLineAmount(v), 0), [vasItems]);
+  const grandTotal = goodsTotal + vasTotal;
+  const isCashsale = dealName === "Cashsale";
+  const selectedSalesman = useMemo(
+    () => salesmen.find((s) => s.id === salesmanId) ?? null,
+    [salesmen, salesmanId],
   );
-  const vasTotalAmount = useMemo(
-    () => vasItems.reduce((sum, vas) => sum + vasLineAmount(vas), 0),
-    [vasItems]
-  );
-  const totalAmount = goodsTotalAmount + vasTotalAmount;
 
+  /* ── Bootstrap ──────────────────────────────────────────────── */
   useEffect(() => {
     let active = true;
-    const loadBootstrap = async () => {
+    (async () => {
       setIsBootLoading(true);
       try {
-        const [boot, customerSeed] = await Promise.all([
+        const [boot, seed] = await Promise.all([
           getInstantQuotationBootstrapAction(),
           searchInstantCustomersAction(""),
         ]);
         if (!active) return;
         setSalesmen(boot.salesmen);
         setNextDealIdPreview(boot.nextDealId);
-        setCustomerOptions(customerSeed);
-        if (boot.salesmen.length > 0) {
-          setSalesmanId(boot.salesmen[0].id);
-        }
-      } catch (error) {
-        console.error("Failed to load quotation-builder bootstrap:", error);
-      } finally {
-        if (active) setIsBootLoading(false);
-      }
-    };
-
-    loadBootstrap();
-    return () => {
-      active = false;
-    };
+        setCustomerOptions(seed);
+        if (boot.salesmen.length > 0) setSalesmanId(boot.salesmen[0].id);
+      } catch (e) { console.error(e); }
+      finally { if (active) setIsBootLoading(false); }
+    })();
+    return () => { active = false; };
   }, []);
 
-  // Pre-fill form from payload sent by salesman dashboard (runs once after bootstrap)
+  /* ── Lead prefill ───────────────────────────────────────────── */
   useEffect(() => {
     if (!leaddata || isBootLoading || leadAppliedRef.current) return;
     leadAppliedRef.current = true;
-
     const fullName = `${leaddata.firstName} ${leaddata.familyName}`.trim();
-    const synthetic: InstantCustomerOption = {
-      id: leaddata.id,
-      name: fullName,
-      mobile: leaddata.mobile,
-      email: leaddata.email,
-    };
-
-    setSelectedCustomer(synthetic);
+    setSelectedCustomer({ id: leaddata.id, name: fullName, mobile: leaddata.mobile, email: leaddata.email });
     setCustomerQuery(`${fullName} (${leaddata.mobile})`);
     setDealName("Cashsale");
-
-    if (leaddata.salesmanId) {
-      setSalesmanId(leaddata.salesmanId);
-    }
+    if (leaddata.salesmanId) setSalesmanId(leaddata.salesmanId);
   }, [leaddata, isBootLoading]);
 
+  /* ── Customer search ────────────────────────────────────────── */
   useEffect(() => {
-    const timer = setTimeout(async () => {
-      try {
-        const options = await searchInstantCustomersAction(customerQuery.trim());
-        setCustomerOptions(options);
-      } catch (error) {
-        console.error("Failed to search customers:", error);
-      }
+    const t = setTimeout(async () => {
+      try { setCustomerOptions(await searchInstantCustomersAction(customerQuery.trim())); }
+      catch (e) { console.error(e); }
     }, 220);
-
-    return () => clearTimeout(timer);
+    return () => clearTimeout(t);
   }, [customerQuery]);
 
+  /* ── Stock search ───────────────────────────────────────────── */
   useEffect(() => {
     const term = draftItem.bcn.trim();
-    if (term.length < 2) {
-      setStockSuggestions([]);
-      return;
-    }
-
-    const timer = setTimeout(async () => {
+    if (term.length < 2) { setStockSuggestions([]); return; }
+    const t = setTimeout(async () => {
       setIsSearchingStock(true);
-      try {
-        const rows = await searchStockByBcn(term);
-        setStockSuggestions(rows || []);
-      } catch (error) {
-        console.error("Failed to search stock:", error);
-      } finally {
-        setIsSearchingStock(false);
-      }
+      try { setStockSuggestions((await searchStockByBcn(term)) || []); }
+      catch (e) { console.error(e); }
+      finally { setIsSearchingStock(false); }
     }, 240);
-
-    return () => clearTimeout(timer);
+    return () => clearTimeout(t);
   }, [draftItem.bcn]);
 
-  const selectedSalesman = useMemo(
-    () => salesmen.find((row) => row.id === salesmanId) || null,
-    [salesmen, salesmanId]
-  );
-  const isCashsale = dealName === "Cashsale";
-
+  /* ── Cashsale GST reset ─────────────────────────────────────── */
   useEffect(() => {
     if (!isCashsale) return;
-
-    setItems((prev) =>
-      prev.map((item) => ({
-        ...item,
-        gstPercent: 0,
-        gstMode: "INCL",
-      }))
-    );
-    setVasItems((prev) =>
-      prev.map((vas) => ({
-        ...vas,
-        gstPercent: 0,
-      }))
-    );
-    setDraftItem((prev) => ({
-      ...prev,
-      gstPercent: "0",
-      gstMode: "INCL",
-    }));
-    setDraftVas((prev) => ({
-      ...prev,
-      gstPercent: "0",
-    }));
+    setItems((p) => p.map((i) => ({ ...i, gstPercent: 0, gstMode: "INCL" as const })));
+    setVasItems((p) => p.map((v) => ({ ...v, gstPercent: 0 })));
+    setDraftItem((p) => ({ ...p, gstPercent: "0", gstMode: "INCL" }));
+    setDraftVas((p) => ({ ...p, gstPercent: "0" }));
   }, [isCashsale]);
 
-  const handleSelectCustomer = (customer: InstantCustomerOption) => {
-    setSelectedCustomer(customer);
-    setCustomerQuery(`${customer.name} (${customer.mobile})`);
+  /* ── Handlers ───────────────────────────────────────────────── */
+  const handleSelectCustomer = (c: InstantCustomerOption) => {
+    setSelectedCustomer(c);
+    setCustomerQuery(`${c.name} (${c.mobile})`);
     setCustomerDropdownOpen(false);
   };
 
   const handleCreateCustomer = async () => {
     if (!draftCustomer.name.trim() || !draftCustomer.mobile.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Missing details",
-        description: "Customer name and mobile are required.",
-      });
+      toast({ variant: "destructive", title: "Missing details", description: "Name and mobile are required." });
       return;
     }
-
     setIsCreatingCustomer(true);
     try {
-      const result = await createInstantCustomerAction({
-        name: draftCustomer.name,
-        mobile: draftCustomer.mobile,
+      const res = await createInstantCustomerAction({
+        name: draftCustomer.name, mobile: draftCustomer.mobile,
         email: draftCustomer.email || undefined,
         addressLine1: draftCustomer.addressLine1 || undefined,
         pincode: draftCustomer.pincode || undefined,
-        createdBy: user?.name,
-        leadId: undefined
+        createdBy: user?.name, leadId: undefined,
       });
-
-      if (!result.success || !result.customer) {
-        toast({
-          variant: "destructive",
-          title: "Failed to create customer",
-          description: result.message,
-        });
-        return;
+      if (!res.success || !res.customer) {
+        toast({ variant: "destructive", title: "Failed", description: res.message }); return;
       }
-
-      setSelectedCustomer(result.customer);
-      setCustomerQuery(`${result.customer.name} (${result.customer.mobile})`);
+      setSelectedCustomer(res.customer);
+      setCustomerQuery(`${res.customer.name} (${res.customer.mobile})`);
       setDraftCustomer(defaultDraftCustomer);
       setIsCustomerDialogOpen(false);
-      setCustomerDropdownOpen(false);
-
-      toast({
-        title: "Customer created",
-        description: `${result.customer.name} is selected for this quotation.`,
-      });
-    } finally {
-      setIsCreatingCustomer(false);
-    }
+      toast({ title: "Customer created", description: `${res.customer.name} selected.` });
+    } finally { setIsCreatingCustomer(false); }
   };
 
   const handleSelectStock = (stock: Stock) => {
     const name = String(stock.name || stock.itemName || stock.bcn || "").trim();
-    const gst = toNumber((stock as any).gstPercent, 5);
-    setDraftItem((prev) => ({
-      ...prev,
-      bcn: String(stock.bcn || prev.bcn),
-      description: name || prev.description,
-      rate: String(getStockRate(stock) || prev.rate || ""),
+    const gst  = toNumber((stock as Record<string, unknown>).gstPercent, 5);
+    setDraftItem((p) => ({
+      ...p,
+      bcn: String(stock.bcn || p.bcn),
+      description: name || p.description,
+      rate: String(getStockRate(stock) || p.rate || ""),
       gstPercent: isCashsale ? "0" : String(gst > 0 ? gst : 5),
       stockId: stock.id,
     }));
@@ -389,257 +319,215 @@ const searchParams = useSearchParams();
   };
 
   const handleAddItem = () => {
-    const bcn = draftItem.bcn.trim();
+    const bcn         = draftItem.bcn.trim();
     const description = draftItem.description.trim();
-    const quantity = Math.max(0, toNumber(draftItem.quantity));
-    const rate = Math.max(0, toNumber(draftItem.rate));
-
-    if (!bcn || !description || quantity <= 0) {
-      toast({
-        variant: "destructive",
-        title: "Invalid item",
-        description: "BCN, description and quantity are required.",
-      });
+    const qty         = Math.max(0, toNumber(draftItem.quantity));
+    if (!bcn || !description || qty <= 0) {
+      toast({ variant: "destructive", title: "Invalid item", description: "BCN, description and quantity required." });
       return;
     }
-
-    const row: InstantItemInput = {
-      bcn,
-      description,
-      quantity,
-      rate,
-      discountPercent: Math.max(0, Math.min(100, toNumber(draftItem.discountPercent))),
-      gstPercent: isCashsale ? 0 : Math.max(0, toNumber(draftItem.gstPercent, 5)),
-      gstMode: isCashsale ? "INCL" : draftItem.gstMode,
-      room: draftItem.room || undefined,
-      remark: draftItem.remark || undefined,
-      stockId: draftItem.stockId,
-    };
-
-    setItems((prev) => [...prev, row]);
+    setItems((p) => [
+      ...p,
+      {
+        bcn, description, quantity: qty,
+        rate: Math.max(0, toNumber(draftItem.rate)),
+        discountPercent: Math.max(0, Math.min(100, toNumber(draftItem.discountPercent))),
+        gstPercent: isCashsale ? 0 : Math.max(0, toNumber(draftItem.gstPercent, 5)),
+        gstMode: isCashsale ? "INCL" : draftItem.gstMode,
+        room: draftItem.room || undefined,
+        remark: draftItem.remark || undefined,
+        stockId: draftItem.stockId,
+      },
+    ]);
     setDraftItem(defaultDraftItem);
     setStockSuggestions([]);
     setStockSuggestionOpen(false);
   };
 
-  const handleRemoveItem = (index: number) => {
-    setItems((prev) => prev.filter((_, idx) => idx !== index));
-  };
-
   const handleAddVas = () => {
     const vasName = draftVas.vasName.trim();
-    const quantity = Math.max(0, toNumber(draftVas.quantity));
-    const rate = Math.max(0, toNumber(draftVas.rate));
-
-    if (!vasName || quantity <= 0) {
-      toast({
-        variant: "destructive",
-        title: "Invalid VAS",
-        description: "VAS name and quantity are required.",
-      });
+    const qty     = Math.max(0, toNumber(draftVas.quantity));
+    if (!vasName || qty <= 0) {
+      toast({ variant: "destructive", title: "Invalid VAS", description: "Name and quantity required." });
       return;
     }
-
-    const row: InstantVasInput = {
-      vasName,
-      quantity,
-      rate,
-      gstPercent: isCashsale ? 0 : Math.max(0, toNumber(draftVas.gstPercent, 0)),
-      room: draftVas.room || undefined,
-      hsnCode: draftVas.hsnCode.trim() || undefined,
-    };
-
-    setVasItems((prev) => [...prev, row]);
+    setVasItems((p) => [
+      ...p,
+      {
+        vasName, quantity: qty,
+        rate: Math.max(0, toNumber(draftVas.rate)),
+        gstPercent: isCashsale ? 0 : Math.max(0, toNumber(draftVas.gstPercent, 0)),
+        room: draftVas.room || undefined,
+        hsnCode: draftVas.hsnCode.trim() || undefined,
+      },
+    ]);
     setDraftVas(defaultDraftVas);
   };
 
-  const handleRemoveVas = (index: number) => {
-    setVasItems((prev) => prev.filter((_, idx) => idx !== index));
-  };
-
   const handleSubmit = async () => {
-    if (!user?.id || !user?.name) {
-      toast({
-        variant: "destructive",
-        title: "Login required",
-        description: "Please login again before creating instant quotation.",
-      });
-      return;
-    }
-    if (!selectedCustomer) {
-      toast({
-        variant: "destructive",
-        title: "Customer required",
-        description: "Select an existing customer or create a new one.",
-      });
-      return;
-    }
-    if (!salesmanId) {
-      toast({
-        variant: "destructive",
-        title: "Sales representative required",
-        description: "Select the salesman handling this instant quotation.",
-      });
-      return;
-    }
-    if (!store) {
-      toast({
-        variant: "destructive",
-        title: "Store required",
-        description: "Select a store before creating order.",
-      });
-      return;
-    }
-    if (items.length === 0 && vasItems.length === 0) {
-      toast({
-        variant: "destructive",
-        title: "Lines missing",
-        description: "Add at least one item or one VAS line.",
-      });
-      return;
-    }
+    if (!user?.id || !user?.name)       { toast({ variant: "destructive", title: "Login required" }); return; }
+    if (!selectedCustomer)              { toast({ variant: "destructive", title: "Customer required" }); return; }
+    if (!salesmanId)                    { toast({ variant: "destructive", title: "Salesman required" }); return; }
+    if (!store)                         { toast({ variant: "destructive", title: "Store required" }); return; }
+    if (!items.length && !vasItems.length) { toast({ variant: "destructive", title: "Add at least one line" }); return; }
 
     setIsSubmitting(true);
     try {
-      const normalizedItems =
-        dealName === "Cashsale"
-          ? items.map((item) => ({ ...item, gstPercent: 0, gstMode: "INCL" as const }))
-          : items;
-      const normalizedVas =
-        dealName === "Cashsale"
-          ? vasItems.map((vas) => ({ ...vas, gstPercent: 0 }))
-          : vasItems;
+      const normItems = isCashsale ? items.map((i) => ({ ...i, gstPercent: 0, gstMode: "INCL" as const })) : items;
+      const normVas   = isCashsale ? vasItems.map((v) => ({ ...v, gstPercent: 0 })) : vasItems;
 
-      const result = await createInstantQuotationOrderAction({
-        leadId:leaddata?.id,
-        customerId: selectedCustomer.id,
-        customerName: selectedCustomer.name,
-        mobile: selectedCustomer.mobile,
-        email: selectedCustomer.email,
-        addressLine1: selectedCustomer.addressLine1,
-        pincode: selectedCustomer.pincode,
-        salesmanId,
-        dealName,
-        store,
-        orderType: dealName === "Cashsale" ? "delivery" : orderType,
-        items: normalizedItems,
-        vasDetails: normalizedVas,
-        creator: {
-          id: user.id,
-          name: user.name,
-        },
+      const res = await createInstantQuotationOrderAction({
+        leadId: leaddata?.id,
+        customerId: selectedCustomer.id, customerName: selectedCustomer.name,
+        mobile: selectedCustomer.mobile, email: selectedCustomer.email,
+        addressLine1: selectedCustomer.addressLine1, pincode: selectedCustomer.pincode,
+        salesmanId, dealName, store,
+        orderType: isCashsale ? "delivery" : orderType,
+        items: normItems, vasDetails: normVas,
+        creator: { id: user.id, name: user.name },
       });
 
-      if (!result.success) {
-        toast({
-          variant: "destructive",
-          title: "Creation failed",
-          description: result.message,
-        });
-        return;
+      if (!res.success) {
+        toast({ variant: "destructive", title: "Creation failed", description: res.message }); return;
       }
-
-      toast({
-        title: "Instant quotation created",
-        description: result.message,
-      });
-
-      if (result.orderId) {
-        router.push(`/dashboard/orders/${result.orderId}`);
-        return;
-      }
-
+      toast({ title: "Quotation created!", description: res.message });
+      if (res.orderId) { router.push(`/dashboard/orders/${res.orderId}`); return; }
       const boot = await getInstantQuotationBootstrapAction();
       setNextDealIdPreview(boot.nextDealId);
-      setItems([]);
-      setVasItems([]);
-    } finally {
-      setIsSubmitting(false);
-    }
+      setItems([]); setVasItems([]);
+    } finally { setIsSubmitting(false); }
   };
 
+  /* ─────────────────────────────────────────────────────────────
+     Render
+  ───────────────────────────────────────────────────────────────*/
   return (
-    <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-5">
-      <header className="space-y-1">
-        <h1 className="text-3xl font-semibold tracking-tight">Instant Quotation</h1>
-        <p className="text-sm text-muted-foreground">
-          Single-page flow: customer selection, item entry, quotation creation and instant order creation.
-        </p>
-      </header>
+    <div className="container mx-auto max-w-7xl px-4 py-6 md:px-8 space-y-5">
 
+      {/* ── Header ── */}
+      <div className="flex items-end justify-between gap-4 pb-4 border-b">
+        <div>
+          <p className="text-xs text-muted-foreground uppercase tracking-widest mb-1">
+            Sales / Quotation
+          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">Instant Quotation</h1>
+        </div>
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground font-mono">
+          <span>Deal</span>
+          <ChevronRight className="h-3.5 w-3.5" />
+          <span className="font-semibold text-primary">{nextDealIdPreview}</span>
+        </div>
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════
+          CARD 1 — Basic Details
+      ══════════════════════════════════════════════════════════ */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Basic Details</CardTitle>
-          <CardDescription>Customer, sales representative, deal metadata and store.</CardDescription>
+        <CardHeader className="pb-4">
+          <div className="flex items-center gap-3">
+            <SectionIcon icon={FileText} />
+            <div>
+              <CardTitle className="text-base">Basic Details</CardTitle>
+              <CardDescription>Customer · Salesman · Store · Deal type</CardDescription>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <div className="rounded-md border p-3 space-y-2 relative">
-              <div className="flex items-center justify-between gap-2">
-                <Label>Customer Name</Label>
-                <Button variant="outline" size="sm" onClick={() => setIsCustomerDialogOpen(true)}>
-                  <UserPlus className="mr-2 h-4 w-4" />
+
+        <CardContent>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+
+            {/* Customer picker */}
+            <div className="relative space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Customer <span className="text-destructive">*</span>
+                </Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs gap-1"
+                  onClick={() => setIsCustomerDialogOpen(true)}
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
                   New
                 </Button>
               </div>
-              <Input
-                placeholder="Search customer by name or mobile..."
-                value={customerQuery}
-                onFocus={() => setCustomerDropdownOpen(true)}
-                onChange={(event) => {
-                  setSelectedCustomer(null);
-                  setCustomerQuery(event.target.value);
-                  setCustomerDropdownOpen(true);
-                }}
-              />
+
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  className="pl-8"
+                  placeholder="Search by name or mobile…"
+                  value={customerQuery}
+                  onFocus={() => setCustomerDropdownOpen(true)}
+                  onChange={(e) => {
+                    setSelectedCustomer(null);
+                    setCustomerQuery(e.target.value);
+                    setCustomerDropdownOpen(true);
+                  }}
+                />
+              </div>
+
               {customerDropdownOpen && customerOptions.length > 0 && (
-                <div className="absolute z-20 mt-1 w-[calc(100%-1.5rem)] rounded-md border bg-background shadow-sm max-h-56 overflow-auto">
-                  {customerOptions.map((customer) => (
+                <div className="absolute z-30 top-[calc(100%-0.5rem)] w-full rounded-md border bg-popover shadow-md max-h-52 overflow-auto">
+                  {customerOptions.map((c) => (
                     <button
-                      key={customer.id}
+                      key={c.id}
                       type="button"
-                      className="w-full px-3 py-2 text-left hover:bg-muted text-sm"
-                      onClick={() => handleSelectCustomer(customer)}
+                      className="w-full px-3 py-2.5 text-left hover:bg-accent transition-colors"
+                      onClick={() => handleSelectCustomer(c)}
                     >
-                      <p className="font-medium">{customer.name}</p>
-                      <p className="text-xs text-muted-foreground">{customer.mobile}</p>
+                      <p className="text-sm font-medium">{c.name}</p>
+                      <p className="text-xs text-muted-foreground font-mono">{c.mobile}</p>
                     </button>
                   ))}
                 </div>
               )}
+
               {selectedCustomer ? (
-                <p className="text-xs text-emerald-700">
-                  Selected: {selectedCustomer.name} | {selectedCustomer.mobile}
-                </p>
+                <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-green-700">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span className="text-xs font-medium truncate">
+                    {selectedCustomer.name} · {selectedCustomer.mobile}
+                  </span>
+                </div>
               ) : (
-                <p className="text-xs text-muted-foreground">Select a customer to continue.</p>
+                <p className="text-xs text-muted-foreground">Select or create a customer to continue.</p>
               )}
             </div>
 
-            <div className="rounded-md border p-3 space-y-2">
-              <Label>Salesman</Label>
-              <Select value={salesmanId} onValueChange={setSalesmanId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select salesman" />
-                </SelectTrigger>
-                <SelectContent>
-                  {salesmen.map((salesman) => (
-                    <SelectItem key={salesman.id} value={salesman.id}>
-                      {salesman.name}
-                      {salesman.salesmanCode ? ` (${salesman.salesmanCode})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div>
-                  <p className="text-muted-foreground">Deal ID</p>
-                  <p className="font-medium">{nextDealIdPreview}</p>
+            {/* Salesman + Deal ID / Type */}
+            <div className="space-y-3">
+              <FormField label="Salesman" required>
+                <Select value={salesmanId} onValueChange={setSalesmanId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select salesman" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {salesmen.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name}{s.salesmanCode ? ` (${s.salesmanCode})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormField>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Deal ID
+                  </Label>
+                  <div className="flex h-9 items-center rounded-md border bg-muted px-3">
+                    <span className="text-sm font-mono font-semibold text-primary">
+                      {nextDealIdPreview}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-muted-foreground">Deal Name</p>
-                  <Select value={dealName} onValueChange={(value: "Cashsale" | "Walkin-sale") => setDealName(value)}>
-                    <SelectTrigger className="h-8 mt-1">
+                <FormField label="Deal Type">
+                  <Select value={dealName} onValueChange={(v) => setDealName(v as typeof dealName)}>
+                    <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -647,38 +535,34 @@ const searchParams = useSearchParams();
                       <SelectItem value="Walkin-sale">Walkin-sale</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
+                </FormField>
               </div>
             </div>
 
-            <div className="rounded-md border p-3 space-y-2">
-              <div>
-                <p className="text-sm text-muted-foreground">Order ID</p>
-                <p className="font-medium">Auto generated (MOTRACK-QuotationNo)</p>
-              </div>
-              <div>
-                <Label>Store</Label>
+            {/* Store + Order Type */}
+            <div className="space-y-3">
+              <FormField label="Store" required>
                 <Select value={store} onValueChange={setStore}>
-                  <SelectTrigger className="mt-1">
+                  <SelectTrigger>
                     <SelectValue placeholder="Select store" />
                   </SelectTrigger>
                   <SelectContent>
-                    {storeOptions.map((storeOption) => (
-                      <SelectItem key={storeOption.value} value={storeOption.value}>
-                        {storeOption.label as string}
+                    {storeOptions.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>
+                        {s.label as string}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-              <div>
-                <Label>Order Type</Label>
+              </FormField>
+
+              <FormField label="Order Type">
                 <Select
                   value={isCashsale ? "delivery" : orderType}
-                  onValueChange={(value: "delivery" | "stitching" | "stitching+installation") => setOrderType(value)}
+                  onValueChange={(v) => setOrderType(v as typeof orderType)}
                   disabled={isCashsale}
                 >
-                  <SelectTrigger className="mt-1">
+                  <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -689,440 +573,495 @@ const searchParams = useSearchParams();
                 </Select>
                 {isCashsale && (
                   <p className="text-xs text-muted-foreground mt-1">
-                    Cashsale forces order type to delivery and bypasses invoicing.
+                    Forced to Delivery for Cashsale.
                   </p>
                 )}
-              </div>
+              </FormField>
             </div>
+
           </div>
         </CardContent>
       </Card>
 
+      {/* ══════════════════════════════════════════════════════════
+          CARD 2 — Items
+      ══════════════════════════════════════════════════════════ */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Previously Selected Items</CardTitle>
+        <CardHeader className="pb-4">
+          <div className="flex items-center gap-3">
+            <SectionIcon icon={Package} />
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-base">Items</CardTitle>
+                {items.length > 0 && (
+                  <Badge variant="secondary" className="rounded-full h-5 min-w-5 px-1.5 text-xs">
+                    {items.length}
+                  </Badge>
+                )}
+              </div>
+              <CardDescription>Add products from stock</CardDescription>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent>
-          {items.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No items added yet.</p>
-          ) : (
-            <div className="border rounded-md overflow-x-auto">
+
+        <CardContent className="space-y-4">
+          {/* Add item form */}
+          <div className="rounded-lg border bg-muted/40 p-4 space-y-3">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest">
+              Add New Item
+            </p>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2.5">
+
+              {/* BCN */}
+              <div className="relative lg:col-span-2 space-y-1.5">
+                <Label className="text-xs text-muted-foreground">BCN</Label>
+                <Input
+                  placeholder="Search BCN…"
+                  value={draftItem.bcn}
+                  onFocus={() => setStockSuggestionOpen(true)}
+                  onChange={(e) => {
+                    setDraftItem((p) => ({ ...p, bcn: e.target.value, stockId: undefined }));
+                    setStockSuggestionOpen(true);
+                  }}
+                />
+                {stockSuggestionOpen && draftItem.bcn.trim().length >= 2 && (
+                  <div className="absolute z-30 top-full mt-1 w-full rounded-md border bg-popover shadow-md max-h-52 overflow-auto">
+                    {isSearchingStock ? (
+                      <div className="flex items-center gap-2 px-3 py-2.5 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Searching…
+                      </div>
+                    ) : stockSuggestions.length > 0 ? (
+                      stockSuggestions.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          className="w-full text-left px-3 py-2.5 hover:bg-accent transition-colors"
+                          onClick={() => handleSelectStock(s)}
+                        >
+                          <p className="text-sm font-medium font-mono">{s.bcn}</p>
+                          <p className="text-xs text-muted-foreground">{s.name || s.itemName || "—"}</p>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="px-3 py-2.5 text-xs text-muted-foreground">No stock found.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Description */}
+              <div className="lg:col-span-2 space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Description</Label>
+                <Input
+                  placeholder="Item description"
+                  value={draftItem.description}
+                  onChange={(e) => setDraftItem((p) => ({ ...p, description: e.target.value }))}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Qty</Label>
+                <Input type="number" step="0.01" value={draftItem.quantity}
+                  onChange={(e) => setDraftItem((p) => ({ ...p, quantity: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Rate</Label>
+                <Input type="number" step="0.01" value={draftItem.rate}
+                  onChange={(e) => setDraftItem((p) => ({ ...p, rate: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Disc %</Label>
+                <Input type="number" step="0.01" value={draftItem.discountPercent}
+                  onChange={(e) => setDraftItem((p) => ({ ...p, discountPercent: e.target.value }))} />
+              </div>
+
+              {!isCashsale && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">GST Mode</Label>
+                    <Select
+                      value={draftItem.gstMode}
+                      onValueChange={(v) => setDraftItem((p) => ({ ...p, gstMode: v as "EXCL" | "INCL" }))}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="INCL">INCL</SelectItem>
+                        <SelectItem value="EXCL">EXCL</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">GST %</Label>
+                    <Input type="number" step="0.01" value={draftItem.gstPercent}
+                      onChange={(e) => setDraftItem((p) => ({ ...p, gstPercent: e.target.value }))} />
+                  </div>
+                </>
+              )}
+
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Room</Label>
+                <Select value={draftItem.room} onValueChange={(v) => setDraftItem((p) => ({ ...p, room: v }))}>
+                  <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                  <SelectContent>
+                    {roomOptions.map((r) => (
+                      <SelectItem key={r.value} value={r.value}>{r.label as string}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="lg:col-span-2 space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Remark</Label>
+                <Input placeholder="Optional" value={draftItem.remark}
+                  onChange={(e) => setDraftItem((p) => ({ ...p, remark: e.target.value }))} />
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Button type="button" size="sm" onClick={handleAddItem} className="gap-1.5">
+                <PlusCircle className="h-3.5 w-3.5" />
+                Add Item
+              </Button>
+            </div>
+          </div>
+
+          {/* Items table */}
+          {items.length > 0 ? (
+            <div className="rounded-md border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>#</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead>Qty</TableHead>
-                    <TableHead>Rate</TableHead>
-                    <TableHead>Discount %</TableHead>
-                    {!isCashsale && <TableHead>GST Mode</TableHead>}
-                    {!isCashsale && <TableHead>GST %</TableHead>}
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Room</TableHead>
-                    <TableHead className="text-right">Delete</TableHead>
+                    <TableHead className="w-8 text-xs">#</TableHead>
+                    <TableHead className="text-xs">BCN / Description</TableHead>
+                    <TableHead className="text-xs">Qty</TableHead>
+                    <TableHead className="text-xs">Rate</TableHead>
+                    <TableHead className="text-xs">Disc %</TableHead>
+                    {!isCashsale && <TableHead className="text-xs">GST Mode</TableHead>}
+                    {!isCashsale && <TableHead className="text-xs">GST %</TableHead>}
+                    <TableHead className="text-xs">Amount</TableHead>
+                    <TableHead className="text-xs">Room</TableHead>
+                    <TableHead className="w-10" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {items.map((item, index) => (
-                    <TableRow key={`${item.bcn}-${index}`}>
-                      <TableCell>{index + 1}</TableCell>
+                  {items.map((item, idx) => (
+                    <TableRow key={`${item.bcn}-${idx}`}>
+                      <TableCell className="text-muted-foreground text-xs font-mono">{idx + 1}</TableCell>
                       <TableCell>
-                        <p className="font-medium">{item.bcn}</p>
-                        <p className="text-xs text-muted-foreground">{item.description}</p>
+                        <p className="font-medium text-xs font-mono">{item.bcn}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>
                       </TableCell>
-                      <TableCell>{item.quantity}</TableCell>
-                      <TableCell>{item.rate}</TableCell>
-                      <TableCell>{item.discountPercent || 0}</TableCell>
+                      <TableCell className="font-mono text-sm">{item.quantity}</TableCell>
+                      <TableCell className="font-mono text-sm">{item.rate}</TableCell>
+                      <TableCell>{item.discountPercent || 0}%</TableCell>
                       {!isCashsale && (
                         <TableCell>
-                          <Badge variant="outline">{item.gstMode || "INCL"}</Badge>
+                          <Badge
+                            variant={item.gstMode === "EXCL" ? "secondary" : "outline"}
+                            className="text-[10px] uppercase"
+                          >
+                            {item.gstMode || "INCL"}
+                          </Badge>
                         </TableCell>
                       )}
-                      {!isCashsale && <TableCell>{item.gstPercent || 0}</TableCell>}
-                      <TableCell>{lineAmount(item).toFixed(2)}</TableCell>
-                      <TableCell>{item.room || "-"}</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={() => handleRemoveItem(index)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
+                      {!isCashsale && (
+                        <TableCell>{item.gstPercent || 0}%</TableCell>
+                      )}
+                      <TableCell className="font-semibold font-mono text-sm">
+                        ₹{fmt(lineAmount(item))}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-xs">
+                        {item.room || "—"}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => setItems((p) => p.filter((_, i) => i !== idx))}
+                        >
+                          <X className="h-3.5 w-3.5" />
                         </Button>
                       </TableCell>
                     </TableRow>
                   ))}
-                  <TableRow>
-                    <TableCell colSpan={isCashsale ? 5 : 7} className="text-right font-semibold">
-                      Total
+                  <TableRow className="bg-muted/50">
+                    <TableCell
+                      colSpan={isCashsale ? 5 : 7}
+                      className="text-right text-xs font-semibold text-muted-foreground uppercase tracking-wide py-3"
+                    >
+                      Goods Total
                     </TableCell>
-                    <TableCell className="font-semibold">{goodsTotalAmount.toFixed(2)}</TableCell>
+                    <TableCell className="font-semibold font-mono py-3">₹{fmt(goodsTotal)}</TableCell>
                     <TableCell colSpan={2} />
                   </TableRow>
                 </TableBody>
               </Table>
             </div>
-          )}
-          {isCashsale && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              GST fields are disabled for Cashsale.
-            </p>
+          ) : (
+            <EmptyRow message="No items added yet. Use the form above to add products." />
           )}
         </CardContent>
       </Card>
 
+      {/* ══════════════════════════════════════════════════════════
+          CARD 3 — VAS
+      ══════════════════════════════════════════════════════════ */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Add More Items</CardTitle>
-          <CardDescription>Search BCN, auto-fill details from stock, then add to list.</CardDescription>
+        <CardHeader className="pb-4">
+          <div className="flex items-center gap-3">
+            <SectionIcon icon={Wrench} />
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-base">Value Added Services</CardTitle>
+                {vasItems.length > 0 && (
+                  <Badge variant="secondary" className="rounded-full h-5 min-w-5 px-1.5 text-xs">
+                    {vasItems.length}
+                  </Badge>
+                )}
+              </div>
+              <CardDescription>Stitching, installation &amp; other services</CardDescription>
+            </div>
+          </div>
         </CardHeader>
+
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
-            <div className="space-y-1 relative lg:col-span-2">
-              <Label>BCN</Label>
-              <Input
-                placeholder="Search BCN..."
-                value={draftItem.bcn}
-                onFocus={() => setStockSuggestionOpen(true)}
-                onChange={(event) => {
-                  setDraftItem((prev) => ({ ...prev, bcn: event.target.value, stockId: undefined }));
-                  setStockSuggestionOpen(true);
-                }}
-              />
-              {stockSuggestionOpen && draftItem.bcn.trim().length >= 2 && (
-                <div className="absolute z-20 mt-1 w-full rounded-md border bg-background shadow-sm max-h-56 overflow-auto">
-                  {isSearchingStock ? (
-                    <div className="px-3 py-2 text-sm text-muted-foreground flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Searching stock...
-                    </div>
-                  ) : stockSuggestions.length > 0 ? (
-                    stockSuggestions.map((stock) => (
-                      <button
-                        key={stock.id}
-                        type="button"
-                        className="w-full text-left px-3 py-2 hover:bg-muted"
-                        onClick={() => handleSelectStock(stock)}
-                      >
-                        <p className="font-medium text-sm">{stock.bcn}</p>
-                        <p className="text-xs text-muted-foreground">{stock.name || stock.itemName || "-"}</p>
-                      </button>
-                    ))
-                  ) : (
-                    <p className="px-3 py-2 text-sm text-muted-foreground">No stock found.</p>
-                  )}
+          {/* Add VAS form */}
+          <div className="rounded-lg border bg-muted/40 p-4 space-y-3">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest">
+              Add VAS Line
+            </p>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
+              <div className="lg:col-span-2 space-y-1.5">
+                <Label className="text-xs text-muted-foreground">VAS Name</Label>
+                <Input placeholder="Service name" value={draftVas.vasName}
+                  onChange={(e) => setDraftVas((p) => ({ ...p, vasName: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Qty</Label>
+                <Input type="number" step="0.01" value={draftVas.quantity}
+                  onChange={(e) => setDraftVas((p) => ({ ...p, quantity: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Rate</Label>
+                <Input type="number" step="0.01" value={draftVas.rate}
+                  onChange={(e) => setDraftVas((p) => ({ ...p, rate: e.target.value }))} />
+              </div>
+              {!isCashsale && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">GST %</Label>
+                  <Input type="number" step="0.01" value={draftVas.gstPercent}
+                    onChange={(e) => setDraftVas((p) => ({ ...p, gstPercent: e.target.value }))} />
                 </div>
               )}
-            </div>
-
-            <div className="space-y-1 lg:col-span-2">
-              <Label>Description</Label>
-              <Input
-                placeholder="Item description"
-                value={draftItem.description}
-                onChange={(event) => setDraftItem((prev) => ({ ...prev, description: event.target.value }))}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label>Quantity</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={draftItem.quantity}
-                onChange={(event) => setDraftItem((prev) => ({ ...prev, quantity: event.target.value }))}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label>Rate</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={draftItem.rate}
-                onChange={(event) => setDraftItem((prev) => ({ ...prev, rate: event.target.value }))}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label>Discount %</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={draftItem.discountPercent}
-                onChange={(event) => setDraftItem((prev) => ({ ...prev, discountPercent: event.target.value }))}
-              />
-            </div>
-
-            {!isCashsale && (
-              <div className="space-y-1">
-                <Label>GST Mode</Label>
-                <Select
-                  value={draftItem.gstMode}
-                  onValueChange={(value: "EXCL" | "INCL") => setDraftItem((prev) => ({ ...prev, gstMode: value }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Room</Label>
+                <Select value={draftVas.room} onValueChange={(v) => setDraftVas((p) => ({ ...p, room: v }))}>
+                  <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="INCL">INCL</SelectItem>
-                    <SelectItem value="EXCL">EXCL</SelectItem>
+                    {roomOptions.map((r) => (
+                      <SelectItem key={r.value} value={r.value}>{r.label as string}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
-            )}
-
-            {!isCashsale && (
-              <div className="space-y-1">
-                <Label>GST %</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={draftItem.gstPercent}
-                  onChange={(event) => setDraftItem((prev) => ({ ...prev, gstPercent: event.target.value }))}
-                />
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">HSN</Label>
+                <Input placeholder="Optional" value={draftVas.hsnCode}
+                  onChange={(e) => setDraftVas((p) => ({ ...p, hsnCode: e.target.value }))} />
               </div>
-            )}
-
-            <div className="space-y-1">
-              <Label>Room</Label>
-              <Select value={draftItem.room} onValueChange={(value) => setDraftItem((prev) => ({ ...prev, room: value }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="--SELECT--" />
-                </SelectTrigger>
-                <SelectContent>
-                  {roomOptions.map((room) => (
-                    <SelectItem key={room.value} value={room.value}>
-                      {room.label as string}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
 
-            <div className="space-y-1 lg:col-span-2">
-              <Label>Remark</Label>
-              <Input
-                placeholder="Optional remark"
-                value={draftItem.remark}
-                onChange={(event) => setDraftItem((prev) => ({ ...prev, remark: event.target.value }))}
-              />
+            <div className="flex justify-end">
+              <Button type="button" variant="outline" size="sm" onClick={handleAddVas} className="gap-1.5">
+                <PlusCircle className="h-3.5 w-3.5" />
+                Add VAS
+              </Button>
             </div>
           </div>
 
-          <div className="flex justify-end">
-            <Button type="button" variant="secondary" onClick={handleAddItem}>
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Add Item
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg">VAS Details</CardTitle>
-          <CardDescription>These lines are included in quotation and pushed to stock verification/purchase flow.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {vasItems.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No VAS added yet.</p>
-          ) : (
-            <div className="border rounded-md overflow-x-auto">
+          {/* VAS table */}
+          {vasItems.length > 0 ? (
+            <div className="rounded-md border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>#</TableHead>
-                    <TableHead>VAS</TableHead>
-                    <TableHead>Qty</TableHead>
-                    <TableHead>Rate</TableHead>
-                    {!isCashsale && <TableHead>GST %</TableHead>}
-                    <TableHead>Room</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead className="text-right">Delete</TableHead>
+                    <TableHead className="w-8 text-xs">#</TableHead>
+                    <TableHead className="text-xs">VAS / HSN</TableHead>
+                    <TableHead className="text-xs">Qty</TableHead>
+                    <TableHead className="text-xs">Rate</TableHead>
+                    {!isCashsale && <TableHead className="text-xs">GST %</TableHead>}
+                    <TableHead className="text-xs">Room</TableHead>
+                    <TableHead className="text-xs">Amount</TableHead>
+                    <TableHead className="w-10" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {vasItems.map((vas, index) => (
-                    <TableRow key={`${vas.vasName}-${index}`}>
-                      <TableCell>{index + 1}</TableCell>
+                  {vasItems.map((vas, idx) => (
+                    <TableRow key={`${vas.vasName}-${idx}`}>
+                      <TableCell className="text-muted-foreground text-xs font-mono">{idx + 1}</TableCell>
                       <TableCell>
-                        <p className="font-medium">{vas.vasName}</p>
-                        <p className="text-xs text-muted-foreground">{vas.hsnCode || "-"}</p>
+                        <p className="font-medium text-sm">{vas.vasName}</p>
+                        {vas.hsnCode && (
+                          <p className="text-xs text-muted-foreground font-mono mt-0.5">{vas.hsnCode}</p>
+                        )}
                       </TableCell>
-                      <TableCell>{vas.quantity}</TableCell>
-                      <TableCell>{vas.rate}</TableCell>
-                      {!isCashsale && <TableCell>{vas.gstPercent || 0}</TableCell>}
-                      <TableCell>{vas.room || "-"}</TableCell>
-                      <TableCell>{vasLineAmount(vas).toFixed(2)}</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={() => handleRemoveVas(index)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
+                      <TableCell className="font-mono">{vas.quantity}</TableCell>
+                      <TableCell className="font-mono">{vas.rate}</TableCell>
+                      {!isCashsale && <TableCell>{vas.gstPercent || 0}%</TableCell>}
+                      <TableCell className="text-muted-foreground text-xs">{vas.room || "—"}</TableCell>
+                      <TableCell className="font-semibold font-mono">₹{fmt(vasLineAmount(vas))}</TableCell>
+                      <TableCell>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => setVasItems((p) => p.filter((_, i) => i !== idx))}
+                        >
+                          <X className="h-3.5 w-3.5" />
                         </Button>
                       </TableCell>
                     </TableRow>
                   ))}
-                  <TableRow>
-                    <TableCell colSpan={isCashsale ? 5 : 6} className="text-right font-semibold">
+                  <TableRow className="bg-muted/50">
+                    <TableCell
+                      colSpan={isCashsale ? 5 : 6}
+                      className="text-right text-xs font-semibold text-muted-foreground uppercase tracking-wide py-3"
+                    >
                       VAS Total
                     </TableCell>
-                    <TableCell className="font-semibold">{vasTotalAmount.toFixed(2)}</TableCell>
+                    <TableCell className="font-semibold font-mono py-3">₹{fmt(vasTotal)}</TableCell>
                     <TableCell />
                   </TableRow>
                 </TableBody>
               </Table>
             </div>
+          ) : (
+            <EmptyRow message="No VAS added yet." />
           )}
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Add VAS</CardTitle>
-          <CardDescription>Add value-added service/material lines.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
-            <div className="space-y-1 lg:col-span-2">
-              <Label>VAS Name</Label>
-              <Input
-                placeholder="Enter VAS name"
-                value={draftVas.vasName}
-                onChange={(event) => setDraftVas((prev) => ({ ...prev, vasName: event.target.value }))}
-              />
+      {/* ══════════════════════════════════════════════════════════
+          Sticky footer — Summary + Submit
+      ══════════════════════════════════════════════════════════ */}
+      <div className="sticky bottom-0 z-20 -mx-4 md:-mx-8 px-4 md:px-8 py-3 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-sm">
+        <div className="mx-auto max-w-7xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Context */}
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <User className="h-3.5 w-3.5 shrink-0" />
+              {selectedSalesman
+                ? <span className="font-medium text-foreground">{selectedSalesman.name}</span>
+                : <span className="text-destructive">No salesman</span>
+              }
+              <Separator orientation="vertical" className="h-3" />
+              {selectedCustomer
+                ? <span className="font-medium text-foreground">{selectedCustomer.name}</span>
+                : <span className="text-destructive">No customer</span>
+              }
+              <Separator orientation="vertical" className="h-3" />
+              <Badge
+                variant={isCashsale ? "default" : "secondary"}
+                className="text-[10px] px-1.5 py-0"
+              >
+                {dealName}
+              </Badge>
             </div>
 
-            <div className="space-y-1">
-              <Label>Quantity</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={draftVas.quantity}
-                onChange={(event) => setDraftVas((prev) => ({ ...prev, quantity: event.target.value }))}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label>Rate</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={draftVas.rate}
-                onChange={(event) => setDraftVas((prev) => ({ ...prev, rate: event.target.value }))}
-              />
-            </div>
-
-            {!isCashsale && (
-              <div className="space-y-1">
-                <Label>GST %</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={draftVas.gstPercent}
-                  onChange={(event) => setDraftVas((prev) => ({ ...prev, gstPercent: event.target.value }))}
-                />
+            {/* Totals */}
+            <div className="flex items-center gap-1.5">
+              <div className="rounded-md border bg-muted px-3 py-1.5">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Goods</p>
+                <p className="text-sm font-semibold font-mono">₹{fmt(goodsTotal)}</p>
               </div>
-            )}
-
-            <div className="space-y-1">
-              <Label>Room</Label>
-              <Select value={draftVas.room} onValueChange={(value) => setDraftVas((prev) => ({ ...prev, room: value }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="--SELECT--" />
-                </SelectTrigger>
-                <SelectContent>
-                  {roomOptions.map((room) => (
-                    <SelectItem key={room.value} value={room.value}>
-                      {room.label as string}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1">
-              <Label>HSN (Optional)</Label>
-              <Input
-                placeholder="HSN code"
-                value={draftVas.hsnCode}
-                onChange={(event) => setDraftVas((prev) => ({ ...prev, hsnCode: event.target.value }))}
-              />
+              <div className="rounded-md border bg-muted px-3 py-1.5">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">VAS</p>
+                <p className="text-sm font-semibold font-mono">₹{fmt(vasTotal)}</p>
+              </div>
+              <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5">
+                <p className="text-[10px] text-primary/70 uppercase tracking-wide">Total</p>
+                <p className="text-sm font-bold font-mono text-primary">₹{fmt(grandTotal)}</p>
+              </div>
             </div>
           </div>
 
-          <div className="flex justify-end">
-            <Button type="button" variant="secondary" onClick={handleAddVas}>
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Add VAS
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-sm text-muted-foreground">
-          {selectedSalesman ? `Salesman: ${selectedSalesman.name}` : "Select salesman"} |{" "}
-          {selectedCustomer ? `Customer: ${selectedCustomer.name}` : "Select customer"} | Goods: Rs {goodsTotalAmount.toFixed(2)} | VAS: Rs {vasTotalAmount.toFixed(2)} | Total: Rs {totalAmount.toFixed(2)}
+          <Button
+            type="button"
+            onClick={handleSubmit}
+            disabled={isBootLoading || isSubmitting}
+            className="shrink-0 gap-2"
+          >
+            {(isBootLoading || isSubmitting)
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <CheckCircle2 className="h-4 w-4" />
+            }
+            Create Quotation + Order
+          </Button>
         </div>
-        <Button onClick={handleSubmit} disabled={isBootLoading || isSubmitting}>
-          {(isBootLoading || isSubmitting) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          Create Instant Quotation + Order
-        </Button>
       </div>
 
+      {/* ══════════════════════════════════════════════════════════
+          Dialog — New Customer
+      ══════════════════════════════════════════════════════════ */}
       <Dialog open={isCustomerDialogOpen} onOpenChange={setIsCustomerDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Create New Customer</DialogTitle>
+            <DialogTitle>New Customer</DialogTitle>
             <DialogDescription>
-              Fill minimum details and continue with instant quotation.
+              Fill in minimum details to create and select a customer.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label>Customer Name</Label>
-              <Input
-                value={draftCustomer.name}
-                onChange={(event) => setDraftCustomer((prev) => ({ ...prev, name: event.target.value }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Mobile</Label>
-              <Input
-                value={draftCustomer.mobile}
-                onChange={(event) => setDraftCustomer((prev) => ({ ...prev, mobile: event.target.value }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Email (Optional)</Label>
-              <Input
-                value={draftCustomer.email}
-                onChange={(event) => setDraftCustomer((prev) => ({ ...prev, email: event.target.value }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Address (Optional)</Label>
-              <Input
-                value={draftCustomer.addressLine1}
-                onChange={(event) => setDraftCustomer((prev) => ({ ...prev, addressLine1: event.target.value }))}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Pincode (Optional)</Label>
-              <Input
-                value={draftCustomer.pincode}
-                onChange={(event) => setDraftCustomer((prev) => ({ ...prev, pincode: event.target.value }))}
-              />
-            </div>
+          <div className="space-y-3 py-1">
+            {([
+              { label: "Full Name", key: "name",        required: true,  placeholder: "Customer full name" },
+              { label: "Mobile",    key: "mobile",       required: true,  placeholder: "+91 XXXXX XXXXX" },
+              { label: "Email",     key: "email",        required: false, placeholder: "Optional" },
+              { label: "Address",   key: "addressLine1", required: false, placeholder: "Optional" },
+              { label: "Pincode",   key: "pincode",      required: false, placeholder: "Optional" },
+            ] as const).map(({ label, key, required, placeholder }) => (
+              <div key={key} className="space-y-1.5">
+                <Label>
+                  {label}
+                  {required && <span className="text-destructive ml-0.5">*</span>}
+                </Label>
+                <Input
+                  placeholder={placeholder}
+                  value={draftCustomer[key]}
+                  onChange={(e) => setDraftCustomer((p) => ({ ...p, [key]: e.target.value }))}
+                />
+              </div>
+            ))}
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCustomerDialogOpen(false)} disabled={isCreatingCustomer}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsCustomerDialogOpen(false)}
+              disabled={isCreatingCustomer}
+            >
               Cancel
             </Button>
-            <Button onClick={handleCreateCustomer} disabled={isCreatingCustomer}>
-              {isCreatingCustomer && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            <Button
+              type="button"
+              onClick={handleCreateCustomer}
+              disabled={isCreatingCustomer}
+              className="gap-1.5"
+            >
+              {isCreatingCustomer && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Save Customer
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </div>
   );
 }

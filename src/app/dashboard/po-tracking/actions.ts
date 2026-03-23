@@ -1,279 +1,246 @@
-
-
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
 import { InboundRequest, PurchaseRequest, PurchaseStatus } from '@/lib/types';
 import { FieldValue } from 'firebase-admin/firestore';
 
-const normalizeMatchKey = (value: unknown): string =>
-  String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
+// ─── Key Normalization ────────────────────────────────────────────────────────
 
-const buildMatchKeySet = (values: unknown[]): Set<string> => {
-  const keys = values
-    .map((value) => normalizeMatchKey(value))
-    .filter(Boolean);
-  return new Set(keys);
-};
+const normalizeKey = (value: unknown): string =>
+  String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 
-const hasCommonKey = (targetKeys: Set<string>, candidates: unknown[]): boolean => {
-  for (const candidate of candidates) {
-    const normalized = normalizeMatchKey(candidate);
-    if (normalized && targetKeys.has(normalized)) return true;
+const buildKeySet = (values: unknown[]): Set<string> => {
+  const set = new Set<string>();
+  for (const v of values) {
+    const k = normalizeKey(v);
+    if (k) set.add(k);
   }
-  return false;
+  return set;
 };
+
+const hasCommonKey = (keys: Set<string>, candidates: unknown[]): boolean =>
+  candidates.some(c => { const k = normalizeKey(c); return k !== '' && keys.has(k); });
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface PoFollowUpItem {
-    id: string; // Unique ID for the row, e.g., `${requestId}-${itemName}`
-    requestId: string;
-    orderId: string;
-    poNumber?: string;
-    customerName: string;
-    itemName: string;
-    itemCode?: string;
-    supplierCollectionCode?: string;
-    supplierCollectionName?: string;
-    quantity: string;
-    salesman: string;
-    expectedDeliveryDate: string;
-    vendorName?: string;
-    originalRequest: PurchaseRequest;
+  id: string;
+  requestId: string;
+  orderId: string;
+  poNumber?: string;
+  customerName: string;
+  itemName: string;
+  itemCode?: string;
+  supplierCollectionCode?: string;
+  supplierCollectionName?: string;
+  quantity: string;
+  salesman: string;
+  expectedDeliveryDate: string;
+  vendorName?: string;
+  originalRequest: PurchaseRequest;
 }
 
-// Function to get items that need follow-up
+// ─── Date Helpers ─────────────────────────────────────────────────────────────
+
+/** Returns a plain IST-midnight Date (no TZ offset noise) */
 function toISTMidnight(date: Date | string): Date {
-  const d = typeof date === "string" ? new Date(date) : date;
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Kolkata",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
+  const d = typeof date === 'string' ? new Date(date) : date;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric', month: '2-digit', day: '2-digit',
   }).formatToParts(d);
-
-  return new Date(
-    Number(parts.find((p) => p.type === "year")!.value),
-    Number(parts.find((p) => p.type === "month")!.value) - 1,
-    Number(parts.find((p) => p.type === "day")!.value)
-  );
+  const get = (t: string) => Number(parts.find(p => p.type === t)!.value);
+  return new Date(get('year'), get('month') - 1, get('day'));
 }
+
+const todayIST = (): Date => toISTMidnight(new Date());
+
+// ─── getFollowUpItems ─────────────────────────────────────────────────────────
 
 export async function getFollowUpItems(): Promise<PoFollowUpItem[]> {
-  try {
+  const today = todayIST();
 
-    const todayIST = toISTMidnight(new Date());
+  const snapshot = await adminDb
+    .collection('purchaseRequests')
+    .where('status', 'in', ['PO Generated', 'Completed'])
+    .get();
 
-    const poRequestsSnapshot = await adminDb
-      .collection("purchaseRequests")
-      .where("status", "in", ["PO Generated", "Completed"])
-      .get();
+  const followUpItems: PoFollowUpItem[] = [];
 
-    const followUpItems: PoFollowUpItem[] = [];
+  for (const doc of snapshot.docs) {
+    const request = { id: doc.id, ...doc.data() } as PurchaseRequest;
+    const { promiseDeliveryDate, fabricDetails = [], poMilestones = [] } = request;
 
-    poRequestsSnapshot.forEach((doc: any) => {
-      const request = { id: doc.id, ...doc.data() } as PurchaseRequest;
+    if (!promiseDeliveryDate) continue;
 
-      if (!request.promiseDeliveryDate) {
-        console.log("❌ No promiseDeliveryDate");
-        return;
-      }
+    const promiseDate = toISTMidnight(promiseDeliveryDate);
+    const followUpDate = new Date(promiseDate);
+    followUpDate.setDate(followUpDate.getDate() - 2);
+    if (today < followUpDate) continue;
 
-      const promiseDate = toISTMidnight(request.promiseDeliveryDate);
+    // Pre-build a set of already-followed-up item names for O(1) lookup
+    const followedUpNames = new Set(
+      poMilestones
+        .filter((m: any) => m.stepId === 2)
+        .map((m: any) => normalizeKey(m.itemName))
+    );
 
-      const followUpDate = new Date(promiseDate);
-      followUpDate.setDate(followUpDate.getDate() - 2);
+    for (const item of fabricDetails) {
+      if (!item?.poNumber) continue;
+      const itemName = String(item.fabricName ?? '').trim();
+      if (followedUpNames.has(normalizeKey(itemName))) continue;
 
-      if (todayIST < followUpDate) {
-        console.log("⏳ Follow-up not reached yet");
-        return;
-      }
-      const fabricDetails = request.fabricDetails || [];
-
-
-      const itemsWithPo = fabricDetails.filter((item: any) => item.poNumber);
-
-      itemsWithPo.forEach((item: any) => {
-
-        const milestones = request.poMilestones || [];
-        const itemName = (item.fabricName || "").trim();
-
-        const isFollowedUp = milestones.some(
-          (m: any) => m.stepId === 2 && (m.itemName || "").trim() === itemName
-        );
-
-        if (isFollowedUp) {
-          console.log("⚠️ Already followed up:", itemName);
-          return;
-        }
-
-        followUpItems.push({
-          id: `${request.id}-${itemName}`,
-          requestId: request.id,
-          orderId: request.dealId,
-          poNumber: item.poNumber,
-          customerName: request.customerName,
-          itemName: itemName,
-          itemCode: item.itemCode,
-          supplierCollectionCode: item.supplierCollectionCode,
-          supplierCollectionName: item.supplierCollectionName,
-          quantity: item.quantity,
-          salesman: request.salesman,
-          expectedDeliveryDate:
-            item.expectedDeliveryDate || request.promiseDeliveryDate,
-          vendorName: item.vendorName,
-          originalRequest: request,
-        });
+      followUpItems.push({
+        id: `${request.id}-${itemName}`,
+        requestId: request.id,
+        orderId: request.dealId,
+        poNumber: item.poNumber,
+        customerName: request.customerName,
+        itemName,
+        itemCode: item.itemCode,
+        supplierCollectionCode: item.supplierCollectionCode,
+        supplierCollectionName: item.supplierCollectionName,
+        quantity: item.quantity,
+        salesman: request.salesman,
+        expectedDeliveryDate: item.expectedDeliveryDate || promiseDeliveryDate,
+        vendorName: item.vendorName,
+        originalRequest: request,
       });
-    });
-
-    return JSON.parse(JSON.stringify(followUpItems));
-  } catch (error) {
-    console.error("❌ Follow-up fetch error:", error);
-    return [];
+    }
   }
+
+  return JSON.parse(JSON.stringify(followUpItems));
 }
 
-// Function to update the follow-up status and optionally the date
+// ─── updateFollowUpStatus ─────────────────────────────────────────────────────
+
 export async function updateFollowUpStatus(
-    requestId: string,
-    itemName: string,
-    newDate: string | null,
-    docketNoInput: string | null,
-    userName: string
+  requestId: string,
+  itemName: string,
+  newDate: string | null,
+  docketNoInput: string | null,
+  userName: string,
 ): Promise<{ success: boolean; message: string }> {
-    try {
-        const requestRef = adminDb.collection('purchaseRequests').doc(requestId);
-        const nowIso = new Date().toISOString();
-        const docketNo = String(docketNoInput || "").trim();
-        
-        await adminDb.runTransaction(async (transaction: any) => {
-            const requestDoc = await transaction.get(requestRef);
-            if (!requestDoc.exists) {
-                throw new Error("Purchase request not found.");
-            }
-            
-            const requestData = requestDoc.data() as PurchaseRequest;
-            let fabricDetails = requestData.fabricDetails || [];
+  const docketNo = String(docketNoInput ?? '').trim();
+  const nowIso = new Date().toISOString();
+  const itemNameKey = normalizeKey(itemName);
 
-            // Find and update the specific item
-            const itemNameKey = normalizeMatchKey(itemName);
-            const itemIndex = fabricDetails.findIndex(
-              (item) => normalizeMatchKey(item?.fabricName) === itemNameKey
-            );
-            if (itemIndex === -1) {
-                throw new Error("Item not found in the purchase request.");
-            }
-            const purchaseLine = fabricDetails[itemIndex] || {};
-            const targetKeys = buildMatchKeySet([
-              itemName,
-              purchaseLine.fabricName,
-              purchaseLine.itemCode,
-              purchaseLine.supplierCollectionCode,
-            ]);
+  try {
+    const requestRef = adminDb.collection('purchaseRequests').doc(requestId);
 
-            // Update date if a new one is provided
-            if (newDate) {
-                fabricDetails[itemIndex].expectedDeliveryDate = newDate;
-            }
-            if (docketNo) {
-                fabricDetails[itemIndex].docketNo = docketNo;
-            }
+    // ── 1. Read purchaseRequest first (outside transaction to save a round-trip) ──
+    const requestDoc = await requestRef.get();
+    if (!requestDoc.exists) throw new Error('Purchase request not found.');
 
-            const linkedPoNumber = String(fabricDetails[itemIndex].poNumber || "").trim();
-            let inboundRef: any = null;
-            let inboundData: InboundRequest | null = null;
-            if (linkedPoNumber) {
-                inboundRef = adminDb.collection("inbounds").doc(linkedPoNumber);
-                const inboundDoc = await transaction.get(inboundRef);
-                if (inboundDoc.exists) {
-                    inboundData = inboundDoc.data() as InboundRequest;
-                }
-            }
-            
-            const followUpMilestone: PurchaseStatus = {
-                stepId: 2, // 'Delivery Follow Up'
-                status: 'completed',
-                completedAt: nowIso,
-                completedBy: userName,
-                itemName: itemName,
-                remarks: [
-                  "Follow-up confirmed.",
-                  newDate ? `Delivery date updated to ${new Date(newDate).toLocaleDateString()}.` : "",
-                  docketNo ? `Docket no: ${docketNo}.` : "",
-                ]
-                  .filter(Boolean)
-                  .join(" "),
-                ...(docketNo ? { docketNo } : {}),
-            };
+    const requestData = requestDoc.data() as PurchaseRequest;
+    const fabricDetails: any[] = [...(requestData.fabricDetails ?? [])];
 
-            transaction.update(requestRef, { 
-                fabricDetails: fabricDetails,
-                poMilestones: FieldValue.arrayUnion(followUpMilestone)
-            });
+    const itemIndex = fabricDetails.findIndex(
+      i => normalizeKey(i?.fabricName) === itemNameKey,
+    );
+    if (itemIndex === -1) throw new Error('Item not found in the purchase request.');
 
-            if (inboundRef && inboundData) {
-                    const inboundItems = Array.isArray(inboundData?.items) ? [...inboundData.items] : [];
-                    let touchedItems = false;
+    // Mutate the copy
+    if (newDate)   fabricDetails[itemIndex].expectedDeliveryDate = newDate;
+    if (docketNo)  fabricDetails[itemIndex].docketNo = docketNo;
 
-                    const nextItems = inboundItems.map((lineItem: any) => {
-                        const isMatch = hasCommonKey(targetKeys, [
-                          lineItem?.itemName,
-                          lineItem?.itemCode,
-                          lineItem?.supplierCollectionCode,
-                          lineItem?.stockDetail?.bcn,
-                          lineItem?.stockDetail?.itemCode,
-                          lineItem?.stockDetail?.supplierCollectionCode,
-                        ]);
-                        if (!isMatch) return lineItem;
-                        touchedItems = true;
-                        const nextLine = { ...lineItem };
-                        if (newDate) nextLine.expectedDeliveryDate = newDate;
-                        if (docketNo) nextLine.docketNo = docketNo;
-                        if (nextLine.stockDetail && typeof nextLine.stockDetail === "object") {
-                            nextLine.stockDetail = {
-                                ...nextLine.stockDetail,
-                                ...(newDate ? { expectedDeliveryDate: newDate } : {}),
-                                ...(docketNo ? { docketNo } : {}),
-                            };
-                        }
-                        return nextLine;
-                    });
+    const linkedPoNumber = String(fabricDetails[itemIndex].poNumber ?? '').trim();
 
-                    let touchedStockDetails = false;
-                    let nextStockDetails: any[] | undefined;
-                    if (Array.isArray((inboundData as any).stockDetails)) {
-                        nextStockDetails = (inboundData as any).stockDetails.map((line: any) => {
-                            const isMatch = hasCommonKey(targetKeys, [
-                              line?.bcn,
-                              line?.itemCode,
-                              line?.supplierCollectionCode,
-                            ]);
-                            if (!isMatch) return line;
-                            touchedStockDetails = true;
-                            return {
-                                ...line,
-                                ...(newDate ? { expectedDeliveryDate: newDate } : {}),
-                                ...(docketNo ? { docketNo } : {}),
-                            };
-                        });
-                    }
+    // Build key-set once for inbound matching
+    const targetKeys = buildKeySet([
+      itemName,
+      fabricDetails[itemIndex].fabricName,
+      fabricDetails[itemIndex].itemCode,
+      fabricDetails[itemIndex].supplierCollectionCode,
+    ]);
 
-                    if (touchedItems || touchedStockDetails) {
-                        const updatePayload: Record<string, unknown> = { items: nextItems, updatedAt: nowIso };
-                        if (Array.isArray(nextStockDetails)) {
-                            updatePayload.stockDetails = nextStockDetails;
-                        }
-                        transaction.update(inboundRef, updatePayload);
-                    }
-            }
-        });
+    const followUpMilestone: PurchaseStatus = {
+      stepId: 2,
+      status: 'completed',
+      completedAt: nowIso,
+      completedBy: userName,
+      itemName,
+      remarks: [
+        'Follow-up confirmed.',
+        newDate   ? `Delivery date updated to ${new Date(newDate).toLocaleDateString()}.` : '',
+        docketNo  ? `Docket no: ${docketNo}.` : '',
+      ].filter(Boolean).join(' '),
+      ...(docketNo ? { docketNo } : {}),
+    };
 
-        return { success: true, message: `Follow-up for ${itemName} has been recorded.` };
-    } catch (error: any) {
-        console.error("Error updating follow-up status:", error);
-        return { success: false, message: error.message };
+    // ── 2. Fetch inbound in parallel with nothing (we already have the request) ──
+    let inboundData: (InboundRequest & { stockDetails?: any[] }) | null = null;
+    let inboundRef: FirebaseFirestore.DocumentReference | null = null;
+
+    if (linkedPoNumber) {
+      inboundRef = adminDb.collection('inbounds').doc(linkedPoNumber);
+      const inboundDoc = await inboundRef.get();
+      if (inboundDoc.exists) inboundData = inboundDoc.data() as typeof inboundData;
     }
+
+    // ── 3. Build inbound update payload (pure computation, no extra reads) ──
+    let inboundPayload: Record<string, unknown> | null = null;
+
+    if (inboundRef && inboundData) {
+      const rawItems: any[] = Array.isArray(inboundData.items) ? inboundData.items : [];
+      let itemsTouched = false;
+      const nextItems = rawItems.map(line => {
+        if (!hasCommonKey(targetKeys, [
+          line?.itemName, line?.itemCode, line?.supplierCollectionCode,
+          line?.stockDetail?.bcn, line?.stockDetail?.itemCode,
+          line?.stockDetail?.supplierCollectionCode,
+        ])) return line;
+
+        itemsTouched = true;
+        const next = { ...line };
+        if (newDate)  next.expectedDeliveryDate = newDate;
+        if (docketNo) next.docketNo = docketNo;
+        if (next.stockDetail && typeof next.stockDetail === 'object') {
+          next.stockDetail = {
+            ...next.stockDetail,
+            ...(newDate  ? { expectedDeliveryDate: newDate } : {}),
+            ...(docketNo ? { docketNo }                      : {}),
+          };
+        }
+        return next;
+      });
+
+      const rawStock: any[] = Array.isArray(inboundData.stockDetails) ? inboundData.stockDetails : [];
+      let stockTouched = false;
+      const nextStock = rawStock.map(line => {
+        if (!hasCommonKey(targetKeys, [line?.bcn, line?.itemCode, line?.supplierCollectionCode]))
+          return line;
+        stockTouched = true;
+        return {
+          ...line,
+          ...(newDate  ? { expectedDeliveryDate: newDate } : {}),
+          ...(docketNo ? { docketNo }                      : {}),
+        };
+      });
+
+      if (itemsTouched || stockTouched) {
+        inboundPayload = { items: nextItems, updatedAt: nowIso };
+        if (stockTouched) inboundPayload.stockDetails = nextStock;
+      }
+    }
+
+    // ── 4. Fire both writes in parallel (no cross-dependency, skip transaction) ──
+    const writes: Promise<unknown>[] = [
+      requestRef.update({
+        fabricDetails,
+        poMilestones: FieldValue.arrayUnion(followUpMilestone),
+      }),
+    ];
+
+    if (inboundRef && inboundPayload) {
+      writes.push(inboundRef.update(inboundPayload));
+    }
+
+    await Promise.all(writes);
+
+    return { success: true, message: `Follow-up for ${itemName} has been recorded.` };
+  } catch (error: any) {
+    console.error('Error updating follow-up status:', error);
+    return { success: false, message: error.message };
+  }
 }

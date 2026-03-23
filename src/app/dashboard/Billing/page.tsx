@@ -77,11 +77,11 @@ const billingItems: BillingItem[] = [
   },
   {
     group: "note",
-    name: "Customer credit",
+    name: "Customer Details",
     sub: "Issue credit notes",
     icon: FileMinus,
     badge: "Credit",
-    path: "/dashboard/billing/customer-credit",
+    path: "/dashboard/Billing/customer",
   },
   {
     group: "note",
@@ -89,7 +89,7 @@ const billingItems: BillingItem[] = [
     sub: "Raise debit notes",
     icon: FilePlus2,
     badge: "Debit",
-    path: "/dashboard/billing/customer-debit",
+    path: "/dashboard/Billing/customer-debit",
   },
   {
     group: "note",
