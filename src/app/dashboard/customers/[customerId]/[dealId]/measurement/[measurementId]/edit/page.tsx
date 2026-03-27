@@ -39,6 +39,7 @@ import { Pencil } from "lucide-react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { useAuth } from "@/context/AuthContext";
+import { ROOMS_NAME } from "@/lib/constants";
 
 // ================= LOGGER =================
 const log = (...args: any[]) => console.log("✅ [QuotationBuilder]", ...args);
@@ -98,8 +99,38 @@ const detectItemType = (raw: any): NormalizedType => {
   return "unknown";
 };
 
+const normalizeRoomToken = (name: string = "") =>
+  String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/'/g, "")
+    .replace(/[^a-z0-9\s/]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const ROOM_ALIAS_MAP = (() => {
+  const map = new Map<string, string>();
+  ROOMS_NAME.forEach((room) => {
+    const canonical = normalizeRoomToken(room.value);
+    const aliases = [
+      room.value,
+      room.label,
+      room.label.replace(/\//g, " "),
+      room.value.replace(/_/g, " "),
+    ];
+    aliases.forEach((alias) => {
+      const key = normalizeRoomToken(alias);
+      if (key) map.set(key, canonical);
+    });
+  });
+  return map;
+})();
+
 const normalizeRoom = (name: string = "") => {
-  return (name || "unassigned").trim().toLowerCase();
+  const normalized = normalizeRoomToken(name);
+  if (!normalized) return "unassigned";
+  return ROOM_ALIAS_MAP.get(normalized) ?? normalized;
 };
 
 
@@ -1494,3 +1525,4 @@ export default function QuotationBuilderPage() {
     </div>
   );
 }
+

@@ -99,7 +99,7 @@ export interface User {
   email: string;
   role: UserRole;
   avatarUrl?: string;
-  designation?: 'CRM' | 'Allocators' | 'PC';
+  designation?: 'CRM' | 'Allocators' | 'PC' |'salesmanager';
   salesmanCode?: string;
   permissions?: string[]; // Array of allowed module keys
   store?: string;
@@ -109,11 +109,9 @@ export interface User {
 
 export interface Walkin_Customer {
     id: string;
-    walkinId?: string;
     firstName: string;
     familyName: string;
     mobile: string;
-    store?: string;
     email?: string;
     lookingFor?: string | string[];
     createdAt: string; // ISO Date
@@ -134,21 +132,6 @@ export interface Walkin_Customer {
     createdByEmail?: string;
     salesmanId?: string;
     salesmanName?: string;
-    inquiryStatus?: string;
-    advanceReceived?: 'Yes' | 'No' | 'Old';
-    measurementRequired?: 'Yes' | 'No';
-    latestDealId?: string;
-    latestDealDocId?: string;
-    dealSnapshot?: {
-        status?: string;
-        dealDocId?: string;
-        dealId?: string;
-        customerId?: string;
-        dealName?: string;
-        measurementRequired?: 'Yes' | 'No';
-        advanceReceived?: 'Yes' | 'No' | 'Old';
-        createdAt?: string;
-    };
 }
 
 export type OrderType = 'delivery' | 'stitching' | 'stitching+installation';

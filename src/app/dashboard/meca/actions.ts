@@ -1,0 +1,614 @@
+'use server';
+
+import { O2D_PROCESS_CONFIG } from "@/lib/constants";
+import { adminDb } from "@/lib/firebase-admin";
+import { dedupeO2DMilestones } from "@/lib/o2d-milestones";
+import { getOrderStatusLabel } from "@/lib/order-workflow";
+import { O2DStatus, Order } from "@/lib/types";
+
+export interface MecaFilters {
+  from?: string;
+  to?: string;
+  salesmanId?: string;
+}
+
+export interface MecaSalesmanOption {
+  id: string;
+  name: string;
+}
+
+export interface MecaStageCount {
+  step: string;
+  count: number;
+}
+
+export interface MecaOrderProgressRow {
+  orderId: string;
+  orderNo: string;
+  dealId?: string;
+  customerName: string;
+  salesmanId: string;
+  salesmanName: string;
+  createdAt: string;
+  totalAmount: number;
+  status: string;
+  currentStep: string;
+}
+
+export interface MecaVisitRow {
+  visitId: string;
+  customerName: string;
+  scheduledDate: string;
+  status: string;
+  attended: boolean;
+  visitType: string;
+}
+
+export interface MecaSalesmanMetric {
+  salesmanId: string;
+  salesmanName: string;
+  meetings: number;
+  attendedMeetings: number;
+  convertedOrders: number;
+  conversionRatio: number;
+  totalRevenue: number;
+  averageRupeeSale: number;
+  inProcessOrders: number;
+  completedOrders: number;
+  stageBreakdown: MecaStageCount[];
+  visits: MecaVisitRow[];
+}
+
+export interface MecaSummary {
+  meetings: number;
+  attendedMeetings: number;
+  convertedOrders: number;
+  conversionRatio: number;
+  totalRevenue: number;
+  averageRupeeSale: number;
+  inProcessOrders: number;
+}
+
+export interface MecaResponse {
+  generatedAt: string;
+  salesmanOptions: MecaSalesmanOption[];
+  salesmen: MecaSalesmanMetric[];
+  summary: MecaSummary;
+  inProcessByStep: MecaStageCount[];
+  inProcessOrders: MecaOrderProgressRow[];
+}
+
+type RawDoc = Record<string, unknown>;
+
+interface MutableSalesmanMetric {
+  salesmanId: string;
+  salesmanName: string;
+  meetings: number;
+  attendedMeetings: number;
+  convertedOrders: number;
+  totalRevenue: number;
+  inProcessOrders: number;
+  completedOrders: number;
+  stageCounter: Map<string, number>;
+  visitRows: MecaVisitRow[];
+}
+
+const EMPTY_RESPONSE: MecaResponse = {
+  generatedAt: new Date().toISOString(),
+  salesmanOptions: [],
+  salesmen: [],
+  summary: {
+    meetings: 0,
+    attendedMeetings: 0,
+    convertedOrders: 0,
+    conversionRatio: 0,
+    totalRevenue: 0,
+    averageRupeeSale: 0,
+    inProcessOrders: 0,
+  },
+  inProcessByStep: [],
+  inProcessOrders: [],
+};
+
+const normalizeText = (value: unknown): string => String(value ?? "").trim().toLowerCase();
+
+const asNonEmptyString = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : undefined;
+};
+
+const asRecord = (value: unknown): RawDoc => {
+  if (typeof value === "object" && value !== null) return value as RawDoc;
+  return {};
+};
+
+const toDateSafe = (value: unknown): Date | null => {
+  if (!value) return null;
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  if (typeof value === "object" && value !== null && "toDate" in value) {
+    const maybeTimestamp = value as { toDate?: () => Date };
+    const parsed = maybeTimestamp.toDate?.();
+    if (parsed instanceof Date && !Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  return null;
+};
+
+const toMillis = (value: unknown): number | null => {
+  const parsed = toDateSafe(value);
+  return parsed ? parsed.getTime() : null;
+};
+
+const isWithinRange = (value: unknown, fromMs: number | null, toMs: number | null): boolean => {
+  const time = toMillis(value);
+  if (time === null) return false;
+  if (fromMs !== null && time < fromMs) return false;
+  if (toMs !== null && time > toMs) return false;
+  return true;
+};
+
+const toPositiveNumber = (value: unknown): number => {
+  if (typeof value === "number" && Number.isFinite(value)) return value > 0 ? value : 0;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }
+  return 0;
+};
+
+const resolveOrderAmount = (order: RawDoc): number => {
+  const overallSummary = asRecord(order.overallSummary);
+  const fromSummary = toPositiveNumber(overallSummary.grandTotal);
+  if (fromSummary > 0) return fromSummary;
+
+  const fromTotalAmount = toPositiveNumber(order.totalAmount);
+  if (fromTotalAmount > 0) return fromTotalAmount;
+
+  const items = Array.isArray(order.items) ? order.items : [];
+  const fromItems = items.reduce((sum, item) => {
+    const row = asRecord(item);
+    return sum + toPositiveNumber(row.totalAmount);
+  }, 0);
+  return fromItems > 0 ? fromItems : 0;
+};
+
+const isMeetingType = (visit: RawDoc): boolean => {
+  const type = normalizeText(visit.visitType ?? visit.typeOfVisit ?? visit.purpose);
+  if (!type) return true;
+  if (type.includes("delivery")) return false;
+  if (type.includes("install")) return false;
+  return true;
+};
+
+const isVisitAttended = (visit: RawDoc): boolean => {
+  if (asNonEmptyString(visit.visitStartTime) || asNonEmptyString(visit.visitEndTime)) {
+    return true;
+  }
+
+  const status = normalizeText(visit.status ?? visit.visitStatus);
+  if (!status) return false;
+
+  if (status.includes("attended")) return true;
+  if (status.includes("completed")) return true;
+  if (status.includes("handed over")) return true;
+  if (status.includes("deal created")) return true;
+  if (status.includes("closed")) return true;
+  if (status.includes("working")) return true;
+  if (status.includes("out for delivery")) return true;
+
+  return false;
+};
+
+const shouldSkipVisit = (visit: RawDoc): boolean => {
+  const status = normalizeText(visit.status ?? visit.visitStatus);
+  if (status.includes("cancel")) return true;
+  if (status === "cwc") return true;
+  if (status.includes("reject")) return true;
+  return false;
+};
+
+const isOrderClosedStatus = (statusLabel: string): boolean => {
+  const normalized = normalizeText(statusLabel);
+  if (!normalized) return false;
+  if (normalized.includes("installation done")) return true;
+  if (normalized === "completed") return true;
+  if (normalized === "cancelled") return true;
+  return false;
+};
+
+const orderFallbackStatus = (order: RawDoc): string => {
+  const statusFromWorkflow = asRecord(order.workflow).status;
+  const baseOrder = {
+    status: order.status as Order["status"],
+    orderType: order.orderType as Order["orderType"],
+    milestones: (Array.isArray(order.milestones) ? order.milestones : []) as Order["milestones"],
+    workflow: asRecord(order.workflow) as unknown as Order["workflow"],
+  } as Pick<Order, "status" | "orderType" | "milestones" | "workflow">;
+
+  try {
+    const label = getOrderStatusLabel(baseOrder);
+    return asNonEmptyString(label) ?? asNonEmptyString(order.status) ?? asNonEmptyString(statusFromWorkflow) ?? "In Progress";
+  } catch {
+    return asNonEmptyString(order.status) ?? asNonEmptyString(statusFromWorkflow) ?? "In Progress";
+  }
+};
+
+const resolveOrderProgress = (
+  order: RawDoc,
+  dedupedMilestones: O2DStatus[]
+): { inProcess: boolean; currentStep: string; status: string } => {
+  if (dedupedMilestones.length > 0) {
+    const doneStepIds = new Set<number>(
+      dedupedMilestones
+        .filter((entry) => entry.status === "completed" || entry.status === "skipped")
+        .map((entry) => entry.stepId)
+    );
+
+    const finalStep = O2D_PROCESS_CONFIG[O2D_PROCESS_CONFIG.length - 1];
+    if (finalStep && doneStepIds.has(finalStep.id)) {
+      return {
+        inProcess: false,
+        currentStep: finalStep.step,
+        status: "INSTALLATION DONE",
+      };
+    }
+
+    const pendingStep = O2D_PROCESS_CONFIG.find((step) => !doneStepIds.has(step.id));
+    if (pendingStep) {
+      return {
+        inProcess: true,
+        currentStep: pendingStep.step,
+        status: pendingStep.step,
+      };
+    }
+  }
+
+  const fallbackStatus = orderFallbackStatus(order);
+  const closed = isOrderClosedStatus(fallbackStatus);
+  return {
+    inProcess: !closed,
+    currentStep: fallbackStatus,
+    status: fallbackStatus,
+  };
+};
+
+const sortStageCounts = (counts: Map<string, number>): MecaStageCount[] =>
+  Array.from(counts.entries())
+    .map(([step, count]) => ({ step, count }))
+    .sort((a, b) => b.count - a.count || a.step.localeCompare(b.step));
+
+const getOrdersSnapshot = async (from?: string, to?: string) => {
+  const base = adminDb.collection("orders") as FirebaseFirestore.Query<FirebaseFirestore.DocumentData>;
+  let filtered = base;
+  if (from) filtered = filtered.where("createdAt", ">=", from);
+  if (to) filtered = filtered.where("createdAt", "<=", to);
+
+  try {
+    return await filtered.get();
+  } catch (error) {
+    console.warn("MeCA: Falling back to unfiltered order query.", error);
+    return await base.get();
+  }
+};
+
+// collectionGroup queries require a Firestore composite index when filtered by field.
+// Since we already apply isWithinRange() in-memory, we skip the Firestore-level
+// date filter entirely to avoid FAILED_PRECONDITION errors on missing indexes.
+const getVisitsSnapshot = async () => {
+  const base = adminDb.collectionGroup("visits") as FirebaseFirestore.Query<FirebaseFirestore.DocumentData>;
+  try {
+    return await base.get();
+  } catch (error) {
+    console.warn("MeCA: Could not fetch visits (collection group index may be missing).", error);
+    return null;
+  }
+};
+
+const getO2DSnapshot = async () => {
+  const base = adminDb.collection("o2d") as FirebaseFirestore.Query<FirebaseFirestore.DocumentData>;
+  return base.get();
+};
+
+export async function getMecaData(filters: MecaFilters = {}): Promise<MecaResponse> {
+  if (!adminDb) {
+    return { ...EMPTY_RESPONSE, generatedAt: new Date().toISOString() };
+  }
+
+  try {
+    const from = asNonEmptyString(filters.from);
+    const to = asNonEmptyString(filters.to);
+    const selectedSalesmanId = asNonEmptyString(filters.salesmanId);
+
+    const fromMs = from ? toMillis(from) : null;
+    const toMs = to ? toMillis(to) : null;
+
+    const [salesmenSnap, visitsSnap, ordersSnap, o2dSnap] = await Promise.all([
+      adminDb.collection("users").where("role", "==", "salesman").get(),
+      getVisitsSnapshot(),
+      getOrdersSnapshot(from, to),
+      getO2DSnapshot(),
+    ]);
+
+    const salesmanOptionsById = new Map<string, MecaSalesmanOption>();
+    const salesmanIdByName = new Map<string, string>();
+
+    const registerSalesman = (rawId: unknown, rawName: unknown): MecaSalesmanOption | null => {
+      let id = asNonEmptyString(rawId);
+      const name = asNonEmptyString(rawName);
+
+      if (!id && name) {
+        const mappedId = salesmanIdByName.get(normalizeText(name));
+        if (mappedId) id = mappedId;
+      }
+
+      if (!id && !name) return null;
+      if (!id && name) {
+        id = `name:${normalizeText(name)}`;
+      }
+      if (!id) return null;
+
+      const existing = salesmanOptionsById.get(id);
+      const resolvedName = name ?? existing?.name ?? id;
+
+      if (!existing) {
+        salesmanOptionsById.set(id, { id, name: resolvedName });
+      } else if (name && existing.name === existing.id) {
+        salesmanOptionsById.set(id, { id, name });
+      }
+
+      if (name) {
+        const key = normalizeText(name);
+        if (!salesmanIdByName.has(key)) salesmanIdByName.set(key, id);
+      }
+
+      return salesmanOptionsById.get(id) ?? null;
+    };
+
+    salesmenSnap.docs.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot<FirebaseFirestore.DocumentData>) => {
+      const payload = doc.data() as RawDoc;
+      registerSalesman(doc.id, payload.name);
+    });
+
+    const metricsBySalesmanId = new Map<string, MutableSalesmanMetric>();
+    const ensureMetric = (salesman: MecaSalesmanOption): MutableSalesmanMetric => {
+      let metric = metricsBySalesmanId.get(salesman.id);
+      if (!metric) {
+        metric = {
+          salesmanId: salesman.id,
+          salesmanName: salesman.name,
+          meetings: 0,
+          attendedMeetings: 0,
+          convertedOrders: 0,
+          totalRevenue: 0,
+          inProcessOrders: 0,
+          completedOrders: 0,
+          stageCounter: new Map<string, number>(),
+          visitRows: [],
+        };
+        metricsBySalesmanId.set(salesman.id, metric);
+      }
+      if (metric.salesmanName === metric.salesmanId && salesman.name) {
+        metric.salesmanName = salesman.name;
+      }
+      return metric;
+    };
+
+    salesmanOptionsById.forEach((salesman) => ensureMetric(salesman));
+
+    const o2dByDealKey = new Map<string, O2DStatus[]>();
+    const upsertO2DByKey = (key: string | undefined, milestones: O2DStatus[]) => {
+      if (!key) return;
+      const existing = o2dByDealKey.get(key);
+      if (!existing || milestones.length >= existing.length) {
+        o2dByDealKey.set(key, milestones);
+      }
+    };
+
+    o2dSnap.docs.forEach((doc) => {
+      const row = doc.data() as RawDoc;
+      const milestones = Array.isArray(row.milestones)
+        ? dedupeO2DMilestones(row.milestones as O2DStatus[])
+        : [];
+      const dealId = asNonEmptyString(row.dealId);
+      upsertO2DByKey(doc.id, milestones);
+      upsertO2DByKey(dealId, milestones);
+    });
+
+    (visitsSnap?.docs ?? []).forEach((doc) => {
+      const visit = doc.data() as RawDoc;
+      if (!isWithinRange(visit.createdAt, fromMs, toMs)) return;
+      if (!isMeetingType(visit)) return;
+      if (shouldSkipVisit(visit)) return;
+
+      const assignedSalesPerson = asRecord(visit.assignedSalesPerson);
+      const salesman = registerSalesman(
+        assignedSalesPerson.id ?? visit.representativeId,
+        assignedSalesPerson.name ?? visit.representative
+      );
+      if (!salesman) return;
+      if (selectedSalesmanId && salesman.id !== selectedSalesmanId) return;
+
+      const attended = isVisitAttended(visit);
+      const metric = ensureMetric(salesman);
+      metric.meetings += 1;
+      if (attended) {
+        metric.attendedMeetings += 1;
+      }
+
+      const scheduledDate =
+        toDateSafe(visit.scheduledDate ?? visit.visitDate ?? visit.date ?? visit.createdAt)?.toISOString() ??
+        new Date(0).toISOString();
+      const customerName =
+        asNonEmptyString(visit.customerName) ??
+        asNonEmptyString(asRecord(visit.customer).name) ??
+        asNonEmptyString(visit.clientName) ??
+        "Customer";
+      const visitType =
+        asNonEmptyString(visit.visitType) ??
+        asNonEmptyString(visit.typeOfVisit) ??
+        asNonEmptyString(visit.purpose) ??
+        "Meeting";
+      const visitStatus =
+        asNonEmptyString(visit.status) ??
+        asNonEmptyString(visit.visitStatus) ??
+        (attended ? "Attended" : "Scheduled");
+
+      metric.visitRows.push({
+        visitId: doc.id,
+        customerName,
+        scheduledDate,
+        status: visitStatus,
+        attended,
+        visitType,
+      });
+    });
+
+    const inProcessOrders: MecaOrderProgressRow[] = [];
+    ordersSnap.docs.forEach((doc) => {
+      const order = { id: doc.id, ...(doc.data() as RawDoc) } as RawDoc;
+      if (!isWithinRange(order.createdAt, fromMs, toMs)) return;
+
+      const salesman = registerSalesman(order.representativeId, order.salesPerson);
+      if (!salesman) return;
+      if (selectedSalesmanId && salesman.id !== selectedSalesmanId) return;
+
+      const metric = ensureMetric(salesman);
+      metric.convertedOrders += 1;
+      metric.totalRevenue += resolveOrderAmount(order);
+
+      const dealId = asNonEmptyString(order.dealId);
+      const orderMilestones = dealId
+        ? o2dByDealKey.get(dealId) ?? []
+        : Array.isArray(order.o2dMilestones)
+          ? dedupeO2DMilestones(order.o2dMilestones as O2DStatus[])
+          : [];
+
+      const progress = resolveOrderProgress(order, orderMilestones);
+      if (progress.inProcess) {
+        metric.inProcessOrders += 1;
+        metric.stageCounter.set(
+          progress.currentStep,
+          (metric.stageCounter.get(progress.currentStep) ?? 0) + 1
+        );
+
+        inProcessOrders.push({
+          orderId: asNonEmptyString(order.id) ?? doc.id,
+          orderNo:
+            asNonEmptyString(order.crmOrderNo) ??
+            asNonEmptyString(order.orderNo) ??
+            asNonEmptyString(order.orderId) ??
+            doc.id,
+          dealId,
+          customerName: asNonEmptyString(order.customerName) ?? "Unknown",
+          salesmanId: salesman.id,
+          salesmanName: salesman.name,
+          createdAt: toDateSafe(order.createdAt)?.toISOString() ?? new Date(0).toISOString(),
+          totalAmount: resolveOrderAmount(order),
+          status: progress.status,
+          currentStep: progress.currentStep,
+        });
+      } else {
+        metric.completedOrders += 1;
+      }
+    });
+
+    let salesmen = Array.from(metricsBySalesmanId.values());
+    if (selectedSalesmanId) {
+      salesmen = salesmen.filter((entry) => entry.salesmanId === selectedSalesmanId);
+    }
+
+    const salesmanMetrics: MecaSalesmanMetric[] = salesmen
+      .map((entry) => {
+        const denominator = entry.attendedMeetings > 0 ? entry.attendedMeetings : entry.meetings;
+        const conversionRatio = denominator > 0 ? (entry.convertedOrders / denominator) * 100 : 0;
+        const averageRupeeSale = entry.convertedOrders > 0 ? entry.totalRevenue / entry.convertedOrders : 0;
+        const sortedVisits = [...entry.visitRows].sort(
+          (a, b) => (b.scheduledDate > a.scheduledDate ? 1 : -1)
+        );
+        return {
+          salesmanId: entry.salesmanId,
+          salesmanName: entry.salesmanName,
+          meetings: entry.meetings,
+          attendedMeetings: entry.attendedMeetings,
+          convertedOrders: entry.convertedOrders,
+          conversionRatio,
+          totalRevenue: entry.totalRevenue,
+          averageRupeeSale,
+          inProcessOrders: entry.inProcessOrders,
+          completedOrders: entry.completedOrders,
+          stageBreakdown: sortStageCounts(entry.stageCounter),
+          visits: sortedVisits,
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.convertedOrders - a.convertedOrders ||
+          b.totalRevenue - a.totalRevenue ||
+          a.salesmanName.localeCompare(b.salesmanName)
+      );
+
+    const summary: MecaSummary = salesmanMetrics.reduce(
+      (acc, row) => {
+        acc.meetings += row.meetings;
+        acc.attendedMeetings += row.attendedMeetings;
+        acc.convertedOrders += row.convertedOrders;
+        acc.totalRevenue += row.totalRevenue;
+        acc.inProcessOrders += row.inProcessOrders;
+        return acc;
+      },
+      {
+        meetings: 0,
+        attendedMeetings: 0,
+        convertedOrders: 0,
+        conversionRatio: 0,
+        totalRevenue: 0,
+        averageRupeeSale: 0,
+        inProcessOrders: 0,
+      } as MecaSummary
+    );
+
+    const conversionDenominator = summary.attendedMeetings > 0 ? summary.attendedMeetings : summary.meetings;
+    summary.conversionRatio =
+      conversionDenominator > 0 ? (summary.convertedOrders / conversionDenominator) * 100 : 0;
+    summary.averageRupeeSale =
+      summary.convertedOrders > 0 ? summary.totalRevenue / summary.convertedOrders : 0;
+
+    const inProcessByStepMap = new Map<string, number>();
+    inProcessOrders.forEach((row) => {
+      inProcessByStepMap.set(row.currentStep, (inProcessByStepMap.get(row.currentStep) ?? 0) + 1);
+    });
+
+    const filteredInProcessOrders = selectedSalesmanId
+      ? inProcessOrders.filter((row) => row.salesmanId === selectedSalesmanId)
+      : inProcessOrders;
+    filteredInProcessOrders.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+
+    const sortedSalesmanOptions = Array.from(salesmanOptionsById.values()).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+
+    return {
+      generatedAt: new Date().toISOString(),
+      salesmanOptions: sortedSalesmanOptions,
+      salesmen: salesmanMetrics,
+      summary,
+      inProcessByStep: sortStageCounts(inProcessByStepMap),
+      inProcessOrders: filteredInProcessOrders,
+    };
+  } catch (error) {
+    console.error("Error loading MeCA data:", error);
+    return { ...EMPTY_RESPONSE, generatedAt: new Date().toISOString() };
+  }
+}

@@ -13,6 +13,7 @@ import * as XLSX from "xlsx";
 import {FieldValue } from 'firebase-admin/firestore';
 
 const BATCH_SIZE = 499; // Firestore batch limit is 500 operations
+const SUPPLIER_COMPANIES_COLLECTION = "supplierCompanies";
 const normalizeBcn = (value: string) =>
   String(value ?? "")
     .toUpperCase()
@@ -25,6 +26,67 @@ const stripUndefined = <T extends Record<string, any>>(value: T): T =>
   Object.fromEntries(
     Object.entries(value).filter(([, fieldValue]) => fieldValue !== undefined)
   ) as T;
+const cleanSupplierCompanyName = (value: any) => {
+  const normalizedWhitespace = String(value ?? "").replace(/\s+/g, " ").trim();
+  return normalizedWhitespace || undefined;
+};
+const normalizeSupplierCompanyName = (value: string) =>
+  cleanSupplierCompanyName(value)?.toLowerCase() || "";
+const supplierCompanyDocId = (value: string) =>
+  normalizeSupplierCompanyName(value)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "") || "supplier";
+
+const buildSupplierCompanyPayload = (value: string, nowIso: string) => ({
+  name: value,
+  normalizedName: normalizeSupplierCompanyName(value),
+  updatedAt: nowIso,
+  lastUsedAt: nowIso,
+  source: "inventory",
+});
+
+const setSupplierCompanyInBatch = (
+  batch: FirebaseFirestore.WriteBatch,
+  companyName: string,
+  nowIso: string
+) => {
+  const cleanedName = cleanSupplierCompanyName(companyName);
+  if (!cleanedName) return false;
+  const supplierRef = adminDb
+    .collection(SUPPLIER_COMPANIES_COLLECTION)
+    .doc(supplierCompanyDocId(cleanedName));
+  batch.set(supplierRef, buildSupplierCompanyPayload(cleanedName, nowIso), { merge: true });
+  return true;
+};
+
+async function upsertSupplierCompanies(companyNames: Iterable<string | undefined>) {
+  let batch = adminDb.batch();
+  let opCount = 0;
+  const nowIso = new Date().toISOString();
+  const seenDocIds = new Set<string>();
+
+  for (const rawName of companyNames) {
+    const cleanedName = cleanSupplierCompanyName(rawName);
+    if (!cleanedName) continue;
+    const docId = supplierCompanyDocId(cleanedName);
+    if (seenDocIds.has(docId)) continue;
+    seenDocIds.add(docId);
+
+    const supplierRef = adminDb.collection(SUPPLIER_COMPANIES_COLLECTION).doc(docId);
+    batch.set(supplierRef, buildSupplierCompanyPayload(cleanedName, nowIso), { merge: true });
+    opCount++;
+
+    if (opCount >= BATCH_SIZE) {
+      await batch.commit();
+      batch = adminDb.batch();
+      opCount = 0;
+    }
+  }
+
+  if (opCount > 0) {
+    await batch.commit();
+  }
+}
 
 export async function getStockById(id: string): Promise<Stock | null> {
     try {
@@ -66,6 +128,40 @@ export async function getStockFieldOptions(
   } catch (error) {
     console.error(`Error fetching stock field options (${field}):`, error);
     return [];
+  }
+}
+
+export async function getSupplierCompanyOptionsAction(query: string = ""): Promise<string[]> {
+  try {
+    const snapshot = await adminDb
+      .collection(SUPPLIER_COMPANIES_COLLECTION)
+      .select("name")
+      .get();
+
+    const values = new Set<string>();
+    snapshot.forEach((doc) => {
+      const value = cleanSupplierCompanyName(doc.get("name"));
+      if (value) values.add(value);
+    });
+
+    let list = Array.from(values);
+    if (list.length === 0) {
+      list = await getStockFieldOptions("supplierCompanyName");
+      if (list.length > 0) {
+        await upsertSupplierCompanies(list);
+      }
+    }
+
+    if (query) {
+      const q = query.toLowerCase();
+      list = list.filter((value) => value.toLowerCase().includes(q));
+    }
+
+    list.sort((a, b) => a.localeCompare(b));
+    return JSON.parse(JSON.stringify(list.slice(0, 100)));
+  } catch (error) {
+    console.error("Error fetching supplier company options:", error);
+    return getStockFieldOptions("supplierCompanyName", query);
   }
 }
 
@@ -146,7 +242,7 @@ export async function createStockItemAction(payload: {
       return trimmed ? trimmed : undefined;
     };
     const itemNameTokens = payload.itemNameTokens;
-    const supplierCompanyName = cleanString(payload.supplierCompanyName);
+    const supplierCompanyName = cleanSupplierCompanyName(payload.supplierCompanyName);
     const supplierCollectionName = cleanString(payload.supplierCollectionName);
     const supplierCollectionCode = cleanString(payload.supplierCollectionCode);
 
@@ -285,6 +381,13 @@ export async function createStockItemAction(payload: {
       }
 
       tx.set(stockRef, stockDoc, { merge: true });
+
+      if (supplierCompanyName) {
+        const supplierRef = adminDb
+          .collection(SUPPLIER_COMPANIES_COLLECTION)
+          .doc(supplierCompanyDocId(supplierCompanyName));
+        tx.set(supplierRef, buildSupplierCompanyPayload(supplierCompanyName, now), { merge: true });
+      }
 
       if (lengthRef && lengthNo) {
         const lengthDoc = {
@@ -697,6 +800,10 @@ export async function importStockData(
     await batch.commit();
     }
 
+
+    await upsertSupplierCompanies(
+      allItems.map((item) => cleanSupplierCompanyName(item?.supplierCompanyName))
+    );
 
     return { success: true, message: "Import successful!", count: totalImported };
   } catch (error: any) {
@@ -1514,6 +1621,16 @@ export async function updateStockBatchAction(
 
     let batch = adminDb.batch();
     let opCount = 0;
+    const nowIso = new Date().toISOString();
+    const supplierDocIdsWritten = new Set<string>();
+
+    const commitBatchIfNeeded = async () => {
+      if (opCount >= BATCH_SIZE) {
+        await batch.commit();
+        batch = adminDb.batch();
+        opCount = 0;
+      }
+    };
 
     for (const item of itemsToUpdate) {
         const docRef = adminDb.collection('stocks').doc(item.id);
@@ -1526,11 +1643,17 @@ export async function updateStockBatchAction(
         }
         batch.update(docRef, cleaned);
         opCount++;
+        await commitBatchIfNeeded();
 
-        if (opCount >= 499) {
-            await batch.commit();
-            batch = adminDb.batch();
-            opCount = 0;
+        const supplierCompanyName = cleanSupplierCompanyName(cleaned.supplierCompanyName);
+        if (supplierCompanyName) {
+          const docId = supplierCompanyDocId(supplierCompanyName);
+          if (!supplierDocIdsWritten.has(docId)) {
+            supplierDocIdsWritten.add(docId);
+            setSupplierCompanyInBatch(batch, supplierCompanyName, nowIso);
+            opCount++;
+            await commitBatchIfNeeded();
+          }
         }
     }
 

@@ -15,7 +15,6 @@ import { useAuth } from "@/context/AuthContext";
 import { addMeasurementAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Loader2, PlusCircle, Calculator } from "lucide-react";
-import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { roomOptions } from "@/lib/constants";
 import { DealMeasurement } from "@/lib/types";
 
@@ -50,9 +49,11 @@ export function MeasurementForm({ onMeasurementAdded, customerId, dealId }: { on
 
     });
 
-    const handleSaveNewRoom = (value: string, label: string) => {
-        (roomOptions as ComboboxOption[]).push({ value, label: label.toUpperCase() });
-        form.setValue('room', value);
+    const handleSaveNewRoom = (value: string) => {
+        const isAllowedRoom = roomOptions.some((option) => option.value === value);
+        if (isAllowedRoom) {
+            form.setValue('room', value);
+        }
     };
 
     const onSubmit = async (data: MeasurementFormValues) => {
@@ -87,7 +88,7 @@ export function MeasurementForm({ onMeasurementAdded, customerId, dealId }: { on
                     </Form>
                 </CardContent>
             </Card>
-            <AddOptionDialog isOpen={isAddRoomOpen} onClose={() => setIsAddRoomOpen(false)} fieldName="Room" onSave={(newValue) => handleSaveNewRoom(newValue, newValue.replace(/-/g, ' '))} />
+            <AddOptionDialog isOpen={isAddRoomOpen} onClose={() => setIsAddRoomOpen(false)} fieldName="Room" onSave={(newValue) => handleSaveNewRoom(newValue)} />
         </>
     );
 }

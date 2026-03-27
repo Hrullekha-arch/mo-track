@@ -157,19 +157,17 @@ export function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: 
     const [loading, setLoading] = useState(false);
     const [productTypeOptions, setProductTypeOptions] = useState<ComboboxOption[]>(initialProductTypeOptions);
     const [isAddOptionOpen, setIsAddOptionOpen] = useState(false);
-    const [addOptionConfig, setAddOptionConfig] = useState<{ field: 'room' | 'type'; onSave: (value: string) => void } | null>(null);
+    const [addOptionConfig, setAddOptionConfig] = useState<{ field: 'type'; onSave: (value: string) => void } | null>(null);
 
-    const openAddOptionDialog = (field: 'room' | 'type', onSaveCallback: (value: string) => void) => {
+    const openAddOptionDialog = (field: 'type', onSaveCallback: (value: string) => void) => {
         setAddOptionConfig({ field, onSave: onSaveCallback });
         setIsAddOptionOpen(true);
     };
 
-    const handleSaveNewOption = (value: string, label: string, field: 'room' | 'type') => {
+    const handleSaveNewOption = (value: string, label: string, field: 'type') => {
         const newOption = { value, label };
-        if (field === 'room') {
-            (roomOptions as ComboboxOption[]).push(newOption);
-        } else if (field === 'type') {
-            setProductTypeOptions(prev => [...prev, newOption]);
+        if (field === 'type') {
+          setProductTypeOptions(prev => [...prev, newOption]);
         }
         addOptionConfig?.onSave(value);
     };
@@ -246,14 +244,14 @@ export function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: 
     )
 }
 
-function RoomFields({ roomIndex, onRemoveRoom, roomOptions, productTypeOptions, openAddOptionDialog }: { roomIndex: number, onRemoveRoom: () => void, roomOptions: ComboboxOption[], productTypeOptions: ComboboxOption[], openAddOptionDialog: (field: 'room' | 'type', onSave: (value: string) => void) => void }) {
+function RoomFields({ roomIndex, onRemoveRoom, roomOptions, productTypeOptions, openAddOptionDialog }: { roomIndex: number, onRemoveRoom: () => void, roomOptions: ComboboxOption[], productTypeOptions: ComboboxOption[], openAddOptionDialog: (field: 'type', onSave: (value: string) => void) => void }) {
     const { control } = useFormContext<CpdFormValues>();
     const { fields, append, remove } = useFieldArray({ control, name: `rooms.${roomIndex}.items` });
 
     return (
         <Card className="p-4 bg-muted/30">
             <div className="flex justify-between items-center mb-4">
-                 <FormField control={control} name={`rooms.${roomIndex}.room`} render={({ field }) => ( <FormItem className="w-1/3"><FormLabel className="flex items-center gap-1">Room <span className="text-destructive">*</span><Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => openAddOptionDialog('room', (newValue) => field.onChange(newValue))}><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select Room" /></SelectTrigger></FormControl><SelectContent>{roomOptions.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}</SelectContent></Select><FormMessage /></FormItem> )} />
+                 <FormField control={control} name={`rooms.${roomIndex}.room`} render={({ field }) => ( <FormItem className="w-1/3"><FormLabel className="flex items-center gap-1">Room <span className="text-destructive">*</span></FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select Room" /></SelectTrigger></FormControl><SelectContent>{roomOptions.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}</SelectContent></Select><FormMessage /></FormItem> )} />
                  <Button type="button" variant="destructive" size="sm" onClick={onRemoveRoom}><Trash2 className="mr-2 h-4 w-4" /> Remove Room</Button>
             </div>
             <div className="space-y-2">{fields.map((item, itemIndex) => (<ItemFields key={item.id} roomIndex={roomIndex} itemIndex={itemIndex} onRemoveItem={() => remove(itemIndex)} productTypeOptions={productTypeOptions} openAddOptionDialog={openAddOptionDialog} /> ))}</div>
@@ -262,7 +260,7 @@ function RoomFields({ roomIndex, onRemoveRoom, roomOptions, productTypeOptions, 
     );
 }
 
-function ItemFields({ roomIndex, itemIndex, onRemoveItem, productTypeOptions, openAddOptionDialog }: { roomIndex: number, itemIndex: number, onRemoveItem: () => void, productTypeOptions: ComboboxOption[], openAddOptionDialog: (field: 'room' | 'type', onSave: (value: string) => void) => void }) {
+function ItemFields({ roomIndex, itemIndex, onRemoveItem, productTypeOptions, openAddOptionDialog }: { roomIndex: number, itemIndex: number, onRemoveItem: () => void, productTypeOptions: ComboboxOption[], openAddOptionDialog: (field: 'type', onSave: (value: string) => void) => void }) {
     const { control, watch, setValue } = useFormContext<CpdFormValues>();
     const itemType = watch(`rooms.${roomIndex}.items.${itemIndex}.type`);
     const hasDimension = watch(`rooms.${roomIndex}.items.${itemIndex}.hasDimension`);

@@ -25,6 +25,7 @@ export default function CustomerSearch() {
     try {
       const res = await fetch(`/api/zoho/customers?search=${query}`);
       const data = await res.json();
+      console.log("Raw Data",data);
       setResults(data.customers || []);
     } finally {
       setIsLoading(false);
@@ -204,7 +205,7 @@ export default function CustomerSearch() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-slate-900 rounded-lg px-3 py-2.5 border border-slate-700/60">
                     <p className="text-xs text-slate-500 mb-0.5 font-medium uppercase tracking-wider">Mobile</p>
-                    <p className="text-sm text-slate-200 font-medium truncate">{selected.mobile || "—"}</p>
+                    <p className="text-sm text-slate-200 font-medium truncate">{selected?.contact_persons?.mobile || "—"}</p>
                   </div>
                   <div className="bg-slate-900 rounded-lg px-3 py-2.5 border border-slate-700/60">
                     <p className="text-xs text-slate-500 mb-0.5 font-medium uppercase tracking-wider">GST</p>

@@ -30,6 +30,7 @@ import {
   Download,
   UserPlus,
   PackageSearch,
+  TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -72,6 +73,7 @@ export const navItems = [
     { href: "/dashboard/users", icon: UserCog, label: "User Management", roles: ['admin'] },
     { href: "/dashboard/user-report", icon: Users, label: "User Report", roles: ['admin'] },
     { href: "/dashboard/reports", icon: BarChartHorizontalBig, label: "Reports", roles: ['admin'] },
+    { href: "/dashboard/meca", icon: TrendingUp, label: "MeCA", roles: ['admin', 'employee', 'Accounts'] },
 ];
 
 function SidebarNav({ className }: { className?: string }) {

@@ -176,6 +176,7 @@ function QuotationBuilderInner() {
   const [isSubmitting, setIsSubmitting]           = useState(false);
   const [salesmen, setSalesmen]                   = useState<SalesmanOption[]>([]);
   const [nextDealIdPreview, setNextDealIdPreview] = useState("INQ-001");
+  const [invoiceNo, setInvoiceNo] = useState("");
 
   const [customerQuery, setCustomerQuery]               = useState("");
   const [customerOptions, setCustomerOptions]           = useState<InstantCustomerOption[]>([]);
@@ -369,6 +370,11 @@ function QuotationBuilderInner() {
     if (!selectedCustomer)              { toast({ variant: "destructive", title: "Customer required" }); return; }
     if (!salesmanId)                    { toast({ variant: "destructive", title: "Salesman required" }); return; }
     if (!store)                         { toast({ variant: "destructive", title: "Store required" }); return; }
+    const trimmedInvoiceNo = invoiceNo.trim();
+    if (!trimmedInvoiceNo && dealName === "Walkin-sale") {
+      toast({ variant: "destructive", title: "Invoice No required" });
+      return;
+    }
     if (!items.length && !vasItems.length) { toast({ variant: "destructive", title: "Add at least one line" }); return; }
 
     setIsSubmitting(true);
@@ -383,6 +389,7 @@ function QuotationBuilderInner() {
         addressLine1: selectedCustomer.addressLine1, pincode: selectedCustomer.pincode,
         salesmanId, dealName, store,
         orderType: isCashsale ? "delivery" : orderType,
+        invoiceNo: dealName === "Walkin-sale" ? trimmedInvoiceNo : undefined,
         items: normItems, vasDetails: normVas,
         creator: { id: user.id, name: user.name },
       });
@@ -514,7 +521,7 @@ function QuotationBuilderInner() {
                 </Select>
               </FormField>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                     Deal ID
@@ -536,6 +543,15 @@ function QuotationBuilderInner() {
                     </SelectContent>
                   </Select>
                 </FormField>
+                {dealName === "Walkin-sale" &&(
+                  <FormField label="Invoice No">
+                    <Input
+                      value={invoiceNo}
+                      onChange={(e) => setInvoiceNo(e.target.value)}
+                      placeholder="Enter Invoice Number"
+                    />
+                  </FormField>
+                )}
               </div>
             </div>
 

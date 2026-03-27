@@ -50,6 +50,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { db } from "@/lib/firebase";
 import { collection, doc as docRef, getDoc, getDocs, limit, query, where } from "firebase/firestore";
+import { Switch } from "@/components/ui/switch";
 
 /* ================= SCHEMA ================= */
 
@@ -102,6 +103,7 @@ const visitSchema = z.object({
   orderId: z.string().optional(),
   remark: z.string().optional(),
   dueDate: z.string().min(1, "Due Date is required."),
+  enableOrder: z.boolean().default(true),
 });
 
 export type VisitFormValues = z.infer<typeof visitSchema>;
@@ -275,6 +277,7 @@ export function VisitForm({
   const form = useForm<VisitFormValues>({
     resolver: zodResolver(visitSchema),
     defaultValues: {
+      enableOrder: true,
       representative: "",
       selectionId: "none",
       measurements: [],
@@ -304,6 +307,7 @@ export function VisitForm({
   const watchedFittingInstallations = form.watch("fittingInstallations");
   const watchedDeliveryInstallationsRaw = form.watch("deliveryInstallations");
   const selectedOrderNo = form.watch("orderId");
+  const enableOrder = form.watch("enableOrder");
   const [resolvedOrderForDelivery, setResolvedOrderForDelivery] = useState<any | null>(null);
   const [deliveryItemsLoading, setDeliveryItemsLoading] = useState(false);
 
@@ -432,6 +436,13 @@ export function VisitForm({
     }
   }, [activeTab, deliveryOrderItems, form, selectedOrderNo]);
 
+  React.useEffect(() => {
+    if (!enableOrder) {
+      form.setValue("orderId", "");
+      form.setValue("deliveryInstallations", []);
+    }
+  }, [enableOrder]);
+
   const toggleDeliveryItem = (
     itemId: string,
     defaultQty: number,
@@ -464,7 +475,6 @@ export function VisitForm({
   };
 
   async function onSubmit(data: VisitFormValues) {
-    console.log("🟢 SUBMIT CLICKED", data);
 
     if (!user) {
       toast({
@@ -474,6 +484,14 @@ export function VisitForm({
       });
       return;
     }
+    if (activeTab === "delivery" && enableOrder && !data.orderId) {
+        toast({
+          variant: "destructive",
+          title: "Order Required",
+          description: "Please select an order",
+        });
+        return;
+      }
 
     setLoading(true);
     try {
@@ -669,6 +687,27 @@ export function VisitForm({
 
   const DeliveryVisitContent = (
     <div className="space-y-6 overflow-auto">
+    <FormField
+        control={form.control}
+        name="enableOrder"
+        render={({ field }) => (
+          <FormItem className="flex items-center justify-between rounded-md border p-3">
+            <div>
+              <FormLabel>Attach Order</FormLabel>
+              <p className="text-xs text-muted-foreground">
+                Enable to select order & delivery items
+              </p>
+            </div>
+            <FormControl>
+              <Switch
+                checked={field.value}
+                onCheckedChange={field.onChange}
+              />
+            </FormControl>
+          </FormItem>
+        )}
+      />
+
       <FormField
         control={form.control}
         name="orderId"

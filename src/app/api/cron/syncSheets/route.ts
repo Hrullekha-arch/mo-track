@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { POST as syncOrders } from "@/app/api/orders/syncOrderSheet/route";
+import { POST as syncCustomerRevenue } from "@/app/api/orders/syncCustomerRevenueSheet/route";
 import { POST as syncVisits } from "@/app/api/visits/syncVisitSheet/route";
 import { POST as syncPms } from "@/app/api/pms/syncWorkSheet/route";
 import { POST as syncWalkin } from "@/app/api/walkin/syncWalkinSheet/route";
@@ -31,6 +32,9 @@ const runSync = async () => {
   const walkinResponse = await syncWalkin();
   const walkinJson = await walkinResponse.json().catch(() => ({}));
 
+  const customerRevenueResponse = await syncCustomerRevenue();
+  const customerRevenueJson = await customerRevenueResponse.json().catch(() => ({}));
+
   const pmsRequest = new Request("http://localhost/api/pms/syncWorkSheet", { method: "POST" });
   const pmsResponse = await syncPms(pmsRequest);
   const pmsJson = await pmsResponse.json().catch(() => ({}));
@@ -39,6 +43,7 @@ const runSync = async () => {
     orders: orderJson,
     visits: visitJson,
     walkin: walkinJson,
+    customerRevenue: customerRevenueJson,
     pms: pmsJson,
   };
 };

@@ -20,7 +20,7 @@ import {
   createStockItemAction, 
   updateStockQuantityAction, 
   updateStockBatchAction, 
-  getStockFieldOptions, 
+  getSupplierCompanyOptionsAction, 
   getStockTransactions 
 } from "@/app/dashboard/inventory/actions";
 import { Stock, StockTransaction } from "@/lib/types";
@@ -159,7 +159,7 @@ const router = useRouter();
     if (!isCreateOpen) return;
     const loadOptions = async () => {
       try {
-        const supplierValues = await getStockFieldOptions("supplierCompanyName");
+        const supplierValues = await getSupplierCompanyOptionsAction();
 
         const uniqueSuppliers = Array.from(
           new Set((supplierValues || []).map((v) => String(v).trim()).filter(Boolean))

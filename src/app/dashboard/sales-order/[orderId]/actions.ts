@@ -9,10 +9,6 @@ import {
   buildWorkflowFromLegacyMilestones,
   getNormalizedOrderMilestones,
 } from '@/lib/order-workflow';
-import {
-  isLengthPurchaseEntryDone,
-  shouldEnforcePurchaseEntryForLength,
-} from '@/lib/purchase-entry';
 
 const sanitizeBcnDocId = (value: string) =>
   String(value ?? '').trim().replace(/\//g, '-');
@@ -64,9 +60,7 @@ export async function getAvailableStockLengths(stockId: string): Promise<{ succe
         stockAddedSnapshot.docs.forEach(doc => {
             const data = doc.data();
             const available = Number(data.availableLength ?? data.availableQty ?? 0);
-            const enforcePurchaseEntry = shouldEnforcePurchaseEntryForLength(data);
-            const purchaseEntryDone = isLengthPurchaseEntryDone(data);
-            if (available > 0 && (!enforcePurchaseEntry || purchaseEntryDone)) {
+            if (available > 0) {
                  availableLengths.push({ length: available, transactionId: doc.id });
             }
         });
@@ -275,13 +269,6 @@ export async function allocateStockToAction(
             }
             
             const lengthData = lengthDoc.data() as Stock;
-            const enforcePurchaseEntry = shouldEnforcePurchaseEntryForLength(lengthData);
-            const purchaseEntryDone = isLengthPurchaseEntryDone(lengthData);
-            if (enforcePurchaseEntry && !purchaseEntryDone) {
-                throw new Error(
-                  `Purchase entry is pending for roll ${lengthId}. Complete Purchase Entry before allocation.`
-                );
-            }
             const available = getAvailable(lengthData);
             const original = getOriginal(lengthData, available);
             const reserved = getReserved(lengthData, original);

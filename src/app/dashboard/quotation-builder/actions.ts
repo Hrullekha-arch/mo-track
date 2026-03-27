@@ -50,6 +50,7 @@ type CreateInstantQuotationInput = {
   email?: string;
   addressLine1?: string;
   pincode?: string;
+  invoiceNo?: string;
   salesmanId: string;
   dealName: 'Cashsale' | 'Walkin-sale';
   store: string;
@@ -253,6 +254,7 @@ export async function createInstantQuotationOrderAction(
   quotationId?: string;
   quotationNo?: string;
   orderId?: string;
+  invoiceNo?:string;
 }> {
   try {
     if (!payload?.creator?.id || !payload?.creator?.name) {
@@ -272,6 +274,12 @@ export async function createInstantQuotationOrderAction(
     const leadIdForFirestore = normalizedLeadId || null;
 
     const isCashsale = payload.dealName === 'Cashsale';
+    const normalizedInvoiceNo = String(payload?.invoiceNo || '').trim();
+
+    if (!isCashsale && !normalizedInvoiceNo) {
+      return { success: false, message: 'Invoice number is required for Walkin-sale deals.' };
+    }
+
 
     const cleanItems: InstantItemInput[] = payload.items
       .map((item) => ({
@@ -530,6 +538,7 @@ export async function createInstantQuotationOrderAction(
       company: 'MO DESIGNS PRIVATE LIMITED',
       store: payload.store,
       date: new Date(),
+      invoiceNo: normalizedInvoiceNo || undefined,
       customerName,
       billingName: customerName,
       billingAddress: customerAddressLine1 || '',
@@ -575,6 +584,7 @@ export async function createInstantQuotationOrderAction(
     const orderRef = adminDb.collection('orders').doc(createdOrder.id);
     await orderRef.set(
       {
+        invoiceNo: normalizedInvoiceNo || undefined,
         status: 'Approved',
         approvedAt: nowIso,
         orderType: resolvedOrderType,
@@ -591,6 +601,7 @@ export async function createInstantQuotationOrderAction(
         instantQuotationMeta: {
           source: 'quotation-builder',
           dealName: payload.dealName,
+          invoiceNo: normalizedInvoiceNo || undefined,
           createdAt: nowIso,
           createdBy: {
             id: payload.creator.id,
@@ -712,6 +723,7 @@ export async function createInstantQuotationOrderAction(
       orderId: createdOrder.id,
       orderType: resolvedOrderType,
       invoiceRequired,
+      invoiceNo: normalizedInvoiceNo || undefined,
       quotationId: quotationResult.quotation.id,
       quotationNo: quotationResult.quotation.quotationNo,
       items: cleanItems,
@@ -816,6 +828,7 @@ export async function createInstantQuotationOrderAction(
       quotationId: quotationResult.quotation.id,
       quotationNo: quotationResult.quotation.quotationNo,
       orderId: createdOrder.id,
+      invoiceNo: normalizedInvoiceNo || undefined,
     };
   } catch (error: any) {
     console.error('Error creating instant quotation order:', error);

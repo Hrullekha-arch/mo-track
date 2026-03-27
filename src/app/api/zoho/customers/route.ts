@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ customers: retryData.contacts || [] });
   }
 
-    console.log("📦 Raw Zoho Response:", JSON.stringify(data).slice(0, 500));
+    console.log("📦 Raw Zoho Response:", JSON.stringify(data));
 
     if (!response.ok) {
       console.log("❌ Zoho API Error:", data);

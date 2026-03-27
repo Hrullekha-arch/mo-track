@@ -7,19 +7,19 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { ArrowLeft, Calendar, Contact, FileText, GanttChartSquare, Home, MessageSquare, Package, Plane, Receipt as ReceiptIcon, ShoppingCart, User as UserIcon, Contact2, Eye, Loader2, RefreshCw, AlertTriangle, Pencil, Download, Menu, X, Phone, MapPin, MoreHorizontal } from "lucide-react";
+import { ArrowLeft, Calendar, Contact, FileText, GanttChartSquare, Home, MessageSquare, Package, Plane, Receipt as ReceiptIcon, ShoppingCart, User as UserIcon, Contact2, Eye, Loader2, RefreshCw, AlertTriangle, Pencil, Download, Menu, X, Phone, MapPin, MoreHorizontal, PlusCircleIcon, SquareCheckBig } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getSalesmen } from "../../actions";
-import { getDealById, getDealProducts, getQuotationsForDeal, getOrdersForDeal, getVisitsForDeal, getMeasurementsForDeal, getCpdsForDeal, getSelectionsForDeal, updateSelectionStatusAction, updateDealProducts, createSelectionAction, getReceiptsForDeal, getMeasurementById, updateQuotationStatusAction, deleteQuotationCascadeAction } from "./actions";
+import { getDealById, getDealProducts, getQuotationsForDeal, getOrdersForDeal, getVisitsForDeal, getMeasurementsForDeal, getCpdsForDeal, getSelectionsForDeal, updateSelectionStatusAction, updateDealProducts, createSelectionAction, getReceiptsForDeal, getMeasurementById, getSelectionById, updateQuotationStatusAction, deleteQuotationCascadeAction } from "./actions";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
 import { useAuth } from "@/context/AuthContext";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { CpdForm } from "@/components/features/customer/CpdForm";
 import { VisitForm } from "@/components/features/customer/VisitForm";
@@ -39,8 +39,17 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { SelectItem } from "@radix-ui/react-select";
+import { Input } from "@/components/ui/input";
 
 const toText = (value: unknown) => String(value ?? "").trim();
+
+const EMPTY_ROOM_KEY = "__EMPTY_ROOM__";
+const toStrictRoomKey = (name: unknown) => {
+  const value = String(name ?? "").trim();
+  return value ? value : EMPTY_ROOM_KEY;
+};
+const normalizeStrictRoom = (name: unknown) => String(name ?? "").trim().toLowerCase();
+const roomLabelFromKey = (key: string) => (key === EMPTY_ROOM_KEY ? "(empty)" : key);
 
 const normalizeType = (value?: string) => {
   const text = toText(value);
@@ -860,6 +869,79 @@ function MeasurementsTab({ customerId, dealId, measurements, onRefresh }: {
   const [deal, setDeal] = useState<Deal | null>(null);
   const { toast } = useToast();
 
+  type RoomMismatchDialogState = {
+    measurementId: string;
+    selectionId: string;
+    measurementData: any;
+    selectionData: any;
+    measurementRoomMap: Record<string, string>;
+    selectionRoomMap: Record<string, string>;
+    saving: boolean;
+  };
+
+  const [roomMismatchDialog, setRoomMismatchDialog] = useState<RoomMismatchDialogState | null>(null);
+
+  const getStrictRoomSetFromMap = (roomMap: Record<string, string>) =>
+    new Set(
+      Object.values(roomMap)
+        .map((name) => normalizeStrictRoom(name))
+        .filter(Boolean)
+    );
+
+  const areStrictRoomSetsEqual = (
+    measurementRoomMap: Record<string, string>,
+    selectionRoomMap: Record<string, string>
+  ) => {
+    const measurementSet = getStrictRoomSetFromMap(measurementRoomMap);
+    const selectionSet = getStrictRoomSetFromMap(selectionRoomMap);
+    if (measurementSet.size !== selectionSet.size) return false;
+    for (const room of measurementSet) {
+      if (!selectionSet.has(room)) return false;
+    }
+    return true;
+  };
+
+  //========================================
+   const updateMeasurementSelectionId = async (
+  customerId: string,
+  dealId: string,
+  measurementId: string,
+  selectionId: string
+): Promise<void> => {
+  const measurementRef = doc(
+    db,
+    "customers", customerId,
+    "deals", dealId,
+    "measurements", measurementId
+  );
+
+  await updateDoc(measurementRef, { selectionId });
+};
+
+  // Edit state keyed by measurement id
+  const [editingMap, setEditingMap] = useState<Record<string, { isEditing: boolean; tempSelection: string }>>({});
+
+  const getEditState = (id: string) => editingMap[id] ?? { isEditing: false, tempSelection: "" };
+
+  const handleEdit = (id: string) => {
+    setEditingMap(prev => ({ ...prev, [id]: { isEditing: true, tempSelection: "" } }));
+  };
+
+  const handleChange = (id: string, value: string) => {
+    setEditingMap(prev => ({ ...prev, [id]: { ...getEditState(id), tempSelection: value } }));
+  };
+
+  const handleSave = async (id: string) => {
+    const { tempSelection } = getEditState(id);
+     await updateMeasurementSelectionId(customerId, dealId, id, tempSelection);
+     onRefresh();
+    setEditingMap(prev => ({ ...prev, [id]: { isEditing: false, tempSelection: "" } }));
+  };
+
+  const handleCancel = (id: string) => {
+    setEditingMap(prev => ({ ...prev, [id]: { isEditing: false, tempSelection: "" } }));
+  };
+
   const handleViewPdf = async (measurementId: string) => {
     const fullMeasurement = await getMeasurementById(customerId, dealId, measurementId);
     const customerData = await getCustomerById(customerId);
@@ -871,6 +953,191 @@ function MeasurementsTab({ customerId, dealId, measurements, onRefresh }: {
       setViewingMeasurement(fullMeasurement);
     } else {
       toast({ variant: 'destructive', title: 'Error', description: 'Could not load measurement details.' });
+    }
+  };
+
+  const getUniqueRoomKeys = (rooms: unknown[]) => Array.from(new Set(rooms.map((room) => toStrictRoomKey(room))));
+
+  const hasBlankRoomNames = (roomMap: Record<string, string>) =>
+    Object.values(roomMap).some((room) => !String(room).trim());
+
+  const handleMismatchDialogRoomChange = (
+    source: "measurement" | "selection",
+    originalKey: string,
+    value: string
+  ) => {
+    setRoomMismatchDialog((prev) => {
+      if (!prev) return prev;
+      if (source === "measurement") {
+        return {
+          ...prev,
+          measurementRoomMap: {
+            ...prev.measurementRoomMap,
+            [originalKey]: value,
+          },
+        };
+      }
+      return {
+        ...prev,
+        selectionRoomMap: {
+          ...prev.selectionRoomMap,
+          [originalKey]: value,
+        },
+      };
+    });
+  };
+
+  const handleApplyRoomAlignmentAndOpenEditor = async () => {
+    if (!roomMismatchDialog) return;
+
+    if (
+      hasBlankRoomNames(roomMismatchDialog.measurementRoomMap) ||
+      hasBlankRoomNames(roomMismatchDialog.selectionRoomMap) ||
+      !areStrictRoomSetsEqual(roomMismatchDialog.measurementRoomMap, roomMismatchDialog.selectionRoomMap)
+    ) {
+      toast({
+        variant: "destructive",
+        title: "Rooms Still Not Matched",
+        description: "Please make both Selection and Measurement room names identical before opening editor.",
+      });
+      return;
+    }
+
+    try {
+      setRoomMismatchDialog((prev) => (prev ? { ...prev, saving: true } : prev));
+
+      const updatedMeasurementRooms = (roomMismatchDialog.measurementData?.rooms || []).map((room: any) => {
+        const key = toStrictRoomKey(room?.roomName);
+        return {
+          ...room,
+          roomName: String(roomMismatchDialog.measurementRoomMap[key] ?? "").trim(),
+        };
+      });
+
+      const updatedSelectionProducts = (roomMismatchDialog.selectionData?.products || []).map((item: any) => {
+        const key = toStrictRoomKey(item?.room);
+        return {
+          ...item,
+          room: String(roomMismatchDialog.selectionRoomMap[key] ?? "").trim(),
+        };
+      });
+
+      const measurementRef = doc(
+        db,
+        "customers",
+        customerId,
+        "deals",
+        dealId,
+        "measurements",
+        roomMismatchDialog.measurementId
+      );
+      const selectionRef = doc(
+        db,
+        "customers",
+        customerId,
+        "deals",
+        dealId,
+        "selections",
+        roomMismatchDialog.selectionId
+      );
+
+      await Promise.all([
+        updateDoc(measurementRef, { rooms: updatedMeasurementRooms }),
+        updateDoc(selectionRef, { products: updatedSelectionProducts }),
+      ]);
+
+      const editMeasurementId = roomMismatchDialog.measurementId;
+      setRoomMismatchDialog(null);
+      router.push(`/dashboard/customers/${customerId}/${dealId}/measurement/${editMeasurementId}/edit`);
+    } catch (error) {
+      console.error("Failed to save aligned room names:", error);
+      toast({
+        variant: "destructive",
+        title: "Failed To Save Room Names",
+        description: "Could not update room names for selection/measurement.",
+      });
+      setRoomMismatchDialog((prev) => (prev ? { ...prev, saving: false } : prev));
+    }
+  };
+
+  const handleOpenMeasurementEditor = async (measurementId: string) => {
+    try {
+      const measurement = await getMeasurementById(customerId, dealId, measurementId);
+      if (!measurement) {
+        toast({
+          variant: "destructive",
+          title: "Measurement Not Found",
+          description: "Could not load measurement details before opening editor.",
+        });
+        return;
+      }
+
+      if (!measurement.selectionId) {
+        toast({
+          variant: "destructive",
+          title: "Selection Missing",
+          description: "Selection ID is missing on this measurement. Please update selection ID first.",
+        });
+        return;
+      }
+
+      const selection = await getSelectionById(customerId, dealId, String(measurement.selectionId));
+      if (!selection) {
+        toast({
+          variant: "destructive",
+          title: "Selection Not Found",
+          description: "Linked selection was not found. Please verify selection ID.",
+        });
+        return;
+      }
+
+      const measurementRoomKeys = getUniqueRoomKeys(
+        (measurement.rooms || []).map((room: any) => room?.roomName)
+      );
+      const selectionRoomKeys = getUniqueRoomKeys(
+        (selection.products || []).map((item: any) => item?.room)
+      );
+
+      const measurementRoomMap = measurementRoomKeys.reduce((acc, key) => {
+        acc[key] = key === EMPTY_ROOM_KEY ? "" : key;
+        return acc;
+      }, {} as Record<string, string>);
+      const selectionRoomMap = selectionRoomKeys.reduce((acc, key) => {
+        acc[key] = key === EMPTY_ROOM_KEY ? "" : key;
+        return acc;
+      }, {} as Record<string, string>);
+
+      const roomsMatched =
+        !hasBlankRoomNames(measurementRoomMap) &&
+        !hasBlankRoomNames(selectionRoomMap) &&
+        areStrictRoomSetsEqual(measurementRoomMap, selectionRoomMap);
+
+      if (!roomsMatched) {
+        toast({
+          variant: "destructive",
+          title: "Room Names Mismatch",
+          description: "Match room names in both lists first. Editor is locked until names match.",
+        });
+        setRoomMismatchDialog({
+          measurementId,
+          selectionId: String(measurement.selectionId),
+          measurementData: measurement,
+          selectionData: selection,
+          measurementRoomMap,
+          selectionRoomMap,
+          saving: false,
+        });
+        return;
+      }
+
+      router.push(`/dashboard/customers/${customerId}/${dealId}/measurement/${measurementId}/edit`);
+    } catch (error) {
+      console.error("Failed to validate rooms before opening editor:", error);
+      toast({
+        variant: "destructive",
+        title: "Failed To Open Editor",
+        description: "Could not validate selection/measurement rooms.",
+      });
     }
   };
 
@@ -889,9 +1156,8 @@ function MeasurementsTab({ customerId, dealId, measurements, onRefresh }: {
       const imgHeight = canvas.height;
       const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
       const imgX = (pdfWidth - imgWidth * ratio) / 2;
-      const imgY = 0;
 
-      pdf.addImage(imgData, "PNG", imgX, imgY, imgWidth * ratio, imgHeight * ratio);
+      pdf.addImage(imgData, "PNG", imgX, 0, imgWidth * ratio, imgHeight * ratio);
       pdf.save(`Measurement-${deal?.dealId || "details"}.pdf`);
     } catch (error) {
       console.error("Failed to generate PDF", error);
@@ -900,6 +1166,12 @@ function MeasurementsTab({ customerId, dealId, measurements, onRefresh }: {
       setPdfLoading(false);
     }
   };
+
+  const roomMismatchReadyToProceed = roomMismatchDialog
+    ? !hasBlankRoomNames(roomMismatchDialog.measurementRoomMap) &&
+      !hasBlankRoomNames(roomMismatchDialog.selectionRoomMap) &&
+      areStrictRoomSetsEqual(roomMismatchDialog.measurementRoomMap, roomMismatchDialog.selectionRoomMap)
+    : false;
 
   return (
     <div className="space-y-4">
@@ -926,44 +1198,91 @@ function MeasurementsTab({ customerId, dealId, measurements, onRefresh }: {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {measurements.map((m, i) => (
-                        <TableRow key={m.id}>
-                          <TableCell>{i + 1}</TableCell>
-                          <TableCell>{m.typeOf || "-"}</TableCell>
-                          <TableCell>{m.doerName || "-"}</TableCell>
-                          <TableCell>
-                            <div className="text-sm">
-                              <div>{m.createdBy}</div>
-                              <div className="text-muted-foreground">{m.createdAt ? format(new Date(m.createdAt), "dd/MM/yy") : "-"}</div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{m.status || "Unknown"}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            {m.selectionId ? (
-                              <Badge variant="secondary">{m.selectionId}</Badge>
-                            ) : (
-                              <span className="text-muted-foreground">None</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Button size="sm" variant="outline" onClick={() => router.push(`/dashboard/customers/${customerId}/${dealId}/measurement/${m.id}/edit`)}>
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                              <Button size="sm" variant="outline" onClick={() => handleViewPdf(m.id)}>
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {measurements.map((m, i) => {
+                        const { isEditing, tempSelection } = getEditState(m.id);
+                        return (
+                          <TableRow key={m.id}>
+                            <TableCell>{i + 1}</TableCell>
+                            <TableCell>{m.typeOf || "-"}</TableCell>
+                            <TableCell>{m.doerName || "-"}</TableCell>
+                            <TableCell>
+                              <div className="text-sm">
+                                <div>{m.createdBy}</div>
+                                <div className="text-muted-foreground">
+                                  {m.createdAt ? format(new Date(m.createdAt), "dd/MM/yy") : "-"}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{m.status || "Unknown"}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              {m.selectionId ? (
+                                <Badge variant="secondary" className="px-3 py-1 text-xs">
+                                  {m.selectionId}
+                                </Badge>
+                              ) : (
+                                <div className="flex items-center gap-2">  {/* removed justify-center */}
+                                  {!isEditing ? (
+                                    <>
+                                      <span className="text-muted-foreground text-sm">None</span>
+                                      <Button
+                                        size="icon"
+                                        variant="outline"
+                                        className="h-7 w-7"
+                                        onClick={() => handleEdit(m.id)}
+                                      >
+                                        <PlusCircleIcon className="h-4 w-4" />
+                                      </Button>
+                                    </>
+                                  ) : (
+                                    <div className="flex items-center gap-2">
+                                      <Input
+                                        value={tempSelection}
+                                        onChange={(e) => handleChange(m.id, e.target.value)}
+                                        className="h-8 w-[120px]"
+                                        placeholder="Enter ID"
+                                      />
+                                      <Button
+                                        size="icon"
+                                        variant="outline"
+                                        className="h-7 w-7 text-green-600"
+                                        onClick={() => handleSave(m.id)}
+                                      >
+                                        <SquareCheckBig className="h-4 w-4" />
+                                      </Button>
+                                      <Button
+                                        size="icon"
+                                        variant="outline"
+                                        className="h-7 w-7 text-red-500"
+                                        onClick={() => handleCancel(m.id)}
+                                      >
+                                        <X className="h-4 w-4" />
+                                      </Button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </TableCell>
+                            
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Button size="sm" variant="outline" onClick={() => handleOpenMeasurementEditor(m.id)}>
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button size="sm" variant="outline" onClick={() => handleViewPdf(m.id)}>
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
 
-                {/* Mobile Cards */}
+                {/* Mobile Cards — unchanged, but you can wire up edit here too if needed */}
                 <div className="md:hidden space-y-3">
                   {measurements.map((m, i) => (
                     <Card key={m.id}>
@@ -995,7 +1314,7 @@ function MeasurementsTab({ customerId, dealId, measurements, onRefresh }: {
                           </div>
                         </div>
                         <div className="flex gap-2 pt-2">
-                          <Button size="sm" variant="outline" className="flex-1" onClick={() => router.push(`/dashboard/customers/${customerId}/${dealId}/measurement/${m.id}/edit`)}>
+                          <Button size="sm" variant="outline" className="flex-1" onClick={() => handleOpenMeasurementEditor(m.id)}>
                             <Pencil className="h-4 w-4 mr-1" />
                             Edit
                           </Button>
@@ -1020,6 +1339,77 @@ function MeasurementsTab({ customerId, dealId, measurements, onRefresh }: {
       )}
 
       {role === 'installer' && <MeasurementForm customerId={customerId} dealId={dealId} onRefresh={onRefresh} />}
+
+      <Dialog open={!!roomMismatchDialog} onOpenChange={(open) => !open && !roomMismatchDialog?.saving && setRoomMismatchDialog(null)}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Room Name Matching Required</DialogTitle>
+            <DialogDescription>
+              Selection and Measurement room names must match exactly. Update both sides below, then continue.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Measurement Rooms</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {roomMismatchDialog && Object.keys(roomMismatchDialog.measurementRoomMap).map((roomKey) => (
+                  <div key={`measurement-${roomKey}`} className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Original: {roomLabelFromKey(roomKey)}</p>
+                    <Input
+                      value={roomMismatchDialog.measurementRoomMap[roomKey]}
+                      onChange={(e) => handleMismatchDialogRoomChange("measurement", roomKey, e.target.value)}
+                      placeholder="Enter room name"
+                    />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Selection Rooms</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {roomMismatchDialog && Object.keys(roomMismatchDialog.selectionRoomMap).map((roomKey) => (
+                  <div key={`selection-${roomKey}`} className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Original: {roomLabelFromKey(roomKey)}</p>
+                    <Input
+                      value={roomMismatchDialog.selectionRoomMap[roomKey]}
+                      onChange={(e) => handleMismatchDialogRoomChange("selection", roomKey, e.target.value)}
+                      placeholder="Enter room name"
+                    />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+
+          <DialogFooter className="gap-2">
+            {!roomMismatchReadyToProceed && (
+              <p className="text-sm text-destructive mr-auto">
+                Room sets still do not match exactly. Editor will remain locked.
+              </p>
+            )}
+            <Button
+              variant="outline"
+              onClick={() => setRoomMismatchDialog(null)}
+              disabled={!!roomMismatchDialog?.saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleApplyRoomAlignmentAndOpenEditor}
+              disabled={!roomMismatchReadyToProceed || !!roomMismatchDialog?.saving}
+            >
+              {roomMismatchDialog?.saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Save Match & Open Editor
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!viewingMeasurement} onOpenChange={() => setViewingMeasurement(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -2072,3 +2462,4 @@ function CpdTab({ customer, salesmen, deal, onRefresh, quotations, cpds }: {
     </div>
   );
 }
+
