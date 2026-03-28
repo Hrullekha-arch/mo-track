@@ -35,6 +35,8 @@ export const itemDetailSchema = z.object({
   collectionBrand: z.string().min(1, "Collection/Brand is required"),
   serialNo: z.string().optional(),
   salesDescription: z.string().min(1, "Description is required"),
+  unit: z.string().optional(),
+  stockUnit: z.string().optional(),
   quantity: z.preprocess(
     (val) => {
       if (val === '' || val === null || val === undefined) return 0;
@@ -164,6 +166,15 @@ function gstPercentForBcnType(bcnType?: BcnType): number {
   if (bcnType === "Blind") return 18;
   if (bcnType === "channel") return 18;
   return 5;
+}
+
+function normalizeStockUnit(value: unknown, fallback?: string): string {
+  const raw = String(value || fallback || "").trim();
+  if (!raw) return "";
+  const normalized = raw.toUpperCase();
+  if (["M", "MTR", "METER", "METRE", "METERS", "METRES"].includes(normalized)) return "Mtr";
+  if (["PC", "PCS", "PIECE", "PIECES"].includes(normalized)) return "Pcs";
+  return raw;
 }
 
 function resolveStockRate(stock?: Stock | null): number {
@@ -873,12 +884,16 @@ export function CreateQuotationDialog({
     const discountPercent = Number(addItem.discountPercent) || 0;
     const resolvedBcnType = normalizeBcnType(selectedStock?.type) || "fabric";
     const gstPercent = gstPercentForBcnType(resolvedBcnType);
+    const fallbackUnit = resolvedBcnType === "fabric" ? "Mtr" : "Pcs";
+    const resolvedStockUnit = normalizeStockUnit(selectedStock?.unit, fallbackUnit);
 
     appendItem({
       id: `manual-${Date.now()}`,
       collectionBrand: addItem.bcn,
       serialNo: selectedStock?.serialNo || "",
       salesDescription: addItem.description || selectedStock?.itemName || addItem.bcn,
+      unit: resolvedStockUnit,
+      stockUnit: resolvedStockUnit,
       quantity: quantity,
       rate: rateValue,
       originalMrp: rateValue,
@@ -926,6 +941,8 @@ export function CreateQuotationDialog({
           const detectedBcnType = normalizeBcnType(rawDbType);
           const resolvedBcnType = detectedBcnType || "fabric";
           const detectedGst = gstPercentForBcnType(resolvedBcnType);
+          const fallbackUnit = resolvedBcnType === "fabric" ? "Mtr" : "Pcs";
+          const resolvedStockUnit = normalizeStockUnit((item as any).stockUnit || item.unit || stock?.unit, fallbackUnit);
 
           let effectiveRate = 0;
           if (item.rate != null && !isNaN(Number(item.rate))) effectiveRate = Number(item.rate);
@@ -939,6 +956,8 @@ export function CreateQuotationDialog({
             collectionBrand: item.collectionBrand || "",
             serialNo: item.serialNo || "",
             salesDescription: description,
+            unit: resolvedStockUnit,
+            stockUnit: resolvedStockUnit,
             quantity: Number(item.quantity) || 0,
             rate: effectiveRate,
             originalMrp,
@@ -1011,7 +1030,23 @@ async function handleCreateQuotation() {
     }
     setLoading(true);
 
-    const totalAmount = values.items.reduce((sum, item) => {
+    const normalizedItems = values.items.map((item) => {
+        const itemBcnType = String((item as any).bcnType || "").toLowerCase();
+        const fallbackUnit = itemBcnType && itemBcnType !== "fabric" ? "Pcs" : "Mtr";
+        const resolvedStockUnit = normalizeStockUnit((item as any).stockUnit || item.unit, fallbackUnit);
+        return {
+          ...item,
+          unit: resolvedStockUnit,
+          stockUnit: resolvedStockUnit,
+        };
+    });
+
+    const valuesForCreate = {
+      ...values,
+      items: normalizedItems,
+    };
+
+    const totalAmount = valuesForCreate.items.reduce((sum, item) => {
         const quantity = Number(item.quantity) || 0;
         const rate = Number(item.rate) || 0;
         const subtotal = quantity * rate; // GST-inclusive
@@ -1030,7 +1065,7 @@ async function handleCreateQuotation() {
         const quotationResult = await createQuotationAction(
           customer.id, 
           deal.id, 
-          values, 
+          valuesForCreate as any, 
           totalAmount + vasTotal
         );
 
@@ -1204,7 +1239,7 @@ async function handleCreateQuotation() {
                         <FormItem>
                           <FormLabel>Deal Name*</FormLabel>
                           <Combobox 
-                            options={[{value: deal.dealName, label: deal.dealName}]} 
+                            options={[{value: String(deal.dealName || ""), label: String(deal.dealName || "")}]} 
                             value={field.value} 
                             onSelect={field.onChange} 
                             placeholder="--SELECT--" 

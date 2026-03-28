@@ -289,3 +289,238 @@ export async function deleteVisitAction(
         return { success: false, message: error.message || 'Failed to delete visit.' };
     }
 }
+
+export type ComplaintCustomerSearchResult = {
+    id: string;
+    name: string;
+    phone?: string;
+    mobileNo?: string;
+    email?: string;
+    address?: string;
+    billingAddress?: string;
+    pincode?: string;
+    customerCode?: string;
+};
+
+export async function searchCustomersForComplaintAction(searchTerm: string): Promise<{
+    success: boolean;
+    message: string;
+    customers: ComplaintCustomerSearchResult[];
+}> {
+    try {
+        const raw = String(searchTerm || '').trim();
+        if (!raw) {
+            return { success: true, message: 'Search term is required.', customers: [] };
+        }
+
+        const normalized = raw.toLowerCase();
+        const normalizedDigits = raw.replace(/\D/g, '');
+
+        const snapshot = await adminDb
+            .collection('customers')
+            .orderBy('createdAt', 'desc')
+            .limit(400)
+            .get();
+
+        const rows: ComplaintCustomerSearchResult[] = snapshot.docs.map((doc: any) => {
+            const data = doc.data() as any;
+            const phone = String(data?.phone || data?.mobile || '').trim();
+            const mobileNo = String(data?.mobileNo || data?.mobile || '').trim();
+            const email = String(data?.email || '').trim();
+            const name = String(data?.name || '').trim();
+            const billingAddress = [
+                data?.billingAddress?.line1,
+                data?.billingAddress?.line2,
+                data?.billingAddress?.landmark,
+                data?.billingAddress?.city,
+                data?.billingAddress?.state,
+            ]
+                .map((part) => String(part || '').trim())
+                .filter(Boolean)
+                .join(', ');
+            const legacyAddress = String(data?.addressPinCode || '').trim();
+            const pincode = String(data?.billingAddress?.pincode || data?.pinCode || '').trim();
+            const customerCode = String(data?.customerCode || data?.customerId || '').trim();
+
+            return {
+                id: doc.id,
+                name,
+                phone: phone || undefined,
+                mobileNo: mobileNo || undefined,
+                email: email || undefined,
+                billingAddress: billingAddress || undefined,
+                address: (billingAddress || legacyAddress) || undefined,
+                pincode: pincode || undefined,
+                customerCode: customerCode || undefined,
+            };
+        });
+
+        const filtered = rows.filter((row) => {
+            const rowPhoneDigits = String(row.phone || '').replace(/\D/g, '');
+            const rowMobileDigits = String(row.mobileNo || '').replace(/\D/g, '');
+            const textHaystack = [
+                row.name || '',
+                row.email || '',
+                row.phone || '',
+                row.mobileNo || '',
+                row.customerCode || '',
+            ]
+                .join(' ')
+                .toLowerCase();
+
+            if (normalizedDigits) {
+                if (rowPhoneDigits.includes(normalizedDigits)) return true;
+                if (rowMobileDigits.includes(normalizedDigits)) return true;
+            }
+
+            return textHaystack.includes(normalized);
+        });
+
+        return {
+            success: true,
+            message: filtered.length ? 'Customers found.' : 'Customer not found.',
+            customers: filtered.slice(0, 20),
+        };
+    } catch (error: any) {
+        console.error('Error searching customers for complaint:', error);
+        return {
+            success: false,
+            message: error?.message || 'Failed to search customers.',
+            customers: [],
+        };
+    }
+}
+
+export async function createComplaintCompanyVisitAction(input: {
+    customer: ComplaintCustomerSearchResult;
+    complaintType: string;
+    visitDate: string;
+    customerAddress: string;
+    workNote: string;
+    photoUrls: string[];
+    createdBy?: { id?: string; name?: string; email?: string };
+}): Promise<{ success: boolean; message: string; id?: string }> {
+    try {
+        const customer = input?.customer;
+        const complaintType = String(input?.complaintType || '').trim();
+        const visitDate = String(input?.visitDate || '').trim();
+        const customerAddress = String(input?.customerAddress || '').trim();
+        const workNote = String(input?.workNote || '').trim();
+        const photoUrls = Array.isArray(input?.photoUrls)
+            ? input.photoUrls.map((url) => String(url || '').trim()).filter(Boolean)
+            : [];
+
+        if (!customer?.id || !customer?.name) {
+            return { success: false, message: 'Valid customer is required.' };
+        }
+        if (!complaintType) {
+            return { success: false, message: 'Complaint type is required.' };
+        }
+        if (!visitDate) {
+            return { success: false, message: 'Visit date is required.' };
+        }
+        if (!customerAddress) {
+            return { success: false, message: 'Customer address is required.' };
+        }
+        if (!workNote) {
+            return { success: false, message: 'Work note is required.' };
+        }
+        if (!photoUrls.length) {
+            return { success: false, message: 'At least one photo is required.' };
+        }
+        if (photoUrls.length > 5) {
+            return { success: false, message: 'Maximum 5 photos are allowed.' };
+        }
+
+        const customerSnapshotRef = adminDb.collection('customers').doc(customer.id);
+        const customerSnapshot = await customerSnapshotRef.get();
+        const customerData = customerSnapshot.exists ? (customerSnapshot.data() as any) : null;
+
+        const resolvedPhone = String(
+            customerData?.phone ||
+            customerData?.mobileNo ||
+            customerData?.mobile ||
+            customer.phone ||
+            customer.mobileNo ||
+            ''
+        ).trim();
+        const resolvedEmail = String(customerData?.email || customer.email || '').trim();
+        const resolvedCustomerCode = String(
+            customerData?.customerCode || customerData?.customerId || customer.customerCode || ''
+        ).trim();
+        const resolvedAddressFromCustomer = [
+            customerData?.billingAddress?.line1,
+            customerData?.billingAddress?.line2,
+            customerData?.billingAddress?.landmark,
+            customerData?.billingAddress?.city,
+            customerData?.billingAddress?.state,
+            customerData?.billingAddress?.country,
+            customerData?.billingAddress?.pincode || customerData?.pinCode,
+        ]
+            .map((part) => String(part || '').trim())
+            .filter(Boolean)
+            .join(', ');
+        const resolvedAddress = customerAddress || resolvedAddressFromCustomer || customer.address || '';
+        const visitDateOnly = visitDate.includes('T') ? visitDate.split('T')[0] : visitDate;
+
+        const nowIso = new Date().toISOString();
+        const docRef = adminDb.collection('companyVisits').doc();
+
+        await docRef.set({
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            category: 'complaint_visit',
+            purpose: 'customer_complaint',
+            status: 'Pending Approval',
+            trackerStatus: 'planned',
+            approvalStatus: 'Pending Approval',
+            complaintStatus: 'Pending Approval',
+            pendingApproval: true,
+            complaintType,
+            complaintSubType: complaintType,
+            visitDate: visitDateOnly,
+            workNote,
+            remark: workNote,
+            customerAddress: resolvedAddress,
+            from: resolvedAddress,
+            to: resolvedAddress,
+            startTime: '',
+            endTime: '',
+            workMode: 'customer_home',
+            assignedToId: '',
+            assignedToName: 'Unassigned',
+            assignedRole: 'employee',
+            installerAssignedId: '',
+            installerAssignedName: '',
+            photos: photoUrls,
+            photoUrls,
+            customerId: customer.id,
+            customerName: customer.name,
+            customerPhone: resolvedPhone,
+            customerEmail: resolvedEmail,
+            customerCode: resolvedCustomerCode,
+            customerSnapshot: {
+                id: customer.id,
+                name: customer.name,
+                phone: resolvedPhone,
+                email: resolvedEmail,
+                address: resolvedAddress,
+                pincode: String(customerData?.billingAddress?.pincode || customerData?.pinCode || customer.pincode || ''),
+                customerCode: resolvedCustomerCode,
+                billingAddress: customerData?.billingAddress || null,
+                raw: customerData || null,
+            },
+            createdBy: {
+                id: String(input?.createdBy?.id || '').trim() || 'system',
+                name: String(input?.createdBy?.name || '').trim() || 'System',
+                email: String(input?.createdBy?.email || '').trim() || '',
+            },
+            source: 'all_visits_register_complaint',
+        });
+
+        return { success: true, message: 'Complaint registered successfully.', id: docRef.id };
+    } catch (error: any) {
+        console.error('Error creating complaint company visit:', error);
+        return { success: false, message: error?.message || 'Failed to register complaint.' };
+    }
+}

@@ -206,7 +206,7 @@ export function PrintableQuotationProfessional({ type, values, creatorName, sale
                                         <td style={{ padding: '6px', border: '1px solid #ddd' }}>{/* HSN Placeholder */}</td>
                                         <td style={{ padding: '6px', border: '1px solid #ddd' }}>{'vasName' in item ? item.vasName : item.collectionBrand}</td>
                                         <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>{Number(item.quantity).toFixed(2)}</td>
-                                        <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'left' }}>MTRS</td>
+                                        <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'left' }}>{(item as any).unit || (item as any).stockUnit || "Mtr"}</td>
                                         <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>
                                             {formatToINR(Number((item as any).exclusiveRate ?? item.rate))}
                                         </td>

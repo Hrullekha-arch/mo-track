@@ -24,6 +24,8 @@ export type InstantItemInput = {
   description: string;
   quantity: number;
   rate: number;
+  unit?: string;
+  stockUnit?: string;
   discountPercent?: number;
   gstPercent?: number;
   gstMode?: 'EXCL' | 'INCL';
@@ -82,6 +84,14 @@ const formatInstantDealId = (seq: number) => `INQ-${String(seq).padStart(3, '0')
 const toNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeUnit = (value: unknown, fallback = 'Mtr') => {
+  const raw = String(value || '').trim();
+  const normalized = raw.toUpperCase();
+  if (['M', 'MTR', 'METER', 'METRE', 'METERS', 'METRES'].includes(normalized)) return 'Mtr';
+  if (['PC', 'PCS', 'PIECE', 'PIECES'].includes(normalized)) return 'Pcs';
+  return raw || fallback;
 };
 
 const computeLineTotal = (item: InstantItemInput) => {
@@ -287,6 +297,8 @@ export async function createInstantQuotationOrderAction(
         description: String(item?.description || '').trim(),
         quantity: Math.max(0, toNumber(item?.quantity)),
         rate: Math.max(0, toNumber(item?.rate)),
+        unit: normalizeUnit(item?.unit || item?.stockUnit, 'Mtr'),
+        stockUnit: normalizeUnit(item?.stockUnit || item?.unit, 'Mtr'),
         discountPercent: Math.max(0, Math.min(100, toNumber(item?.discountPercent))),
         gstPercent: isCashsale ? 0 : Math.max(0, toNumber(item?.gstPercent ?? 5)),
         gstMode: (isCashsale ? 'INCL' : item?.gstMode === 'EXCL' ? 'EXCL' : 'INCL') as 'EXCL' | 'INCL',
@@ -517,6 +529,8 @@ export async function createInstantQuotationOrderAction(
       serialNo: item.stockId || '',
       salesDescription: item.description,
       quantity: item.quantity,
+      unit: item.unit || item.stockUnit || 'Mtr',
+      stockUnit: item.stockUnit || item.unit || 'Mtr',
       rate: item.rate,
       discountPercent: item.discountPercent || 0,
       room: item.room || '',
@@ -633,7 +647,7 @@ export async function createInstantQuotationOrderAction(
           status: 'pending for po',
           rate: item.rate,
           discountPercent: item.discountPercent || 0,
-          unit: 'Mtr',
+          unit: item.unit || item.stockUnit || 'Mtr',
           type: 'fabric',
           room: item.room || '',
           hsnCode: '',

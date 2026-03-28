@@ -31,6 +31,7 @@ import {
   UserPlus,
   PackageSearch,
   TrendingUp,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -61,6 +62,7 @@ export const navItems = [
     { href: "/dashboard/approvals", icon: FileSignature, label: "Approvals", roles: ['admin', 'Accounts'] },
     { href: "/dashboard/stock-verification", icon: PackageSearch, label: "Stock Verification", roles: ['admin', 'employee'] },
     { href: "/dashboard/visits", icon: CalendarCheck, label: "Visits", roles: ['admin', 'employee'] },
+    { href: "/dashboard/complain-approval", icon: ShieldCheck, label: "Complain Approval", roles: ['admin', 'employee'] },
     { href: "/dashboard/customers", icon: Contact, label: "Customers", roles: ['admin', 'employee'] },
     { href: "/dashboard/walk-in", icon: UserPlus, label: "Walk-in", roles: ['admin', 'employee'] },
     { href: "/dashboard/Sales", icon: ClipboardList, label: "Sales", roles: ['admin', 'employee'] },
@@ -81,10 +83,23 @@ function SidebarNav({ className }: { className?: string }) {
   const { user, role } = useAuth();
 
   const navItemsForUser = React.useMemo(() => {
+    const normalizedRole = String(role || user?.role || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]/g, "");
+    const normalizedDesignation = String((user as any)?.designation || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]/g, "");
+    const isHeadSalesManager =
+      normalizedRole === "headsalesmanager" || normalizedDesignation === "headsalesmanager";
+
     return navItems.filter(item => {
       if (!user) return false;
       // Admin sees everything
       if (role === 'admin') return true;
+      // Headsalesmanager can always access complain approval page.
+      if (isHeadSalesManager && item.href === "/dashboard/complain-approval") return true;
       // For other roles, check the permissions array
       return user.permissions?.includes(item.href);
     });

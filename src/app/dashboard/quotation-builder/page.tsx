@@ -50,7 +50,7 @@ type DraftCustomer = {
 type DraftItem = {
   bcn: string; description: string; quantity: string; rate: string;
   discountPercent: string; gstPercent: string; gstMode: "EXCL" | "INCL";
-  room: string; remark: string; stockId?: string;
+  room: string; remark: string; stockId?: string; unit?: string; stockUnit?: string;
 };
 type DraftVas = {
   vasName: string; quantity: string; rate: string;
@@ -66,7 +66,7 @@ const defaultDraftCustomer: DraftCustomer = {
 const defaultDraftItem: DraftItem = {
   bcn: "", description: "", quantity: "1", rate: "",
   discountPercent: "0", gstPercent: "5", gstMode: "INCL",
-  room: "", remark: "", stockId: undefined,
+  room: "", remark: "", stockId: undefined, unit: undefined, stockUnit: undefined,
 };
 const defaultDraftVas: DraftVas = {
   vasName: "", quantity: "1", rate: "", gstPercent: "0", room: "", hsnCode: "",
@@ -87,6 +87,14 @@ const getStockRate = (stock?: Stock | null) => {
     if (Number.isFinite(v) && v > 0) return v;
   }
   return 0;
+};
+
+const normalizeUnit = (value: unknown, fallback = "Mtr") => {
+  const raw = String(value || "").trim();
+  const normalized = raw.toUpperCase();
+  if (["M", "MTR", "METER", "METRE", "METERS", "METRES"].includes(normalized)) return "Mtr";
+  if (["PC", "PCS", "PIECE", "PIECES"].includes(normalized)) return "Pcs";
+  return raw || fallback;
 };
 
 const lineAmount = (item: InstantItemInput) => {
@@ -308,6 +316,7 @@ function QuotationBuilderInner() {
   const handleSelectStock = (stock: Stock) => {
     const name = String(stock.name || stock.itemName || stock.bcn || "").trim();
     const gst  = toNumber((stock as Record<string, unknown>).gstPercent, 5);
+    const stockUnit = normalizeUnit(stock.unit, "Mtr");
     setDraftItem((p) => ({
       ...p,
       bcn: String(stock.bcn || p.bcn),
@@ -315,6 +324,8 @@ function QuotationBuilderInner() {
       rate: String(getStockRate(stock) || p.rate || ""),
       gstPercent: isCashsale ? "0" : String(gst > 0 ? gst : 5),
       stockId: stock.id,
+      unit: stockUnit,
+      stockUnit,
     }));
     setStockSuggestionOpen(false);
   };
@@ -332,6 +343,8 @@ function QuotationBuilderInner() {
       {
         bcn, description, quantity: qty,
         rate: Math.max(0, toNumber(draftItem.rate)),
+        unit: normalizeUnit(draftItem.unit || draftItem.stockUnit, "Mtr"),
+        stockUnit: normalizeUnit(draftItem.stockUnit || draftItem.unit, "Mtr"),
         discountPercent: Math.max(0, Math.min(100, toNumber(draftItem.discountPercent))),
         gstPercent: isCashsale ? 0 : Math.max(0, toNumber(draftItem.gstPercent, 5)),
         gstMode: isCashsale ? "INCL" : draftItem.gstMode,
@@ -637,7 +650,13 @@ function QuotationBuilderInner() {
                   value={draftItem.bcn}
                   onFocus={() => setStockSuggestionOpen(true)}
                   onChange={(e) => {
-                    setDraftItem((p) => ({ ...p, bcn: e.target.value, stockId: undefined }));
+                    setDraftItem((p) => ({
+                      ...p,
+                      bcn: e.target.value,
+                      stockId: undefined,
+                      unit: undefined,
+                      stockUnit: undefined,
+                    }));
                     setStockSuggestionOpen(true);
                   }}
                 />

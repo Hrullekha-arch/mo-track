@@ -39,6 +39,7 @@ import { Separator } from "@/components/ui/separator";
 import CompanyVisitDialog from "@/components/features/customer/CompanyVisitDialog";
 import { useAuth } from "@/context/AuthContext";
 import InstallerLiveMap, { type InstallerMapMarker, type InstallerMapMarkerStatus } from "@/components/features/visits/InstallerLiveMap";
+import RegisterComplaintDialog from "@/components/features/visits/RegisterComplaintDialog";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -638,6 +639,7 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign, onShare, onViewDet
   const [isCompletingVisit, setIsCompletingVisit] = React.useState(false);
   const [isSyncingSheet, setIsSyncingSheet] = React.useState(false);
   const [companyVisitDialog, setCompanyVisitDialog] = React.useState(false);
+  const [registerComplaintDialog, setRegisterComplaintDialog] = React.useState(false);
   const syncingRef = React.useRef(false);
 
   // Auto-sync every 60s
@@ -837,6 +839,15 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign, onShare, onViewDet
               className="rounded-lg text-xs h-8 border-slate-200">
               {isSyncingSheet ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <CalendarSync className="mr-1.5 h-3 w-3" />}
               Sync Sheet
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setRegisterComplaintDialog(true)}
+              className="rounded-lg text-xs h-8 border-slate-200"
+            >
+              <AlertCircle className="mr-1.5 h-3 w-3" />
+              Register Complaint
             </Button>
             <Button size="sm" variant="outline" onClick={() => setCompanyVisitDialog(true)}
               className="rounded-lg text-xs h-8 border-slate-200">
@@ -1311,6 +1322,7 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign, onShare, onViewDet
       </AlertDialog>
 
       <CompanyVisitDialog open={companyVisitDialog} onOpenChange={setCompanyVisitDialog} installers={installers} />
+      <RegisterComplaintDialog open={registerComplaintDialog} onOpenChange={setRegisterComplaintDialog} />
     </>
   );
 }

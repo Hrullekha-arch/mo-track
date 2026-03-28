@@ -416,7 +416,7 @@ const resolveOrderItemType = (item: any) => {
 };
 
 const resolveOrderItemUnit = (itemType: string, item: any) => {
-  const unit = String(item?.unit || "").trim().toUpperCase();
+  const unit = String(item?.unit || item?.stockUnit || "").trim().toUpperCase();
   if (unit) return unit;
   if (itemType === "FABRIC") return "MTR";
   return "PCS";

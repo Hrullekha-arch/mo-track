@@ -30,6 +30,8 @@ const formatWalkinId = (sequenceValue: string) => {
     return normalized ? `WALKIN-${normalized}` : `WALKIN-${Date.now()}`;
 };
 
+const normalizeMobile = (value: unknown) => String(value || '').replace(/\D/g, '');
+
 export async function addWalkinCustomer(
     data: WalkinCustomerData,
     creator?: WalkinCreator
@@ -51,11 +53,32 @@ export async function addWalkinCustomer(
             creatorStore = String((creatorSnap.data() as any)?.store || '').trim();
         }
         const resolvedStore = String(data?.store || creatorStore || '').trim();
+        const rawMobile = String(data?.mobile || '').trim();
+        const mobileNormalized = normalizeMobile(rawMobile);
+        const mobileLast10 = mobileNormalized.length >= 10
+            ? mobileNormalized.slice(-10)
+            : mobileNormalized;
 
-        const mobileQuery = await walkinRef.where('mobile', '==', data.mobile).limit(1).get();
-        if (!mobileQuery.empty) {
-            return { success: false, message: "A record with this mobile number already exists." };
-        }
+        const [mobileExactQuery, mobileNormalizedQuery, mobileLast10Query] = await Promise.all([
+            walkinRef.where('mobile', '==', rawMobile).limit(1).get(),
+            mobileNormalized
+                ? walkinRef.where('mobileNormalized', '==', mobileNormalized).limit(1).get()
+                : Promise.resolve(null as any),
+            mobileLast10
+                ? walkinRef.where('mobileLast10', '==', mobileLast10).limit(1).get()
+                : Promise.resolve(null as any),
+        ]);
+
+        const existingDoc =
+            mobileExactQuery?.docs?.[0] ||
+            mobileNormalizedQuery?.docs?.[0] ||
+            mobileLast10Query?.docs?.[0] ||
+            null;
+
+        const isReturningCustomer = Boolean(existingDoc);
+        const resolvedCustomerType = isReturningCustomer
+            ? 'Returning-Customer'
+            : String(data?.customerType || '').trim() || 'Walk-in';
 
         const usersRef = adminDb.collection('users');
         const crmQuery = usersRef.where('role', '==', 'employee').where('designation', '==', 'CRM');
@@ -131,6 +154,12 @@ export async function addWalkinCustomer(
 
         await walkinRef.add({
             ...data,
+            mobile: rawMobile,
+            mobileNormalized: mobileNormalized || null,
+            mobileLast10: mobileLast10 || null,
+            customerType: resolvedCustomerType,
+            isReturningCustomer,
+            returningFromWalkinId: existingDoc?.id || null,
             walkinId,
             store: resolvedStore || null,
             createdAt: createdAtIso,
@@ -159,8 +188,12 @@ export async function addWalkinCustomer(
         return {
             success: true,
             message: autoAttend
-                ? "Customer data saved and auto-attended by CRM."
-                : "Customer data saved and notifications sent.",
+                ? isReturningCustomer
+                    ? "Customer data saved, marked as returning customer, and auto-attended by CRM."
+                    : "Customer data saved and auto-attended by CRM."
+                : isReturningCustomer
+                    ? "Customer data saved, marked as returning customer, and notifications sent."
+                    : "Customer data saved and notifications sent.",
         };
 
     } catch (error: any) {

@@ -846,11 +846,14 @@ export default function QuotationBuilderPage() {
       // 1. Format data for the action
       const quotationItems = items.map((item) => {
         const { qty, mrp } = deriveRowAmounts(item);
+        const resolvedUnit = String((item.raw as any)?.stockUnit || (item.raw as any)?.unit || "").trim() || "Mtr";
         return {
           collectionBrand: item.bcn,
           serialNo: item.raw?.serialNo || "",
           salesDescription: item.itemName,
           quantity: qty,
+          unit: resolvedUnit,
+          stockUnit: resolvedUnit,
           rate: mrp,
           discountPercent: discountMap[item.id] ?? 0,
           room: item.room,

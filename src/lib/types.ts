@@ -1189,6 +1189,8 @@ export interface QuotationItem {
   serialNo?: string;
   salesDescription: string;
   quantity: number;
+  unit?: string;
+  stockUnit?: string;
   rate: number;
   exclusiveRate?: number;
   discountPercent?: number;
