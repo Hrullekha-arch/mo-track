@@ -97,6 +97,7 @@ export default function WalkinDataPage() {
 
   const isAdmin        = user?.role        === "admin";
   const isCrm          = user?.designation === "CRM";
+  const isPC          = user?.designation === "PC";
   const isSalesmanager = user?.designation === "salesmanager";
   const canManage      = isCrm || isAdmin;
   const canAcknowledge = isAdmin || isSalesmanager;
@@ -106,7 +107,7 @@ export default function WalkinDataPage() {
     if (!user?.id) { setWalkinData([]); setLoading(false); return; }
     setLoading(true);
 
-    const q = isAdmin || isSalesmanager
+    const q = isAdmin || isSalesmanager || isPC
       ? query(collection(db, "Walkin_Customer"))
       : query(collection(db, "Walkin_Customer"), where("createdById", "==", user.id));
 
