@@ -50,7 +50,13 @@ export async function addWalkinCustomer(
         let creatorStore = '';
         if (creator?.id) {
             const creatorSnap = await adminDb.collection('users').doc(creator.id).get();
-            creatorStore = String((creatorSnap.data() as any)?.store || '').trim();
+            const creatorData = creatorSnap.data() as any;
+            creatorStore = String(
+                creatorData?.store ||
+                creatorData?.storeName ||
+                creatorData?.branch ||
+                ''
+            ).trim();
         }
         const resolvedStore = String(data?.store || creatorStore || '').trim();
         const rawMobile = String(data?.mobile || '').trim();
@@ -152,6 +158,18 @@ export async function addWalkinCustomer(
               })),
         });
 
+        let assignedOwnerStore = '';
+        if (assignment?.assignedOwner?.id && assignment.assignedOwner.id !== 'unassigned') {
+            const assignedOwnerSnap = await adminDb.collection('users').doc(assignment.assignedOwner.id).get();
+            const assignedOwnerData = assignedOwnerSnap.data() as any;
+            assignedOwnerStore = String(
+                assignedOwnerData?.store ||
+                assignedOwnerData?.storeName ||
+                assignedOwnerData?.branch ||
+                ''
+            ).trim();
+        }
+
         await walkinRef.add({
             ...data,
             mobile: rawMobile,
@@ -162,6 +180,9 @@ export async function addWalkinCustomer(
             returningFromWalkinId: existingDoc?.id || null,
             walkinId,
             store: resolvedStore || null,
+            storeName: resolvedStore || null,
+            createdByStore: creatorStore || null,
+            assignedStoreName: assignedOwnerStore || resolvedStore || null,
             createdAt: createdAtIso,
             status: autoAttend ? 'Attended' : 'Pending',
             attendedBy,
@@ -250,10 +271,25 @@ export async function handoverToSalesman(
             return { success: false, message: "You can only hand over walk-ins created by you." };
         }
 
+        const salesmanDoc = await adminDb.collection('users').doc(salesman.id).get();
+        const salesmanData = salesmanDoc.exists ? (salesmanDoc.data() as User) : null;
+        const salesmanStore = String(
+            (salesmanData as any)?.store ||
+            (salesmanData as any)?.storeName ||
+            (salesmanData as any)?.branch ||
+            ''
+        ).trim();
+        const existingStore = String(customerData?.store || customerData?.storeName || '').trim();
+        const nextStore = salesmanStore || existingStore;
+
         await customerRef.update({
             status: 'Handed Over',
             salesmanId: salesman.id,
             salesmanName: salesman.name,
+            salesmanStore: salesmanStore || null,
+            store: nextStore || null,
+            storeName: nextStore || null,
+            assignedStoreName: nextStore || null,
             assignedOwnerType: 'SALESMAN',
             assignedOwnerId: salesman.id,
             assignmentReason: 'ADMIN_OVERRIDE',
@@ -262,9 +298,7 @@ export async function handoverToSalesman(
         });
 
         // Get salesman's user data to find FCM tokens
-        const salesmanDoc = await adminDb.collection('users').doc(salesman.id).get();
-        if (salesmanDoc.exists) {
-            const salesmanData = salesmanDoc.data() as User;
+        if (salesmanData) {
             const notificationMessage = `A new lead, ${customerData?.firstName} ${customerData?.familyName}, has been assigned to you.`;
 
             // 1. Create in-app notification

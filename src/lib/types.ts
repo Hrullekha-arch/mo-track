@@ -112,8 +112,18 @@ export interface Walkin_Customer {
     firstName: string;
     familyName: string;
     mobile: string;
+    mobileNormalized?: string;
+    mobileLast10?: string;
     email?: string;
     lookingFor?: string | string[];
+    customerType?: string;
+    isReturningCustomer?: boolean;
+    returningFromWalkinId?: string;
+    store?: string;
+    storeName?: string;
+    createdByStore?: string;
+    assignedStoreName?: string;
+    salesmanStore?: string;
     createdAt: string; // ISO Date
     status?: 'Pending' | 'Attended' | 'Handed Over' | 'Deal Created' | 'Closed';
     action?: 'Create Deal' | 'Close';

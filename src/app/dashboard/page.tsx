@@ -20,8 +20,19 @@ import {
   Search,
   ClipboardList,
   PackageCheck,
+  CreditCard,
+  Package,
+  Layers,
+  Zap,
+  ChevronRight,
+  X,
+  AlertTriangle,
+  CheckCircle2,
+  ShoppingBag,
+  Users,
+  RotateCcw,
 } from "lucide-react";
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, use, useCallback } from "react";
 import {
   collection,
   onSnapshot,
@@ -34,18 +45,27 @@ import {
   updateDoc,
   limit,
 } from "firebase/firestore";
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { db } from "@/lib/firebase";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
 import { InboundRequest, Order, Quotation, PurchaseRequest, Walkin_Customer } from "@/lib/types";
 import { getFollowUpItems } from "./po-tracking/actions";
 import { useAuth } from "@/context/AuthContext";
-import { format, formatDistanceToNow } from "date-fns";
+import { format, formatDistanceToNow, set } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import CrmDashboard from "@/components/features/dashboard/CrmDashboard";
 import { AccountsDashboard } from "@/components/features/dashboard/AccountsDashboard";
-import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -141,102 +161,338 @@ const riskLabelMap: Record<DashboardOrderRisk, string> = {
   stable: "Stable",
 };
 
-const SalesmanDashboardV2 = () => {
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type ReturnCustomerType =
+  | ""
+  | "Balance Payment"
+  | "Full Payment"
+  | "Advance Payment"
+  | "Fabric Selection"
+  | "Fabric Changing"
+  | "Sample Collection"
+  | "Fabric Collection";
+
+type DialogStep = "selectDeal" | "payment" | "collection";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const PAYMENT_TYPES: ReturnCustomerType[] = ["Balance Payment", "Full Payment", "Advance Payment"];
+const FABRIC_TYPES: ReturnCustomerType[] = ["Fabric Selection", "Fabric Changing"];
+const COLLECTION_TYPES: ReturnCustomerType[] = ["Sample Collection", "Fabric Collection"];
+
+const isPaymentType = (t: ReturnCustomerType) => PAYMENT_TYPES.includes(t);
+const isCollectionType = (t: ReturnCustomerType) => COLLECTION_TYPES.includes(t);
+const isFabricType = (t: ReturnCustomerType) => FABRIC_TYPES.includes(t);
+
+const returnTypeIcon = (t: ReturnCustomerType) => {
+  if (isPaymentType(t)) return CreditCard;
+  if (isCollectionType(t)) return Package;
+  if (isFabricType(t)) return Layers;
+  return Zap;
+};
+
+const returnTypeColor = (t: ReturnCustomerType) => {
+  if (isPaymentType(t)) return { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200" };
+  if (isCollectionType(t)) return { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-200" };
+  if (isFabricType(t)) return { bg: "bg-violet-50", text: "text-violet-700", border: "border-violet-200" };
+  return { bg: "bg-slate-50", text: "text-slate-700", border: "border-slate-200" };
+};
+
+// ─── Sub: Stat Card ───────────────────────────────────────────────────────────
+
+function StatCard({
+  label,
+  value,
+  loading,
+  accent,
+  icon: Icon,
+}: {
+  label: string;
+  value: number | string;
+  loading?: boolean;
+  accent?: string;
+  icon: React.ElementType;
+}) {
+  return (
+    <div className={`rounded-2xl border bg-white px-4 py-3 shadow-sm flex items-center gap-3 ${accent || "border-slate-200"}`}>
+      <div className={`h-9 w-9 rounded-xl flex items-center justify-center flex-shrink-0 ${accent ? accent.replace("border-", "bg-").replace("-200", "-50") : "bg-slate-50"}`}>
+        <Icon className={`h-4 w-4 ${accent ? accent.replace("border-", "text-").replace("-200", "-600") : "text-slate-500"}`} />
+      </div>
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+        {loading ? (
+          <Skeleton className="h-6 w-10 mt-0.5" />
+        ) : (
+          <p className="text-xl font-bold text-slate-900 leading-tight">{value}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Sub: Quick Action Card ───────────────────────────────────────────────────
+
+function QuickAction({ title, href, icon: Icon, accent }: { title: string; href: string; icon: React.ElementType; accent: string }) {
+  return (
+    <Link href={href} className="group block">
+      <div className={`flex items-center justify-between rounded-2xl border bg-white px-4 py-3.5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${accent}`}>
+        <div className="flex items-center gap-2.5">
+          <Icon className="h-4 w-4 text-orange-600" />
+          <span className="text-sm font-semibold text-slate-800">{title}</span>
+        </div>
+        <ChevronRight className="h-4 w-4 text-slate-400 transition-transform group-hover:translate-x-0.5" />
+      </div>
+    </Link>
+  );
+}
+
+// ─── Sub: Lead Card ───────────────────────────────────────────────────────────
+
+function LeadCard({
+  lead,
+  onCreateDeal,
+  onClose,
+  onReturnAction,
+  onInstantSale,
+  isCreatingDeal,
+}: {
+  lead: any;
+  onCreateDeal: () => void;
+  onClose: () => void;
+  onReturnAction: (type: ReturnCustomerType) => void;
+  onInstantSale: () => void;
+  isCreatingDeal: boolean;
+}) {
+  const isReturning = lead.customerType === "Returning-Customer";
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-orange-200 hover:shadow transition-all">
+      {/* Header row */}
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className={`h-10 w-10 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0 ${isReturning ? "bg-blue-50 text-blue-600" : "bg-orange-50 text-orange-600"}`}>
+            {(lead.firstName || "?")[0].toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="font-semibold text-slate-900 truncate">{lead.firstName} {lead.familyName}</p>
+              <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${isReturning ? "bg-blue-100 text-blue-700" : "bg-orange-100 text-orange-700"}`}>
+                {isReturning ? "Returning" : "New"}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500">{lead.mobile}</p>
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" className="h-8 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs px-3 shadow-sm">
+                Actions
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="rounded-xl border-slate-200 shadow-xl w-48">
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-400">Main</DropdownMenuLabel>
+                <DropdownMenuItem onClick={onInstantSale} className="rounded-lg text-sm gap-2">
+                  <Zap className="h-3.5 w-3.5 text-orange-500" /> Instant Sale
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onCreateDeal} disabled={isCreatingDeal} className="rounded-lg text-sm gap-2">
+                  <Briefcase className="h-3.5 w-3.5 text-indigo-500" /> Create Deal
+                </DropdownMenuItem>
+
+                {isReturning && (
+                  <>
+                    <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-400 mt-1">Payment</DropdownMenuLabel>
+                    {PAYMENT_TYPES.map((t) => (
+                      <DropdownMenuItem key={t} onClick={() => onReturnAction(t)} className="rounded-lg text-sm gap-2">
+                        <CreditCard className="h-3.5 w-3.5 text-emerald-500" /> {t}
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-400 mt-1">Fabric</DropdownMenuLabel>
+                    {FABRIC_TYPES.map((t) => (
+                      <DropdownMenuItem key={t} onClick={() => onReturnAction(t)} className="rounded-lg text-sm gap-2">
+                        <Layers className="h-3.5 w-3.5 text-violet-500" /> {t}
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-400 mt-1">Collection</DropdownMenuLabel>
+                    {COLLECTION_TYPES.map((t) => (
+                      <DropdownMenuItem key={t} onClick={() => onReturnAction(t)} className="rounded-lg text-sm gap-2">
+                        <Package className="h-3.5 w-3.5 text-blue-500" /> {t}
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                )}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Button size="sm" variant="outline" onClick={onClose} className="h-8 rounded-xl border-slate-200 text-slate-600 text-xs px-3">
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Info row */}
+      {lead.lookingFor && (
+        <div className="flex items-center gap-1.5 mt-1">
+          <Search className="h-3 w-3 text-slate-400" />
+          <p className="text-xs text-slate-500 truncate">Looking for: <span className="font-medium text-slate-700">{lead.lookingFor}</span></p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+const  SalesmanDashboardV2 =() => {
   const { user } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
 
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [quotations, setQuotations] = useState<Quotation[]>([]);
-  const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
+  // ── Data state ──
+  const [orders, setOrders] = useState<any[]>([]);
+  const [quotations, setQuotations] = useState<any[]>([]);
+  const [purchaseRequests, setPurchaseRequests] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
-  const [walkinLeads, setWalkinLeads] = useState<Walkin_Customer[]>([]);
+  const [walkinLeads, setWalkinLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // ── Search ──
   const [orderSearch, setOrderSearch] = useState("");
   const [leadSearch, setLeadSearch] = useState("");
 
-  const [closingLead, setClosingLead] = useState<Walkin_Customer | null>(null);
+  // ── Close Lead dialog ──
+  const [closingLead, setClosingLead] = useState<any | null>(null);
   const [wentBackRemark, setWentBackRemark] = useState("");
   const [isClosing, setIsClosing] = useState(false);
-  const [dealCreationLead, setDealCreationLead] = useState<Walkin_Customer | null>(null);
-  const [isCreatingDeal, setIsCreatingDeal] = useState(false);
+
+  // ── Deal Creation dialog ──
+  const [dealCreationLead, setDealCreationLead] = useState<any | null>(null);
   const [measurementRequiredAnswer, setMeasurementRequiredAnswer] = useState<"Yes" | "No">("No");
   const [advanceReceivedAnswer, setAdvanceReceivedAnswer] = useState<"Yes" | "No" | "Old">("No");
+  const [isCreatingDeal, setIsCreatingDeal] = useState(false);
 
+  // ── Return Customer dialog ──
+  const [returnCustomerDialog, setReturnCustomerDialog] = useState(false);
+  const [returnCustomerDialogStep, setReturnCustomerDialogStep] = useState<DialogStep>("selectDeal");
+  const [returnCustomerLead, setReturnCustomerLead] = useState<any | null>(null);
+  const [returnCustomerType, setReturnCustomerType] = useState<ReturnCustomerType>("");
+  const [deals, setDeals] = useState<any[]>([]);
+  const [selectedDeals, setSelectedDeals] = useState<any[]>([]);
+  const [dealLoading, setDealLoading] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentNote, setPaymentNote] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"" | "Cash" | "Card" | "UPI">("");
+  const [leadOrders, setLeadOrders] = useState<any[]>([]);
+  const [selectedOrders, setSelectedOrders] = useState<any[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // ── Full reset for return customer dialog ──
+  const resetReturnDialog = useCallback(() => {
+    setReturnCustomerDialog(false);
+    setReturnCustomerDialogStep("selectDeal");
+    setReturnCustomerLead(null);
+    setReturnCustomerType("");
+    setDeals([]);
+    setSelectedDeals([]);
+    setDealLoading(false);
+    setPaymentAmount("");
+    setPaymentNote("");
+    setPaymentMethod("");
+    setLeadOrders([]);
+    setSelectedOrders([]);
+    setLoadingOrders(false);
+    setIsSubmitting(false);
+  }, []);
+
+  const openReturnAction = (lead: any, type: ReturnCustomerType) => {
+    resetReturnDialog();
+    setReturnCustomerType(type);
+    setReturnCustomerLead(lead);
+    setReturnCustomerDialogStep("selectDeal");
+    setReturnCustomerDialog(true);
+  };
+
+  // ── Firestore ──
   useEffect(() => {
     if (!user) return;
     setLoading(true);
     const salesmanName = user.name;
-
     let loadedOrders = false;
     let loadedLeads = false;
-    const markLoaded = () => {
-      if (loadedOrders && loadedLeads) setLoading(false);
-    };
-
-    const ordersQuery = query(collection(db, "orders"), where("salesPerson", "==", salesmanName));
-    const quotationsQuery = query(collectionGroup(db, "quotations"), where("representativeId", "==", user.id));
-    const purchaseRequestsQuery = query(collection(db, "purchaseRequests"), where("salesman", "==", salesmanName));
-    const leadsQuery = query(
-      collection(db, "Walkin_Customer"),
-      where("salesmanId", "==", user.id),
-      where("status", "==", "Handed Over")
-    );
-    const notificationsQuery = query(
-      collection(db, "users", user.id, "notifications"),
-      orderBy("createdAt", "desc"),
-      limit(50)
-    );
+    const markLoaded = () => { if (loadedOrders && loadedLeads) setLoading(false); };
 
     const unsubOrders = onSnapshot(
-      ordersQuery,
-      (snapshot) => {
-        setOrders(snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() } as Order)));
-        loadedOrders = true;
-        markLoaded();
-      },
-      () => {
-        loadedOrders = true;
-        markLoaded();
-      }
+      query(collection(db, "orders"), where("salesPerson", "==", salesmanName)),
+      (snap) => { setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() }))); loadedOrders = true; markLoaded(); },
+      () => { loadedOrders = true; markLoaded(); }
     );
     const unsubQuotations = onSnapshot(
-      quotationsQuery,
-      (snapshot) => setQuotations(snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() } as Quotation))),
+      query(collectionGroup(db, "quotations"), where("representativeId", "==", user.id)),
+      (snap) => setQuotations(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       () => setQuotations([])
     );
     const unsubPurchase = onSnapshot(
-      purchaseRequestsQuery,
-      (snapshot) =>
-        setPurchaseRequests(snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() } as PurchaseRequest))),
+      query(collection(db, "purchaseRequests"), where("salesman", "==", salesmanName)),
+      (snap) => setPurchaseRequests(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       () => setPurchaseRequests([])
     );
     const unsubLeads = onSnapshot(
-      leadsQuery,
-      (snapshot) => {
-        setWalkinLeads(snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() } as Walkin_Customer)));
-        loadedLeads = true;
-        markLoaded();
-      },
-      () => {
-        loadedLeads = true;
-        markLoaded();
-      }
+      query(collection(db, "Walkin_Customer"), where("salesmanId", "==", user.id), where("status", "==", "Handed Over")),
+      (snap) => { setWalkinLeads(snap.docs.map((d) => ({ id: d.id, ...d.data() }))); loadedLeads = true; markLoaded(); },
+      () => { loadedLeads = true; markLoaded(); }
     );
     const unsubNotifications = onSnapshot(
-      notificationsQuery,
-      (snapshot) => setNotifications(snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() }))),
+      query(collection(db, "users", user.id, "notifications"), orderBy("createdAt", "desc"), limit(50)),
+      (snap) => setNotifications(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       () => setNotifications([])
     );
 
-    return () => {
-      unsubOrders();
-      unsubQuotations();
-      unsubPurchase();
-      unsubLeads();
-      unsubNotifications();
-    };
+    return () => { unsubOrders(); unsubQuotations(); unsubPurchase(); unsubLeads(); unsubNotifications(); };
   }, [user]);
+
+  // ── Fetch return customer deals ──
+  useEffect(() => {
+    const fetchData = async () => {
+      const mobile = returnCustomerLead?.mobile;
+      if (!mobile || mobile.length !== 10) { setDeals([]); return; }
+      setDealLoading(true);
+      try {
+        const custSnap = await getDocs(query(collection(db, "customers"), where("phone", "==", mobile)));
+        if (custSnap.empty) { setDeals([]); return; }
+        const customerId = custSnap.docs[0].id;
+        const dealSnap = await getDocs(collection(db, "customers", customerId, "deals"));
+        setDeals(dealSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } catch { setDeals([]); }
+      finally { setDealLoading(false); }
+    };
+    if (returnCustomerLead?.mobile) fetchData();
+  }, [returnCustomerLead?.mobile]);
+
+  // ── Fetch deal orders ──
+  useEffect(() => {
+    const dealId = selectedDeals[0]?.dealId;
+    if (!dealId) { setLeadOrders([]); return; }
+    setLoadingOrders(true);
+    getDocs(query(collection(db, "orders"), where("dealId", "==", dealId)))
+      .then((snap) => setLeadOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => new Date(b.orderDate || 0).getTime() - new Date(a.orderDate || 0).getTime())))
+      .catch(() => setLeadOrders([]))
+      .finally(() => setLoadingOrders(false));
+  }, [selectedDeals]);
+
+  // ── Deal creation ──
+  const openDealCreationDialog = (lead: any) => {
+    if (isCreatingDeal) return;
+    setDealCreationLead(lead);
+    setMeasurementRequiredAnswer("No");
+    setAdvanceReceivedAnswer("No");
+  };
 
   const resetDealCreationDialog = () => {
     if (isCreatingDeal) return;
@@ -245,74 +501,31 @@ const SalesmanDashboardV2 = () => {
     setAdvanceReceivedAnswer("No");
   };
 
-  const openDealCreationDialog = (lead: Walkin_Customer) => {
-    if (isCreatingDeal) return;
-    setDealCreationLead(lead);
-    setMeasurementRequiredAnswer("No");
-    setAdvanceReceivedAnswer("No");
-  };
-
   const handleCreateDeal = async () => {
     const lead = dealCreationLead;
-    if (!lead) return;
-    if (!user) return;
+    if (!lead || !user) return;
     setIsCreatingDeal(true);
     try {
-      const customersRef = collection(db, "customers");
-      const customerQuery = query(customersRef, where("phone", "==", lead.mobile));
-      const customerSnapshot = await getDocs(customerQuery);
+      const custSnap = await getDocs(query(collection(db, "customers"), where("phone", "==", lead.mobile)));
       let customerId: string;
-      if (customerSnapshot.empty) {
-        const customerResult = await addCustomerAction({
-          name: `${lead.firstName} ${lead.familyName}`,
-          phone: lead.mobile,
-          email: lead.email || "",
-          createdBy: user.name,
-        });
-        if (!customerResult.success || !customerResult.customer) {
-          throw new Error(customerResult.message || "Failed to create customer.");
-        }
-        customerId = customerResult.customer.id;
+      if (custSnap.empty) {
+        const res = await addCustomerAction({ name: `${lead.firstName} ${lead.familyName}`, phone: lead.mobile, email: lead.email || "", createdBy: user.name });
+        if (!res.success || !res.customer) throw new Error(res.message || "Failed to create customer.");
+        customerId = res.customer.id;
       } else {
-        customerId = customerSnapshot.docs[0].id;
+        customerId = custSnap.docs[0].id;
       }
-
-      const dealResult = await addDealAction({
-        customerId,
-        dealName: "WalkIn",
-        dealAmount: 1,
-        representativeId: user.id,
-        description: `Deal created from walk-in lead for ${lead.firstName} ${lead.familyName}.`,
-        measurementRequired: measurementRequiredAnswer,
-        advanceForMeasurement: advanceReceivedAnswer,
-      });
-
-      if (!dealResult.success || !dealResult.deal) {
-        throw new Error(dealResult.message || "Failed to create deal.");
-      }
-
+      const dealRes = await addDealAction({ customerId, dealName: "WalkIn", dealAmount: 1, representativeId: user.id, description: `Walk-in lead for ${lead.firstName} ${lead.familyName}.`, measurementRequired: measurementRequiredAnswer, advanceForMeasurement: advanceReceivedAnswer });
+      if (!dealRes.success || !dealRes.deal) throw new Error(dealRes.message || "Failed to create deal.");
       const nowIso = new Date().toISOString();
-      const inquiryStatus = "Inquery made";
       await updateDoc(doc(db, "Walkin_Customer", lead.id), {
-        status: "Deal Created",
-        inquiryStatus,
-        advanceReceived: advanceReceivedAnswer,
-        measurementRequired: measurementRequiredAnswer,
-        latestDealId: dealResult.deal.dealId,
-        latestDealDocId: dealResult.deal.id,
-        dealSnapshot: {
-          status: inquiryStatus,
-          dealDocId: dealResult.deal.id,
-          dealId: dealResult.deal.dealId,
-          customerId,
-          dealName: dealResult.deal.title || dealResult.deal.dealName || "WalkIn",
-          measurementRequired: measurementRequiredAnswer,
-          advanceReceived: advanceReceivedAnswer,
-          createdAt: nowIso,
-        },
+        status: "Deal Created", inquiryStatus: "Inquery made",
+        advanceReceived: advanceReceivedAnswer, measurementRequired: measurementRequiredAnswer,
+        latestDealId: dealRes.deal.dealId, latestDealDocId: dealRes.deal.id,
+        dealSnapshot: { status: "Inquery made", dealDocId: dealRes.deal.id, dealId: dealRes.deal.dealId, customerId, dealName: dealRes.deal.title || "WalkIn", measurementRequired: measurementRequiredAnswer, advanceReceived: advanceReceivedAnswer, createdAt: nowIso },
       });
-      toast({ title: "Deal Created", description: `Redirecting to deal #${dealResult.deal.dealId}` });
-      router.push(`/dashboard/customers/${customerId}/${dealResult.deal.id}?tab=products`);
+      toast({ title: "Deal Created ✓", description: `Redirecting to deal #${dealRes.deal.dealId}` });
+      router.push(`/dashboard/customers/${customerId}/${dealRes.deal.id}?tab=products`);
     } catch (error: any) {
       toast({ variant: "destructive", title: "Deal Creation Failed", description: error?.message || "Try again." });
     } finally {
@@ -323,314 +536,348 @@ const SalesmanDashboardV2 = () => {
     }
   };
 
+  // ── Close lead ──
   const handleCloseLead = async () => {
-    if (!closingLead) return;
+    if (!closingLead || !wentBackRemark.trim()) return;
     setIsClosing(true);
     try {
-      await updateDoc(doc(db, "Walkin_Customer", closingLead.id), {
-        status: "went-back",
-        action: "went-back",
-        remarks: wentBackRemark,
-      });
-      toast({ title: "Lead moved", description: "Lead has been marked as moved." });
-      setClosingLead(null);
-      setWentBackRemark("");
+      await updateDoc(doc(db, "Walkin_Customer", closingLead.id), { status: "went-back", action: "went-back", remarks: wentBackRemark });
+      toast({ title: "Lead closed", description: "Lead marked as went-back." });
     } catch {
       toast({ variant: "destructive", title: "Error", description: "Failed to close lead." });
     } finally {
       setIsClosing(false);
+      setClosingLead(null);
+      setWentBackRemark("");
     }
   };
 
-  const resetCloseLeadDialog = () => {
-    if (isClosing) return;
-    setClosingLead(null);
-    setWentBackRemark("");
+  // ── Return customer update ──
+  const handleLeadUpdate = async () => {
+    if (!returnCustomerLead || !walkinLeads.length) return;
+    setIsSubmitting(true);
+    try {
+      const leadDoc = walkinLeads.find((l) => l.id === returnCustomerLead.id) || walkinLeads[0];
+      const basePayload = {
+        leadType: returnCustomerType,
+        updatedBy: { userId: user?.id || "", username: user?.name || "" },
+        status: "completed",
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (isPaymentType(returnCustomerType)) {
+        await updateDoc(doc(db, "Walkin_Customer", leadDoc.id), {
+          ...basePayload,
+          deal: { dealId: selectedDeals[0]?.id || "", dealSm: selectedDeals[0]?.assignedSalesPerson?.name || "", dealStatus: selectedDeals[0]?.status || "", dealAmount: Number(selectedDeals[0]?.dealAmount) || 0 },
+          paymentMethod: paymentMethod || "",
+          paymentAmount: Number(paymentAmount) || 0,
+          paymentNote: paymentNote.trim(),
+        });
+      } else if (isFabricType(returnCustomerType)) {
+        await updateDoc(doc(db, "Walkin_Customer", leadDoc.id), {
+          ...basePayload,
+          dealRef: { dealId: selectedDeals[0]?.id || "", dealSm: selectedDeals[0]?.assignedSalesPerson?.name || "", dealStatus: selectedDeals[0]?.status || "", dealAmount: Number(selectedDeals[0]?.dealAmount) || 0 },
+        });
+      } else if (isCollectionType(returnCustomerType)) {
+        await updateDoc(doc(db, "Walkin_Customer", leadDoc.id), {
+          ...basePayload,
+          dealRef: { dealId: selectedDeals[0]?.id || "", dealSm: selectedDeals[0]?.assignedSalesPerson?.name || "", dealStatus: selectedDeals[0]?.status || "", dealAmount: Number(selectedDeals[0]?.dealAmount) || 0 },
+          orderRef: { orderId: selectedOrders[0]?.id || "", dealSm: selectedDeals[0]?.assignedSalesPerson?.name || "", dealStatus: selectedDeals[0]?.status || "", dealAmount: Number(selectedOrders[0]?.overallSummary?.grandTotal) || 0 },
+        });
+      }
+
+      toast({ title: "Lead completed ✓", description: `${returnCustomerType} recorded successfully.` });
+      resetReturnDialog();
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Update failed", description: error?.message || "Something went wrong." });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
+  // ── Derived ──
   const orderRows = useMemo(() => orders.map(deriveDashboardOrderRow), [orders]);
-  const activeOrderRows = useMemo(() => orderRows.filter((row) => row.progress < 100), [orderRows]);
+  const activeOrderRows = useMemo(() => orderRows.filter((r) => r.progress < 100), [orderRows]);
   const filteredOrderRows = useMemo(() => {
-    const normalized = orderSearch.trim().toLowerCase();
-    if (!normalized) return activeOrderRows;
-    return activeOrderRows.filter((row) => {
-      return (
-        String(row.order.customerName || "")
-          .toLowerCase()
-          .includes(normalized) ||
-        String(row.order.crmOrderNo || "")
-          .toLowerCase()
-          .includes(normalized) ||
-        String(row.order.dealId || "")
-          .toLowerCase()
-          .includes(normalized) ||
-        row.nextStep.toLowerCase().includes(normalized)
-      );
-    });
+    const q = orderSearch.trim().toLowerCase();
+    if (!q) return activeOrderRows;
+    return activeOrderRows.filter((r) =>
+      [r.order.customerName, r.order.crmOrderNo, r.order.dealId, r.nextStep].some((v) => String(v || "").toLowerCase().includes(q))
+    );
   }, [activeOrderRows, orderSearch]);
 
   const filteredLeads = useMemo(() => {
-    const normalized = leadSearch.trim().toLowerCase();
-    if (!normalized) return walkinLeads;
-    return walkinLeads.filter((lead) => {
-      return (
-        `${lead.firstName || ""} ${lead.familyName || ""}`.toLowerCase().includes(normalized) ||
-        String(lead.mobile || "")
-          .toLowerCase()
-          .includes(normalized) ||
-        String(lead.lookingFor || "")
-          .toLowerCase()
-          .includes(normalized)
-      );
-    });
+    const q = leadSearch.trim().toLowerCase();
+    if (!q) return walkinLeads;
+    return walkinLeads.filter((l) =>
+      [`${l.firstName || ""} ${l.familyName || ""}`, l.mobile, l.lookingFor].some((v) => String(v || "").toLowerCase().includes(q))
+    );
   }, [walkinLeads, leadSearch]);
 
-  const criticalCount = activeOrderRows.filter((row) => row.risk === "critical").length;
+  const criticalCount = activeOrderRows.filter((r) => r.risk === "critical").length;
   const completedCount = Math.max(0, orderRows.length - activeOrderRows.length);
-  const avgProgress = activeOrderRows.length
-    ? Math.round(activeOrderRows.reduce((sum, row) => sum + row.progress, 0) / activeOrderRows.length)
-    : 0;
-  const poGeneratedCount = purchaseRequests.filter((item) => normalizeText(item.status) === "po generated").length;
+  const avgProgress = activeOrderRows.length ? Math.round(activeOrderRows.reduce((s, r) => s + r.progress, 0) / activeOrderRows.length) : 0;
+  const poGeneratedCount = purchaseRequests.filter((i) => normalizeText(i.status) === "po generated").length;
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
-  const quickActions = [
-    { title: "My Customers", href: "/dashboard/customers", icon: Briefcase },
-    { title: "Walk-in Desk", href: "/dashboard/walk-in", icon: UserPlus },
-    { title: "My Orders", href: "/dashboard/orders", icon: ListOrdered },
-    { title: "Visits", href: "/dashboard/visits", icon: CalendarCheck },
-  ] as const;
+  // ── Return dialog type colors ──
+  const rtColor = returnTypeColor(returnCustomerType);
+  const RtIcon = returnTypeIcon(returnCustomerType);
 
   return (
     <>
-      <div className="space-y-6 p-4 md:p-6 lg:p-8">
-        <Card className="overflow-hidden border-orange-200 bg-gradient-to-r from-orange-50 via-white to-amber-50">
-          <CardContent className="flex flex-col gap-6 p-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Salesman Command Desk</p>
-              <h1 className="text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">
-                Salesman Dashboard
-              </h1>
-              <p className="max-w-3xl text-sm text-slate-600 md:text-base">
-                Convert walk-ins fast, track risky orders, and keep your deal movement consistent every day.
-              </p>
-            </div>
-            <div className="grid w-full grid-cols-2 gap-3 lg:w-auto lg:min-w-[22rem]">
-              <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-                <p className="text-xs text-muted-foreground">Assigned Leads</p>
-                <p className="mt-1 text-2xl font-bold">{loading ? "..." : walkinLeads.length}</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-                <p className="text-xs text-muted-foreground">Active Orders</p>
-                <p className="mt-1 text-2xl font-bold">{loading ? "..." : activeOrderRows.length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="min-h-screen bg-[#f8f9fb]">
+        <div className="max-w-screen-2xl mx-auto p-4 md:p-6 space-y-6">
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {quickActions.map((action) => (
-            <Link key={action.href} href={action.href} className="group block">
-              <Card className="h-full border-slate-200 transition-all hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md">
-                <CardContent className="flex h-full items-center justify-between p-4">
-                  <div className="flex items-center gap-2">
-                    <action.icon className="h-4 w-4 text-orange-700" />
-                    <p className="text-sm font-semibold">{action.title}</p>
+          {/* ── Hero Header ── */}
+          <div className="rounded-2xl border border-orange-200 bg-gradient-to-br from-orange-50 via-white to-amber-50 p-6 shadow-sm">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-orange-600 mb-1">Salesman Command Desk</p>
+                <h1 className="text-2xl font-bold tracking-tight text-slate-900 md:text-3xl">
+                  Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"},{" "}
+                  <span className="text-orange-600">{user?.name?.split(" ")[0] || "Salesman"}</span>
+                </h1>
+                <p className="mt-1 text-sm text-slate-500">Convert leads fast, track risky orders, stay on top every day.</p>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <div className="rounded-2xl border border-orange-200 bg-white px-4 py-3 shadow-sm text-center min-w-[80px]">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Leads</p>
+                  {loading ? <Skeleton className="h-7 w-8 mx-auto mt-1" /> : <p className="text-2xl font-bold text-orange-600">{walkinLeads.length}</p>}
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm text-center min-w-[80px]">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Orders</p>
+                  {loading ? <Skeleton className="h-7 w-8 mx-auto mt-1" /> : <p className="text-2xl font-bold text-slate-900">{activeOrderRows.length}</p>}
+                </div>
+                {unreadCount > 0 && (
+                  <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 shadow-sm text-center min-w-[80px]">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-rose-400">Alerts</p>
+                    <p className="text-2xl font-bold text-rose-600">{unreadCount}</p>
                   </div>
-                  <ArrowRight className="h-4 w-4 text-slate-500 transition-transform group-hover:translate-x-0.5" />
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-          <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Critical</p><p className="text-2xl font-bold text-red-700">{loading ? "..." : criticalCount}</p></CardContent></Card>
-          <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Avg Progress</p><p className="text-2xl font-bold">{loading ? "..." : `${avgProgress}%`}</p></CardContent></Card>
-          <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Completed</p><p className="text-2xl font-bold text-emerald-700">{loading ? "..." : completedCount}</p></CardContent></Card>
-          <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">PO Generated</p><p className="text-2xl font-bold">{loading ? "..." : poGeneratedCount}</p></CardContent></Card>
-          <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Quotations</p><p className="text-2xl font-bold">{loading ? "..." : quotations.length}</p></CardContent></Card>
-          <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Unread Alerts</p><p className="text-2xl font-bold">{loading ? "..." : notifications.filter((item) => !item.read).length}</p></CardContent></Card>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-          <Card className="xl:col-span-2">
-            <CardHeader className="space-y-3">
-              <CardTitle>Order Queue</CardTitle>
-              <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} placeholder="Search order, customer, deal..." className="pl-8" />
+                )}
               </div>
-            </CardHeader>
-            <CardContent>
-              <ScrollArea className="h-[32rem]">
-                <div className="space-y-3">
+            </div>
+          </div>
+
+          {/* ── Quick Actions ── */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { title: "My Customers", href: "/dashboard/customers", icon: Users, accent: "border-slate-200 hover:border-orange-200" },
+              { title: "Walk-in Desk", href: "/dashboard/walk-in", icon: UserPlus, accent: "border-slate-200 hover:border-orange-200" },
+              { title: "My Orders", href: "/dashboard/orders", icon: ListOrdered, accent: "border-slate-200 hover:border-orange-200" },
+              { title: "Visits", href: "/dashboard/visits", icon: CalendarCheck, accent: "border-slate-200 hover:border-orange-200" },
+            ].map((a) => (
+              <QuickAction key={a.href} {...a} />
+            ))}
+          </div>
+
+          {/* ── Stats row ── */}
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+            <StatCard label="Critical" value={criticalCount} loading={loading} icon={AlertTriangle} accent="border-red-200" />
+            <StatCard label="Avg Progress" value={`${avgProgress}%`} loading={loading} icon={ClipboardList} />
+            <StatCard label="Completed" value={completedCount} loading={loading} icon={CheckCircle2} accent="border-emerald-200" />
+            <StatCard label="PO Generated" value={poGeneratedCount} loading={loading} icon={ShoppingBag} />
+            <StatCard label="Quotations" value={quotations.length} loading={loading} icon={Briefcase} />
+            <StatCard label="Unread Alerts" value={unreadCount} loading={loading} icon={Bell} accent={unreadCount > 0 ? "border-rose-200" : "border-slate-200"} />
+          </div>
+
+          {/* ── PRIORITY: Active Leads (full width, top) ── */}
+          <div className="rounded-2xl border border-orange-200 bg-white shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-orange-100 bg-gradient-to-r from-orange-50 to-amber-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="h-7 w-7 rounded-lg bg-orange-500 flex items-center justify-center">
+                    <UserPlus className="h-4 w-4 text-white" />
+                  </div>
+                  <h2 className="text-base font-bold text-slate-900">Active Leads</h2>
+                  {!loading && walkinLeads.length > 0 && (
+                    <span className="rounded-full bg-orange-500 text-white text-[11px] font-bold px-2 py-0.5">{walkinLeads.length}</span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5 ml-9">Your priority — convert, close, or log action for each lead.</p>
+              </div>
+              <div className="relative w-full sm:w-64">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <Input
+                  value={leadSearch}
+                  onChange={(e) => setLeadSearch(e.target.value)}
+                  placeholder="Search name, phone…"
+                  className="pl-8 h-8 rounded-xl border-orange-200 focus-visible:ring-orange-300 text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="p-4">
+              {loading ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-2xl" />)}
+                </div>
+              ) : filteredLeads.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
+                  <div className="h-14 w-14 rounded-2xl bg-orange-50 flex items-center justify-center">
+                    <UserPlus className="h-6 w-6 text-orange-300" />
+                  </div>
+                  <p className="text-sm font-medium">No active leads assigned</p>
+                  <p className="text-xs text-slate-400">Check back after the next walk-in handover.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {filteredLeads.map((lead) => (
+                    <LeadCard
+                      key={lead.id}
+                      lead={lead}
+                      onCreateDeal={() => openDealCreationDialog(lead)}
+                      onClose={() => setClosingLead(lead)}
+                      onReturnAction={(type) => openReturnAction(lead, type)}
+                      onInstantSale={() => router.push(`/dashboard/quotation-builder?payload=${encodeURIComponent(JSON.stringify(lead))}`)}
+                      isCreatingDeal={isCreatingDeal}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Lower: Orders + Notifications ── */}
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            {/* Order Queue */}
+            <div className="xl:col-span-2 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-7 w-7 rounded-lg bg-slate-800 flex items-center justify-center">
+                    <ListOrdered className="h-4 w-4 text-white" />
+                  </div>
+                  <h2 className="text-base font-bold text-slate-900">Order Queue</h2>
+                  {criticalCount > 0 && (
+                    <span className="rounded-full bg-red-100 text-red-700 text-[11px] font-bold px-2 py-0.5">
+                      {criticalCount} critical
+                    </span>
+                  )}
+                </div>
+                <div className="relative w-full sm:w-60">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    value={orderSearch}
+                    onChange={(e) => setOrderSearch(e.target.value)}
+                    placeholder="Search order, customer…"
+                    className="pl-8 h-8 rounded-xl border-slate-200 text-sm"
+                  />
+                </div>
+              </div>
+
+              <ScrollArea className="h-[28rem]">
+                <div className="p-4 space-y-3">
                   {loading ? (
-                    Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-24 w-full" />)
+                    [...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-2xl" />)
                   ) : filteredOrderRows.length ? (
                     filteredOrderRows.map((row) => (
-                      <div key={row.order.id} className={`rounded-xl border p-4 ${riskContainerClassMap[row.risk]}`}>
-                        <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div key={row.order.id} className={`rounded-2xl border p-4 ${riskContainerClassMap[row.risk]}`}>
+                        <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
                           <div>
                             <div className="flex items-center gap-2">
-                              <p className="font-semibold">{row.order.customerName || "-"}</p>
-                              <Badge variant="secondary">{row.order.orderType || "-"}</Badge>
+                              <p className="font-semibold text-slate-900">{row.order.customerName || "—"}</p>
+                              <Badge variant="secondary" className="text-[10px]">{row.order.orderType || "—"}</Badge>
                             </div>
-                            <p className="text-xs text-muted-foreground">
-                              Order #{row.order.crmOrderNo || row.order.id} | Deal #{row.order.dealId || "-"}
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              Order #{row.order.crmOrderNo || row.order.id} · Deal #{row.order.dealId || "—"}
                             </p>
                           </div>
                           <Badge variant="outline" className={riskBadgeClassMap[row.risk]}>{riskLabelMap[row.risk]}</Badge>
                         </div>
-                        <Progress value={row.progress} className="mt-3 h-2" />
-                        <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-muted-foreground md:grid-cols-3">
-                          <p>Current: <span className="font-semibold text-slate-900">{row.currentStep}</span></p>
-                          <p>Next: <span className="font-semibold text-slate-900">{row.nextStep}</span></p>
-                          <p>Age: <span className="font-semibold text-slate-900">{row.ageDays} day(s)</span></p>
+                        <Progress value={row.progress} className="h-1.5 mb-2" />
+                        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500 mb-3">
+                          <span>Now: <span className="font-semibold text-slate-800">{row.currentStep}</span></span>
+                          <span>Next: <span className="font-semibold text-slate-800">{row.nextStep}</span></span>
+                          <span>Age: <span className="font-semibold text-slate-800">{row.ageDays}d</span></span>
                         </div>
-                        <div className="mt-3 flex justify-end">
-                          <Button asChild size="sm" variant="outline">
+                        <div className="flex justify-end">
+                          <Button asChild size="sm" variant="outline" className="rounded-xl h-7 text-xs border-slate-200">
                             <Link href={`/dashboard/orders/${row.order.id}`}>Open Order</Link>
                           </Button>
                         </div>
                       </div>
                     ))
                   ) : (
-                    <p className="py-8 text-center text-sm text-muted-foreground">No active orders in queue.</p>
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
+                      <CheckCircle2 className="h-8 w-8 opacity-30" />
+                      <p className="text-sm">No active orders in queue.</p>
+                    </div>
                   )}
                 </div>
               </ScrollArea>
-            </CardContent>
-          </Card>
+            </div>
 
-          <Card>
-            <CardHeader className="space-y-3">
-              <CardTitle>Recent Alerts</CardTitle>
-              <CardDescription>Latest notifications assigned to you.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ScrollArea className="h-[32rem]">
-                <div className="space-y-2">
+            {/* Notifications */}
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+                <div className="h-7 w-7 rounded-lg bg-slate-100 flex items-center justify-center">
+                  <Bell className="h-4 w-4 text-slate-600" />
+                </div>
+                <h2 className="text-base font-bold text-slate-900">Recent Alerts</h2>
+                {unreadCount > 0 && (
+                  <span className="rounded-full bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.5 ml-auto">{unreadCount}</span>
+                )}
+              </div>
+              <ScrollArea className="h-[28rem]">
+                <div className="p-4 space-y-2">
                   {loading ? (
-                    Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-16 w-full" />)
+                    [...Array(4)].map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-xl" />)
                   ) : notifications.length ? (
-                    notifications.map((notification) => {
-                      const createdAt = toDateSafe(notification.createdAt || notification.date);
+                    notifications.map((n) => {
+                      const createdAt = toDateSafe(n.createdAt || n.date);
                       return (
-                        <div key={notification.id} className="rounded-lg border p-3">
+                        <div key={n.id} className={`rounded-xl border p-3 ${!n.read ? "border-rose-100 bg-rose-50/50" : "border-slate-100 bg-white"}`}>
                           <div className="flex items-start justify-between gap-2">
-                            <p className="text-sm font-semibold">{notification.type || "Update"}</p>
-                            {!notification.read ? <Badge variant="outline">New</Badge> : null}
+                            <p className="text-xs font-semibold text-slate-800">{n.type || "Update"}</p>
+                            {!n.read && <span className="flex-shrink-0 rounded-full bg-rose-500 h-1.5 w-1.5 mt-1" />}
                           </div>
-                          <p className="text-xs text-muted-foreground mt-1">{notification.message || "No message"}</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {createdAt ? formatDistanceToNow(createdAt, { addSuffix: true }) : "Unknown time"}
+                          <p className="text-xs text-slate-500 mt-1 leading-relaxed">{n.message || "No message"}</p>
+                          <p className="text-[10px] text-slate-400 mt-1">
+                            {createdAt ? formatDistanceToNow(createdAt, { addSuffix: true }) : "—"}
                           </p>
                         </div>
                       );
                     })
                   ) : (
-                    <p className="py-8 text-center text-sm text-muted-foreground">No notifications yet.</p>
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
+                      <Bell className="h-7 w-7 opacity-30" />
+                      <p className="text-sm">No notifications yet.</p>
+                    </div>
                   )}
                 </div>
               </ScrollArea>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardHeader className="space-y-3">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <CardTitle>Active Leads</CardTitle>
-                <CardDescription>Create deal or close with remarks for your lead handovers.</CardDescription>
-              </div>
-              <div className="relative w-full lg:w-80">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input value={leadSearch} onChange={(event) => setLeadSearch(event.target.value)} placeholder="Search name, phone, looking for..." className="pl-8" />
-              </div>
             </div>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <Skeleton className="h-24 w-full" />
-            ) : filteredLeads.length ? (
-              <div className="space-y-3">
-                {filteredLeads.map((lead) => (
-                  <div key={lead.id} className="rounded-xl border p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <p className="font-semibold">{lead.firstName} {lead.familyName}</p>
-                      <p className="text-sm text-muted-foreground">{lead.mobile}</p>
-                      {lead.lookingFor ? <p className="text-xs text-muted-foreground mt-1">Looking for: {lead.lookingFor}</p> : null}
-                    </div>
-                    <div className="flex gap-2">
-                    <Button size="sm" variant="default" className="bg-amber-500" 
-                    onClick={() =>
-                              router.push(
-                                `/dashboard/quotation-builder?payload=${encodeURIComponent(
-                                  JSON.stringify(lead)
-                                )}`
-                              )
-                            }
-                          >
-                      Cashsale
-                    </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => openDealCreationDialog(lead)}
-                        disabled={isCreatingDeal}
-                      >
-                        Create Deal
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => setClosingLead(lead)}>Close</Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="py-8 text-center text-sm text-muted-foreground">No leads assigned.</p>
-            )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
 
-      <Dialog
-        open={!!dealCreationLead}
-        onOpenChange={(open) => {
-          if (!open) resetDealCreationDialog();
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create Deal: {dealCreationLead?.firstName} {dealCreationLead?.familyName}</DialogTitle>
-            <DialogDescription>
-              Confirm the required details before creating this walk-in deal.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="measurement-required">Measurement Required</Label>
-              <Select
-                value={measurementRequiredAnswer}
-                onValueChange={(value) => setMeasurementRequiredAnswer(value as "Yes" | "No")}
-              >
-                <SelectTrigger id="measurement-required">
-                  <SelectValue placeholder="Select answer" />
-                </SelectTrigger>
-                <SelectContent>
+      {/* ══ Deal Creation Dialog ══ */}
+      <Dialog open={!!dealCreationLead} onOpenChange={(o) => { if (!o) resetDealCreationDialog(); }}>
+        <DialogContent className="sm:max-w-sm rounded-2xl p-0 overflow-hidden border-slate-200">
+          <div className="bg-indigo-50 border-b border-indigo-100 px-6 py-4">
+            <DialogHeader>
+              <DialogTitle className="text-slate-900">Create Deal</DialogTitle>
+              <DialogDescription className="text-slate-500 text-xs">
+                {dealCreationLead?.firstName} {dealCreationLead?.familyName} · {dealCreationLead?.mobile}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <div className="px-6 py-5 space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Measurement Required</Label>
+              <Select value={measurementRequiredAnswer} onValueChange={(v) => setMeasurementRequiredAnswer(v as "Yes" | "No")}>
+                <SelectTrigger className="rounded-xl border-slate-200"><SelectValue /></SelectTrigger>
+                <SelectContent className="rounded-xl">
                   <SelectItem value="Yes">Yes</SelectItem>
                   <SelectItem value="No">No</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="advance-received">Advance Received</Label>
-              <Select
-                value={advanceReceivedAnswer}
-                onValueChange={(value) => setAdvanceReceivedAnswer(value as "Yes" | "No" | "Old")}
-              >
-                <SelectTrigger id="advance-received">
-                  <SelectValue placeholder="Select answer" />
-                </SelectTrigger>
-                <SelectContent>
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Advance Received</Label>
+              <Select value={advanceReceivedAnswer} onValueChange={(v) => setAdvanceReceivedAnswer(v as "Yes" | "No" | "Old")}>
+                <SelectTrigger className="rounded-xl border-slate-200"><SelectValue /></SelectTrigger>
+                <SelectContent className="rounded-xl">
                   <SelectItem value="Yes">Yes</SelectItem>
                   <SelectItem value="No">No</SelectItem>
                   <SelectItem value="Old">Old</SelectItem>
@@ -638,43 +885,238 @@ const SalesmanDashboardV2 = () => {
               </Select>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={resetDealCreationDialog} disabled={isCreatingDeal}>Cancel</Button>
-            <Button onClick={() => void handleCreateDeal()} disabled={isCreatingDeal}>
-              {isCreatingDeal ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Create Deal
+          <div className="px-6 pb-5 flex gap-2 justify-end">
+            <Button variant="outline" onClick={resetDealCreationDialog} disabled={isCreatingDeal} className="rounded-xl border-slate-200">Cancel</Button>
+            <Button onClick={() => void handleCreateDeal()} disabled={isCreatingDeal} className="rounded-xl bg-indigo-600 hover:bg-indigo-700 shadow-sm">
+              {isCreatingDeal ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating…</> : "Create Deal"}
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={!!closingLead}
-        onOpenChange={(open) => {
-          if (!open) resetCloseLeadDialog();
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Close Lead: {closingLead?.firstName} {closingLead?.familyName}</DialogTitle>
-            <DialogDescription>Please provide a reason for closing this lead.</DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <Label htmlFor="close-remark">Remark</Label>
-            <Textarea id="close-remark" value={wentBackRemark} onChange={(event) => setWentBackRemark(event.target.value)} placeholder="e.g., customer postponed, not interested, duplicate..." />
+      {/* ══ Close Lead Dialog ══ */}
+      <Dialog open={!!closingLead} onOpenChange={(o) => { if (!o && !isClosing) { setClosingLead(null); setWentBackRemark(""); } }}>
+        <DialogContent className="sm:max-w-sm rounded-2xl p-0 overflow-hidden border-slate-200">
+          <div className="bg-rose-50 border-b border-rose-100 px-6 py-4">
+            <DialogHeader>
+              <DialogTitle className="text-slate-900">Close Lead</DialogTitle>
+              <DialogDescription className="text-slate-500 text-xs">
+                {closingLead?.firstName} {closingLead?.familyName} · {closingLead?.mobile}
+              </DialogDescription>
+            </DialogHeader>
           </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={resetCloseLeadDialog} disabled={isClosing}>Cancel</Button>
-            <Button onClick={() => void handleCloseLead()} disabled={isClosing || !wentBackRemark}>
-              {isClosing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Confirm And Close
+          <div className="px-6 py-5 space-y-2">
+            <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Reason / Remark <span className="text-rose-400">*</span></Label>
+            <Textarea
+              value={wentBackRemark}
+              onChange={(e) => setWentBackRemark(e.target.value)}
+              placeholder="e.g., customer postponed, not interested, duplicate…"
+              className="rounded-xl border-slate-200 resize-none min-h-[90px] text-sm focus-visible:ring-rose-300"
+            />
+          </div>
+          <div className="px-6 pb-5 flex gap-2 justify-end">
+            <Button variant="outline" onClick={() => { setClosingLead(null); setWentBackRemark(""); }} disabled={isClosing} className="rounded-xl border-slate-200">Cancel</Button>
+            <Button onClick={() => void handleCloseLead()} disabled={isClosing || !wentBackRemark.trim()} className="rounded-xl bg-rose-600 hover:bg-rose-700 shadow-sm">
+              {isClosing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Closing…</> : "Confirm Close"}
             </Button>
-          </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ══ Return Customer Dialog ══ */}
+      <Dialog open={returnCustomerDialog} onOpenChange={(o) => { if (!o && !isSubmitting) resetReturnDialog(); }}>
+        <DialogContent className="sm:max-w-md rounded-2xl p-0 overflow-hidden border-slate-200">
+          {/* Header */}
+          <div className={`border-b px-6 py-4 ${rtColor.bg} ${rtColor.border}`}>
+            <DialogHeader>
+              <div className="flex items-center gap-2">
+                <div className={`h-8 w-8 rounded-xl flex items-center justify-center ${rtColor.bg}`}>
+                  <RtIcon className={`h-4 w-4 ${rtColor.text}`} />
+                </div>
+                <div>
+                  <DialogTitle className="text-slate-900 text-base">{returnCustomerType || "Return Customer"}</DialogTitle>
+                  <p className="text-xs text-slate-500">{returnCustomerLead?.firstName} {returnCustomerLead?.familyName} · {returnCustomerLead?.mobile}</p>
+                </div>
+              </div>
+            </DialogHeader>
+
+            {/* Breadcrumb steps */}
+            <div className="flex items-center gap-1.5 mt-3 text-[11px]">
+              <span className={`font-semibold ${returnCustomerDialogStep === "selectDeal" ? rtColor.text : "text-slate-400"}`}>Select Deal</span>
+              {(isPaymentType(returnCustomerType) || isCollectionType(returnCustomerType)) && (
+                <>
+                  <ChevronRight className="h-3 w-3 text-slate-300" />
+                  <span className={`font-semibold ${returnCustomerDialogStep === "payment" || returnCustomerDialogStep === "collection" ? rtColor.text : "text-slate-400"}`}>
+                    {isPaymentType(returnCustomerType) ? "Payment" : "Collection"}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="px-6 py-5 max-h-[60vh] overflow-y-auto space-y-3">
+
+            {/* STEP: Select Deal */}
+            {returnCustomerDialogStep === "selectDeal" && (
+              <>
+                {dealLoading ? (
+                  <div className="flex flex-col items-center justify-center py-10 gap-3 text-slate-400">
+                    <Loader2 className="h-7 w-7 animate-spin" />
+                    <p className="text-sm">Loading deals…</p>
+                  </div>
+                ) : deals.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 text-slate-400 gap-2">
+                    <Briefcase className="h-8 w-8 opacity-30" />
+                    <p className="text-sm">No deals found for this customer.</p>
+                  </div>
+                ) : (
+                  deals.map((deal) => (
+                    <button
+                      key={deal.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedDeals([deal]);
+                        if (isPaymentType(returnCustomerType)) setReturnCustomerDialogStep("payment");
+                        else if (isCollectionType(returnCustomerType)) setReturnCustomerDialogStep("collection");
+                        else { void handleLeadUpdate(); }
+                      }}
+                      className="w-full text-left rounded-xl border border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/40 p-3.5 transition-all group"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-slate-900">{deal.dealName || deal.title || "Unnamed Deal"}</p>
+                        <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-indigo-400 transition-colors" />
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 mt-1 text-xs text-slate-500">
+                        <span>Status: <span className="font-medium text-slate-700">{deal.status || "—"}</span></span>
+                        <span>Amount: <span className="font-medium text-slate-700">₹{deal.dealAmount || "N/A"}</span></span>
+                        {deal.createdAt && <span>{toDateSafe(deal.createdAt)?.toLocaleDateString()}</span>}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </>
+            )}
+
+            {/* STEP: Payment */}
+            {returnCustomerDialogStep === "payment" && selectedDeals[0] && (
+              <div className="space-y-4">
+                {/* Selected deal summary */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Selected Deal</p>
+                  <p className="text-sm font-semibold text-slate-900">{selectedDeals[0].dealName || selectedDeals[0].title || "Unnamed"}</p>
+                  <p className="text-xs text-slate-500">₹{selectedDeals[0].dealAmount || "N/A"} · {selectedDeals[0].status}</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Payment Method <span className="text-rose-400">*</span></Label>
+                  <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as "Cash" | "Card" | "UPI")}>
+                    <SelectTrigger className="rounded-xl border-slate-200"><SelectValue placeholder="Select method" /></SelectTrigger>
+                    <SelectContent className="rounded-xl">
+                      <SelectItem value="Cash">Cash</SelectItem>
+                      <SelectItem value="Card">Card</SelectItem>
+                      <SelectItem value="UPI">UPI / Online</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Amount (₹) <span className="text-rose-400">*</span></Label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
+                    <Input
+                      type="number"
+                      value={paymentAmount}
+                      onChange={(e) => setPaymentAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="pl-7 rounded-xl border-slate-200 focus-visible:ring-emerald-300"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Note (optional)</Label>
+                  <Textarea
+                    value={paymentNote}
+                    onChange={(e) => setPaymentNote(e.target.value)}
+                    placeholder="Any remarks about this payment…"
+                    className="rounded-xl border-slate-200 resize-none min-h-[70px] text-sm"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* STEP: Collection */}
+            {returnCustomerDialogStep === "collection" && (
+              <>
+                {loadingOrders ? (
+                  <div className="flex flex-col items-center justify-center py-10 gap-3 text-slate-400">
+                    <Loader2 className="h-7 w-7 animate-spin" />
+                    <p className="text-sm">Loading orders…</p>
+                  </div>
+                ) : leadOrders.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 text-slate-400 gap-2">
+                    <Package className="h-8 w-8 opacity-30" />
+                    <p className="text-sm">No orders found for this deal.</p>
+                  </div>
+                ) : (
+                  leadOrders.map((order) => (
+                    <button
+                      key={order.id}
+                      type="button"
+                      onClick={() => { setSelectedOrders([order]); void handleLeadUpdate(); }}
+                      disabled={isSubmitting}
+                      className="w-full text-left rounded-xl border border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/40 p-3.5 transition-all group"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-slate-900">Order #{order.orderId || order.id}</p>
+                        {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin text-blue-400" /> : <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-blue-400 transition-colors" />}
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 mt-1 text-xs text-slate-500">
+                        <span>Status: <span className="font-medium text-slate-700">{order.status || "—"}</span></span>
+                        <span>Total: <span className="font-medium text-slate-700">₹{order.overallSummary?.grandTotal || "N/A"}</span></span>
+                        {order.createdBy?.name && <span>By: {order.createdBy.name}</span>}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 pb-5 pt-2 flex items-center justify-between gap-2 border-t border-slate-100">
+            {returnCustomerDialogStep !== "selectDeal" && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl border-slate-200 gap-1.5 text-slate-600"
+                onClick={() => setReturnCustomerDialogStep("selectDeal")}
+                disabled={isSubmitting}
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> Back
+              </Button>
+            )}
+            <div className="flex gap-2 ml-auto">
+              <Button variant="outline" onClick={resetReturnDialog} disabled={isSubmitting} className="rounded-xl border-slate-200">
+                Cancel
+              </Button>
+              {returnCustomerDialogStep === "payment" && (
+                <Button
+                  onClick={() => void handleLeadUpdate()}
+                  disabled={isSubmitting || !paymentMethod || !paymentAmount}
+                  className="rounded-xl bg-emerald-600 hover:bg-emerald-700 shadow-sm"
+                >
+                  {isSubmitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving…</> : "Submit Payment"}
+                </Button>
+              )}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </>
   );
-};
+}
 
 const AllocatorDashboard = () => {
   const [orders, setOrders] = useState<Order[]>([]);

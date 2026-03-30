@@ -24,10 +24,12 @@ import Link from "next/link";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/context/AuthContext";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 const formSchema = z.object({
   firstName: z.string().min(1, "First Name is required."),
-  familyName: z.string().min(1, "Family Name is required."),
+  familyName: z.string(),
   mobile: z.string().min(10, "A valid mobile number is required.").max(15),
   customerType: z.string().min(1, "Customer Type is required."),
   email: z.string().email("Please enter a valid email address.").optional().or(z.literal('')),
@@ -66,6 +68,8 @@ const lookingForItems = [
 
 export default function WalkinCustomerPage() {
   const [loading, setLoading] = useState(false);
+  const [customer, setCustomer] = useState<any>(null);
+  const [customerType, setCustomerType] = useState<"" | "Returning-Customer" | "New-Customer">("");
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -81,7 +85,43 @@ export default function WalkinCustomerPage() {
     },
   });
 
-  console.log("Foam Deatils",form);
+
+ const searchCustomerByMobile = async (mobile: string) => {
+  try {
+    if (!mobile || mobile.length !== 10) return null;
+
+    const q = query(
+      collection(db, "customers"),
+      where("phone", "==", mobile)
+    );
+
+    const snapshot = await getDocs(q);
+
+    if (snapshot.empty){
+      setCustomerType("New-Customer");
+      return null;
+    }
+      
+    const doc = snapshot.docs[0];
+
+    setCustomerType("Returning-Customer");
+    form.setValue("customerType", "Returning-Customer");
+    form.setValue("firstName", doc.data().name || "");
+    form.setValue("familyName", doc.data().familyName || "");
+    setCustomer({
+      id: doc.id,
+      ...doc.data(),
+    });
+
+    return {
+      id: doc.id,
+      ...doc.data(),
+    };
+  } catch (error) {
+    console.error("Customer search error:", error);
+    return null;
+  }
+};
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     if (!user?.id || !user?.name || !user?.email) {
@@ -167,18 +207,58 @@ export default function WalkinCustomerPage() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField
-                control={form.control}
-                name="mobile"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Mobile Number</FormLabel>
-                    <FormControl>
-                      <Input type="tel" placeholder="Enter your mobile number" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                  control={form.control}
+                  name="mobile"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Mobile Number</FormLabel>
+
+                      <FormControl>
+                        <Input
+                          type="tel"
+                          placeholder="Enter your mobile number"
+                          value={field.value || ""}
+                          maxLength={10}
+                          onChange={async (e) => {
+                            // ✅ allow only digits
+                            const value = e.target.value.replace(/\D/g, "");
+
+                            field.onChange(value);
+
+                            // 🔥 trigger search only on 10 digits
+                            if (value.length === 10) {
+                              const res = await searchCustomerByMobile(value);
+
+                              setCustomer(res);
+                              setCustomerType(res ? "Returning-Customer" : "New-Customer");
+                            } else {
+                              setCustomer(null);
+                              setCustomerType("");
+                            }
+                          }}
+                        />
+                      </FormControl>
+
+                      <FormMessage />
+
+                      {/* 🔥 Customer Type Badge */}
+                      {customerType && (
+                        <div className="mt-2">
+                          {customerType === "Returning-Customer" && (
+                            <span className="text-xs px-2 py-1 rounded bg-green-100 text-green-700">
+                              Returning Customer
+                            </span>
+                          )}
+                          {customerType === "New-Customer" && (
+                            <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-600">
+                              New Customer
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </FormItem>
+                  )}
+                />
               <FormField
                 control={form.control}
                 name="customerType"
@@ -187,7 +267,7 @@ export default function WalkinCustomerPage() {
                     <FormLabel>How did you hear about Us</FormLabel>
                     <Select
                       onValueChange={field.onChange}
-                      defaultValue={field.value}
+                      value={field.value}
                     >
                       <FormControl>
                         <SelectTrigger>

@@ -51,7 +51,13 @@ export async function addWalkinCustomer(
         let creatorStore = '';
         if (creator?.id) {
             const creatorSnap = await adminDb.collection('users').doc(creator.id).get();
-            creatorStore = String((creatorSnap.data() as any)?.store || '').trim();
+            const creatorData = creatorSnap.data() as any;
+            creatorStore = String(
+                creatorData?.store ||
+                creatorData?.storeName ||
+                creatorData?.branch ||
+                ''
+            ).trim();
         }
         const resolvedStore = String(data?.store || creatorStore || '').trim();
         const rawMobile = String(data?.mobile || '').trim();
@@ -91,6 +97,9 @@ export async function addWalkinCustomer(
             returningFromWalkinId: existingDoc?.id || null,
             walkinId,
             store: resolvedStore || null,
+            storeName: resolvedStore || null,
+            createdByStore: creatorStore || null,
+            assignedStoreName: resolvedStore || null,
             createdAt: createdAtIso,
             status: autoAttend ? 'Attended' : 'Pending',
             attendedBy,
