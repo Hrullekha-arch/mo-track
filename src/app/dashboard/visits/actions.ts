@@ -300,45 +300,106 @@ export type ComplaintCustomerSearchResult = {
     billingAddress?: string;
     pincode?: string;
     customerCode?: string;
+    source?: 'customers' | 'walkin';
 };
 
-export async function searchCustomersForComplaintAction(searchTerm: string): Promise<{
+type ComplaintSearchDebugMeta = {
+    traceId?: string;
+    source?: string;
+};
+
+type ComplaintSearchDebugInfo = {
+    traceId: string;
+    source: string;
+    elapsedMs: number;
+    query: string;
+    normalizedDigitsLength: number;
+    customersScanned: number;
+    walkinsScanned: number;
+    candidateCount: number;
+    matchedCount: number;
+    returnedCount: number;
+    fetchElapsedMs?: number;
+};
+
+export async function searchCustomersForComplaintAction(
+    searchTerm: string,
+    debugMeta?: ComplaintSearchDebugMeta
+): Promise<{
     success: boolean;
     message: string;
     customers: ComplaintCustomerSearchResult[];
+    debug?: ComplaintSearchDebugInfo;
 }> {
+    const startedAt = Date.now();
+    const traceId = String(
+        debugMeta?.traceId || `complaint-search-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    );
+    const source = String(debugMeta?.source || 'unknown');
+
     try {
         const raw = String(searchTerm || '').trim();
-        if (!raw) {
-            return { success: true, message: 'Search term is required.', customers: [] };
-        }
-
         const normalized = raw.toLowerCase();
         const normalizedDigits = raw.replace(/\D/g, '');
 
-        const snapshot = await adminDb
-            .collection('customers')
-            .orderBy('createdAt', 'desc')
-            .limit(400)
-            .get();
+        console.info(`[complaint-search][${traceId}] start`, {
+            source,
+            query: raw,
+            normalizedDigitsLength: normalizedDigits.length,
+            startedAtIso: new Date(startedAt).toISOString(),
+        });
 
-        const rows: ComplaintCustomerSearchResult[] = snapshot.docs.map((doc: any) => {
+        if (!raw) {
+            const debug: ComplaintSearchDebugInfo = {
+                traceId,
+                source,
+                elapsedMs: Date.now() - startedAt,
+                query: raw,
+                normalizedDigitsLength: normalizedDigits.length,
+                customersScanned: 0,
+                walkinsScanned: 0,
+                candidateCount: 0,
+                matchedCount: 0,
+                returnedCount: 0,
+            };
+            console.info(`[complaint-search][${traceId}] empty-query`, debug);
+            return { success: true, message: 'Search term is required.', customers: [], debug };
+        }
+
+        const fetchStartedAt = Date.now();
+        const [customerSnapshot, walkinSnapshot] = await Promise.all([
+            adminDb.collection('customers').limit(1200).get(),
+            adminDb.collection('Walkin_Customer').limit(1200).get(),
+        ]);
+        const fetchElapsedMs = Date.now() - fetchStartedAt;
+        console.info(`[complaint-search][${traceId}] firestore-loaded`, {
+            source,
+            customersDocs: customerSnapshot.size,
+            walkinDocs: walkinSnapshot.size,
+            fetchElapsedMs,
+        });
+
+        const customerRows: ComplaintCustomerSearchResult[] = customerSnapshot.docs.map((doc: any) => {
             const data = doc.data() as any;
+            const firstName = String(data?.firstName || '').trim();
+            const familyName = String(data?.familyName || '').trim();
+            const mergedName = [firstName, familyName].filter(Boolean).join(' ').trim();
+            const name = mergedName || String(data?.name || data?.fullName || '').trim();
             const phone = String(data?.phone || data?.mobile || '').trim();
             const mobileNo = String(data?.mobileNo || data?.mobile || '').trim();
             const email = String(data?.email || '').trim();
-            const name = String(data?.name || '').trim();
             const billingAddress = [
                 data?.billingAddress?.line1,
                 data?.billingAddress?.line2,
                 data?.billingAddress?.landmark,
                 data?.billingAddress?.city,
                 data?.billingAddress?.state,
+                data?.billingAddress?.country,
             ]
                 .map((part) => String(part || '').trim())
                 .filter(Boolean)
                 .join(', ');
-            const legacyAddress = String(data?.addressPinCode || '').trim();
+            const legacyAddress = String(data?.address || data?.addressPinCode || '').trim();
             const pincode = String(data?.billingAddress?.pincode || data?.pinCode || '').trim();
             const customerCode = String(data?.customerCode || data?.customerId || '').trim();
 
@@ -352,41 +413,148 @@ export async function searchCustomersForComplaintAction(searchTerm: string): Pro
                 address: (billingAddress || legacyAddress) || undefined,
                 pincode: pincode || undefined,
                 customerCode: customerCode || undefined,
+                source: 'customers',
             };
         });
 
-        const filtered = rows.filter((row) => {
-            const rowPhoneDigits = String(row.phone || '').replace(/\D/g, '');
-            const rowMobileDigits = String(row.mobileNo || '').replace(/\D/g, '');
-            const textHaystack = [
-                row.name || '',
-                row.email || '',
-                row.phone || '',
-                row.mobileNo || '',
-                row.customerCode || '',
+        const walkinRows: ComplaintCustomerSearchResult[] = walkinSnapshot.docs.map((doc: any) => {
+            const data = doc.data() as any;
+            const firstName = String(data?.firstName || '').trim();
+            const familyName = String(data?.familyName || '').trim();
+            const mergedName = [firstName, familyName].filter(Boolean).join(' ').trim();
+            const name = mergedName || String(data?.fullName || data?.name || '').trim();
+            const phone = String(data?.mobile || data?.phone || data?.mobileNo || '').trim();
+            const mobileNo = String(data?.mobileNo || data?.mobile || data?.phone || '').trim();
+            const email = String(data?.email || '').trim();
+            const billingAddressFromObj = [
+                data?.billingAddress?.line1,
+                data?.billingAddress?.line2,
+                data?.billingAddress?.landmark,
+                data?.billingAddress?.city,
+                data?.billingAddress?.state,
+                data?.billingAddress?.country,
             ]
-                .join(' ')
-                .toLowerCase();
+                .map((part) => String(part || '').trim())
+                .filter(Boolean)
+                .join(', ');
+            const billingAddressText =
+                typeof data?.billingAddress === 'string'
+                    ? String(data.billingAddress).trim()
+                    : billingAddressFromObj;
+            const rawAddress = String(data?.address || data?.customerAddress || data?.addressPinCode || '').trim();
+            const pincode = String(data?.billingAddress?.pincode || data?.pinCode || data?.pincode || '').trim();
+            const customerCode = String(data?.customerCode || data?.customerId || data?.walkinId || '').trim();
 
-            if (normalizedDigits) {
-                if (rowPhoneDigits.includes(normalizedDigits)) return true;
-                if (rowMobileDigits.includes(normalizedDigits)) return true;
-            }
-
-            return textHaystack.includes(normalized);
+            return {
+                id: doc.id,
+                name,
+                phone: phone || undefined,
+                mobileNo: mobileNo || undefined,
+                email: email || undefined,
+                billingAddress: billingAddressText || undefined,
+                address: (rawAddress || billingAddressText) || undefined,
+                pincode: pincode || undefined,
+                customerCode: customerCode || undefined,
+                source: 'walkin',
+            };
         });
+
+        const rows = [...customerRows, ...walkinRows].filter((row) => String(row.name || '').trim());
+
+        const ranked = rows
+            .map((row) => {
+                const name = String(row.name || '').trim().toLowerCase();
+                const email = String(row.email || '').trim().toLowerCase();
+                const phone = String(row.phone || '').trim().toLowerCase();
+                const mobileNo = String(row.mobileNo || '').trim().toLowerCase();
+                const customerCode = String(row.customerCode || '').trim().toLowerCase();
+                const address = String(row.address || row.billingAddress || '').trim().toLowerCase();
+                const rowPhoneDigits = String(row.phone || '').replace(/\D/g, '');
+                const rowMobileDigits = String(row.mobileNo || '').replace(/\D/g, '');
+
+                let score = 0;
+
+                if (normalizedDigits) {
+                    if (rowPhoneDigits === normalizedDigits || rowMobileDigits === normalizedDigits) score += 140;
+                    else if (rowPhoneDigits.includes(normalizedDigits) || rowMobileDigits.includes(normalizedDigits)) score += 90;
+                }
+
+                if (name === normalized) score += 120;
+                else if (name.startsWith(normalized)) score += 70;
+                else if (name.includes(normalized)) score += 35;
+
+                if (email === normalized) score += 100;
+                else if (email.startsWith(normalized)) score += 60;
+                else if (email.includes(normalized)) score += 30;
+
+                if (customerCode === normalized) score += 70;
+                else if (customerCode.startsWith(normalized)) score += 40;
+                else if (customerCode.includes(normalized)) score += 20;
+
+                if (phone.includes(normalized) || mobileNo.includes(normalized)) score += 25;
+                if (address.includes(normalized)) score += 15;
+
+                return { row, score };
+            })
+            .filter((item) => item.score > 0)
+            .sort((a, b) => b.score - a.score);
+
+        const deduped: ComplaintCustomerSearchResult[] = [];
+        const seen = new Set<string>();
+        for (const item of ranked) {
+            const row = item.row;
+            const dedupeKey = `${row.source || 'customers'}:${row.id}`;
+            if (seen.has(dedupeKey)) continue;
+            seen.add(dedupeKey);
+            deduped.push(row);
+            if (deduped.length >= 20) break;
+        }
+
+        const debug: ComplaintSearchDebugInfo = {
+            traceId,
+            source,
+            elapsedMs: Date.now() - startedAt,
+            query: raw,
+            normalizedDigitsLength: normalizedDigits.length,
+            customersScanned: customerSnapshot.size,
+            walkinsScanned: walkinSnapshot.size,
+            candidateCount: rows.length,
+            matchedCount: ranked.length,
+            returnedCount: deduped.length,
+            fetchElapsedMs,
+        };
+        console.info(`[complaint-search][${traceId}] completed`, debug);
 
         return {
             success: true,
-            message: filtered.length ? 'Customers found.' : 'Customer not found.',
-            customers: filtered.slice(0, 20),
+            message: deduped.length ? 'Customers found.' : 'Customer not found.',
+            customers: deduped,
+            debug,
         };
     } catch (error: any) {
-        console.error('Error searching customers for complaint:', error);
+        const debug: ComplaintSearchDebugInfo = {
+            traceId,
+            source,
+            elapsedMs: Date.now() - startedAt,
+            query: String(searchTerm || '').trim(),
+            normalizedDigitsLength: String(searchTerm || '').replace(/\D/g, '').length,
+            customersScanned: 0,
+            walkinsScanned: 0,
+            candidateCount: 0,
+            matchedCount: 0,
+            returnedCount: 0,
+        };
+        console.error(`[complaint-search][${traceId}] failed`, {
+            source,
+            elapsedMs: debug.elapsedMs,
+            message: error?.message || 'Failed to search customers.',
+            stack: error?.stack,
+        });
         return {
             success: false,
             message: error?.message || 'Failed to search customers.',
             customers: [],
+            debug,
         };
     }
 }

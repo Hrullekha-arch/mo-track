@@ -9,7 +9,11 @@ import {
 
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
+import {
+  searchStockByBcn,
+  searchVasStockServicesAction,
+  upsertVasStockItemsAction,
+} from "@/app/dashboard/inventory/actions";
 import {
   createInstantCustomerAction,
   createInstantQuotationOrderAction,
@@ -21,7 +25,7 @@ import {
 } from "./actions";
 
 import { Stock, Walkin_Customer } from "@/lib/types";
-import { roomOptions, storeOptions } from "@/lib/constants";
+import { roomOptions, storeOptions, vasOptions } from "@/lib/constants";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +36,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -83,10 +88,16 @@ const toNumber = (value: unknown, fallback = 0) => {
 const getStockRate = (stock?: Stock | null) => {
   if (!stock) return 0;
   for (const key of ["rrpWithGstRs", "mrp", "clPrice", "rlPrice"] as const) {
-    const v = Number((stock as Record<string, unknown>)[key]);
+    const v = Number((stock as any)?.[key]);
     if (Number.isFinite(v) && v > 0) return v;
   }
   return 0;
+};
+
+const getVasGstPercent = (stock?: Stock | null) => {
+  if (!stock) return 0;
+  const gst = Number((stock as any)?.gstPercent);
+  return Number.isFinite(gst) && gst >= 0 ? gst : 0;
 };
 
 const normalizeUnit = (value: unknown, fallback = "Mtr") => {
@@ -207,6 +218,35 @@ function QuotationBuilderInner() {
 
   const [vasItems, setVasItems] = useState<InstantVasInput[]>([]);
   const [draftVas, setDraftVas] = useState<DraftVas>(defaultDraftVas);
+  const [vasSuggestions, setVasSuggestions] = useState<ComboboxOption[]>([]);
+  const [vasStockMap, setVasStockMap] = useState<Record<string, Stock>>({});
+
+  const defaultVasComboboxOptions = useMemo<ComboboxOption[]>(() => {
+    const seen = new Set<string>();
+    const options: ComboboxOption[] = [];
+    vasOptions.forEach((option) => {
+      const label =
+        typeof option.label === "string"
+          ? option.label.trim()
+          : String(option.value || "").trim();
+      if (!label) return;
+      const key = label.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      options.push({ value: label, label });
+    });
+    return options;
+  }, []);
+
+  const vasSeedRows = useMemo(
+    () =>
+      defaultVasComboboxOptions.map((option) => ({
+        vasName: String(option.value),
+        rate: 0,
+        gstPercent: 0,
+      })),
+    [defaultVasComboboxOptions]
+  );
 
   /* ── Computed ───────────────────────────────────────────────── */
   const goodsTotal = useMemo(() => items.reduce((s, i) => s + lineAmount(i), 0), [items]);
@@ -238,6 +278,50 @@ function QuotationBuilderInner() {
     })();
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    setVasSuggestions(defaultVasComboboxOptions);
+  }, [defaultVasComboboxOptions]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        await upsertVasStockItemsAction(vasSeedRows);
+      } catch (error) {
+        console.error("Failed to sync VAS catalog:", error);
+      }
+
+      if (!active) return;
+      try {
+        const initial = await searchVasStockServicesAction("st");
+        if (!initial.length) return;
+
+        const mapByValue: Record<string, Stock> = {};
+        const options: ComboboxOption[] = [];
+        const seen = new Set<string>();
+
+        initial.forEach((stock) => {
+          const displayName = String(stock.itemName || stock.name || stock.bcn || stock.id || "").trim();
+          if (!displayName) return;
+          const key = displayName.toLowerCase();
+          if (seen.has(key)) return;
+          seen.add(key);
+          options.push({ value: displayName, label: displayName });
+          mapByValue[displayName] = stock;
+        });
+
+        setVasSuggestions(options);
+        setVasStockMap((prev) => ({ ...prev, ...mapByValue }));
+      } catch (error) {
+        console.error("Failed to preload VAS suggestions:", error);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [vasSeedRows]);
 
   /* ── Lead prefill ───────────────────────────────────────────── */
   useEffect(() => {
@@ -315,7 +399,7 @@ function QuotationBuilderInner() {
 
   const handleSelectStock = (stock: Stock) => {
     const name = String(stock.name || stock.itemName || stock.bcn || "").trim();
-    const gst  = toNumber((stock as Record<string, unknown>).gstPercent, 5);
+    const gst  = toNumber((stock as any)?.gstPercent, 5);
     const stockUnit = normalizeUnit(stock.unit, "Mtr");
     setDraftItem((p) => ({
       ...p,
@@ -328,6 +412,76 @@ function QuotationBuilderInner() {
       stockUnit,
     }));
     setStockSuggestionOpen(false);
+  };
+
+  const handleVasSearch = async (queryText: string) => {
+    const query = String(queryText || "").trim();
+    if (query.length < 2) {
+      setVasSuggestions(defaultVasComboboxOptions);
+      return;
+    }
+
+    const results = await searchVasStockServicesAction(query);
+    if (!results.length) {
+      const lowered = query.toLowerCase();
+      const filtered = defaultVasComboboxOptions
+        .filter((option) => option.value.toLowerCase().includes(lowered))
+        .slice(0, 60);
+      const hasExact = filtered.some((option) => option.value.toLowerCase() === lowered);
+      setVasSuggestions(
+        hasExact
+          ? filtered
+          : [{ value: query, label: `Use "${query}"` }, ...filtered]
+      );
+      return;
+    }
+
+    const mapByValue: Record<string, Stock> = {};
+    const options: ComboboxOption[] = [];
+    const seen = new Set<string>();
+
+    results.forEach((stock) => {
+      const displayName = String(stock.itemName || stock.name || stock.bcn || stock.id || "").trim();
+      if (!displayName) return;
+
+      const key = displayName.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+
+      const rate = getStockRate(stock);
+      const gstPercent = getVasGstPercent(stock);
+      const rateLabel = Number.isFinite(rate) && rate > 0 ? ` - Rs ${rate}` : "";
+      const gstLabel = gstPercent > 0 ? ` (${gstPercent}% GST)` : "";
+
+      options.push({
+        value: displayName,
+        label: `${displayName}${rateLabel}${gstLabel}`,
+      });
+      mapByValue[displayName] = stock;
+    });
+
+    if (!seen.has(query.toLowerCase())) {
+      options.unshift({ value: query, label: `Use "${query}"` });
+    }
+
+    setVasSuggestions(options);
+    setVasStockMap((prev) => ({ ...prev, ...mapByValue }));
+  };
+
+  const handleSelectVas = (value: string) => {
+    const stock = vasStockMap[value];
+    if (!stock) {
+      setDraftVas((prev) => ({ ...prev, vasName: value }));
+      return;
+    }
+
+    setDraftVas((prev) => ({
+      ...prev,
+      vasName: value,
+      rate: String(getStockRate(stock) || prev.rate || ""),
+      gstPercent: isCashsale ? "0" : String(getVasGstPercent(stock)),
+      hsnCode: String((stock as any)?.hsnOrSac || (stock as any)?.hsnCode || ""),
+    }));
   };
 
   const handleAddItem = () => {
@@ -376,6 +530,7 @@ function QuotationBuilderInner() {
       },
     ]);
     setDraftVas(defaultDraftVas);
+    setVasSuggestions(defaultVasComboboxOptions);
   };
 
   const handleSubmit = async () => {
@@ -872,8 +1027,15 @@ function QuotationBuilderInner() {
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
               <div className="lg:col-span-2 space-y-1.5">
                 <Label className="text-xs text-muted-foreground">VAS Name</Label>
-                <Input placeholder="Service name" value={draftVas.vasName}
-                  onChange={(e) => setDraftVas((p) => ({ ...p, vasName: e.target.value }))} />
+                <Combobox
+                  options={vasSuggestions.length ? vasSuggestions : defaultVasComboboxOptions}
+                  value={draftVas.vasName}
+                  onSearch={handleVasSearch}
+                  onSelect={handleSelectVas}
+                  placeholder="Search service"
+                  searchPlaceholder="Search VAS..."
+                  emptyPlaceholder="No service found."
+                />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Qty</Label>

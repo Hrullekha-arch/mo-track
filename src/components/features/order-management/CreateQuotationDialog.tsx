@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, ReactNode, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useForm, useFieldArray, useWatch, Control, UseFormReturn, FormProvider, FieldArrayWithId } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -15,7 +15,7 @@ import { Loader2, PlusCircle, Trash2, CalendarIcon, Info, Calculator, ArrowLeft 
 import { useAuth } from "@/context/AuthContext";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { Combobox } from "@/components/ui/combobox";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { createQuotationAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -27,8 +27,11 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { roomOptions, vasOptions, storeOptions } from "@/lib/constants";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { get } from "http";
-import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
+import {
+  searchStockByBcn,
+  searchVasStockServicesAction,
+  upsertVasStockItemsAction,
+} from "@/app/dashboard/inventory/actions";
 
 
 export const itemDetailSchema = z.object({
@@ -193,6 +196,15 @@ function resolveStockRate(stock?: Stock | null): number {
   const rlPrice = Number(stock.rlPrice);
   if (Number.isFinite(rlPrice) && rlPrice > 0) return rlPrice;
   return 0;
+}
+
+function resolveVasRate(stock?: Stock | null): string {
+  return String(resolveStockRate(stock));
+}
+
+function resolveVasGst(stock?: Stock | null): number {
+  const value = Number((stock as any)?.gstPercent);
+  return Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
 const defaultAddItemState = {
@@ -825,27 +837,241 @@ const PreviouslySelectedItems = ({ control, setValue, getValues, fields, remove 
   );
 };
 
-const VasForm = ({ control }: { control: Control<FormValues> }) => {
+const VasForm = ({ form }: { form: UseFormReturn<FormValues> }) => {
+  const { control, setValue } = form;
   const { fields, append, remove } = useFieldArray({ control, name: "vasDetails" });
-  console.log("VAS Fields:", fields);
+  const [vasSearchOptions, setVasSearchOptions] = useState<ComboboxOption[]>([]);
+  const [vasStockByValue, setVasStockByValue] = useState<Record<string, Stock>>({});
+
+  const defaultVasOptions = useMemo<ComboboxOption[]>(() => {
+    const seen = new Set<string>();
+    const next: ComboboxOption[] = [];
+    vasOptions.forEach((option) => {
+      const label =
+        typeof option.label === "string"
+          ? option.label.trim()
+          : String(option.value || "").trim();
+      if (!label) return;
+      const key = label.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      next.push({ value: label, label });
+    });
+    return next;
+  }, []);
+
+  const vasSeedRows = useMemo(
+    () =>
+      defaultVasOptions.map((option) => ({
+        vasName: String(option.value),
+        rate: 0,
+        gstPercent: 0,
+      })),
+    [defaultVasOptions]
+  );
+
+  useEffect(() => {
+    setVasSearchOptions(defaultVasOptions);
+  }, [defaultVasOptions]);
+
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      try {
+        await upsertVasStockItemsAction(vasSeedRows);
+      } catch (error) {
+        console.error("Failed to sync VAS catalog:", error);
+      }
+
+      if (!active) return;
+      try {
+        const initialResults = await searchVasStockServicesAction("st");
+        const mapped: ComboboxOption[] = [];
+        const mapByValue: Record<string, Stock> = {};
+
+        initialResults.forEach((stock) => {
+          const displayName = String(stock.itemName || stock.name || stock.bcn || stock.id || "").trim();
+          if (!displayName) return;
+          mapped.push({ value: displayName, label: displayName });
+          mapByValue[displayName] = stock;
+        });
+
+        if (mapped.length > 0) {
+          setVasSearchOptions(mapped);
+          setVasStockByValue((prev) => ({ ...prev, ...mapByValue }));
+        }
+      } catch (error) {
+        console.error("Failed to preload VAS search results:", error);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [vasSeedRows]);
+
+  const handleVasSearch = async (queryText: string) => {
+    const query = String(queryText || "").trim();
+    if (query.length < 2) {
+      setVasSearchOptions(defaultVasOptions);
+      return;
+    }
+
+    const results = await searchVasStockServicesAction(query);
+    if (!results.length) {
+      const lowered = query.toLowerCase();
+      const filtered = defaultVasOptions
+        .filter((option) => option.value.toLowerCase().includes(lowered))
+        .slice(0, 60);
+      const hasExact = filtered.some((option) => option.value.toLowerCase() === lowered);
+      setVasSearchOptions(hasExact ? filtered : [{ value: query, label: `Use "${query}"` }, ...filtered]);
+      return;
+    }
+
+    const mapByValue: Record<string, Stock> = {};
+    const options: ComboboxOption[] = [];
+    const seen = new Set<string>();
+
+    results.forEach((stock) => {
+      const displayName = String(stock.itemName || stock.name || stock.bcn || stock.id || "").trim();
+      if (!displayName) return;
+      const key = displayName.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+
+      const rate = resolveStockRate(stock);
+      const gst = resolveVasGst(stock);
+      const rateLabel = Number.isFinite(rate) && rate > 0 ? ` - Rs ${rate}` : "";
+      const gstLabel = gst > 0 ? ` (${gst}% GST)` : "";
+      options.push({
+        value: displayName,
+        label: `${displayName}${rateLabel}${gstLabel}`,
+      });
+      mapByValue[displayName] = stock;
+    });
+
+    if (!seen.has(query.toLowerCase())) {
+      options.unshift({ value: query, label: `Use "${query}"` });
+    }
+
+    setVasSearchOptions(options);
+    setVasStockByValue((prev) => ({ ...prev, ...mapByValue }));
+  };
+
+  const handleVasSelect = (index: number, onChange: (value: string) => void, value: string) => {
+    onChange(value);
+    if (!value) return;
+
+    const stock = vasStockByValue[value];
+    if (!stock) return;
+
+    setValue(`vasDetails.${index}.rate`, resolveVasRate(stock), {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    setValue(`vasDetails.${index}.gstPercent`, resolveVasGst(stock), {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+  };
+
   return (
-      <div className="space-y-4">
-           <h3 className="text-lg font-semibold border-b pb-2">Add VAS Details (Value Added Services)</h3>
-          {fields.map((field, index) => (
-              <div key={field.id} className="p-4 border rounded-lg flex items-end gap-4">
-                  <FormField control={control} name={`vasDetails.${index}.vasName`} render={({ field }) => (<FormItem className="flex-grow"><FormLabel>VAS*</FormLabel><Combobox options={vasOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
-                  <FormField control={control} name={`vasDetails.${index}.quantity`} render={({ field }) => (<FormItem><FormLabel>Quantity*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                  <FormField control={control} name={`vasDetails.${index}.rate`} render={({ field }) => (<FormItem><FormLabel>Rate*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                  <FormField control={control} name={`vasDetails.${index}.gstPercent`} render={({ field }) => (<FormItem><FormLabel>GST %</FormLabel><FormControl><Input type="number" step="0.01" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                  <FormField control={control} name={`vasDetails.${index}.room`} render={({ field }) => (<FormItem className="flex-grow"><FormLabel>Room</FormLabel><Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
-                  <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4" /></Button>
-              </div>
-          ))}
-          <div className="flex gap-2">
-              <Button type="button" variant="default" onClick={() => append({ vasName: '', quantity: '1', rate: '0', gstPercent: 0, room: '' })}>Add</Button>
-              <Button type="button" variant="outline" onClick={() => remove()}>Reset</Button>
-          </div>
+    <div className="space-y-4">
+      <h3 className="text-lg font-semibold border-b pb-2">Add VAS Details (Value Added Services)</h3>
+      {fields.map((field, index) => (
+        <div key={field.id} className="p-4 border rounded-lg flex items-end gap-4">
+          <FormField
+            control={control}
+            name={`vasDetails.${index}.vasName`}
+            render={({ field }) => (
+              <FormItem className="flex-grow">
+                <FormLabel>VAS*</FormLabel>
+                <Combobox
+                  options={vasSearchOptions.length ? vasSearchOptions : defaultVasOptions}
+                  value={field.value}
+                  onSearch={handleVasSearch}
+                  onSelect={(value) => handleVasSelect(index, field.onChange, value)}
+                  placeholder="--SELECT--"
+                  searchPlaceholder="Search VAS..."
+                />
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={control}
+            name={`vasDetails.${index}.quantity`}
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Quantity*</FormLabel>
+                <FormControl>
+                  <Input {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={control}
+            name={`vasDetails.${index}.rate`}
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Rate*</FormLabel>
+                <FormControl>
+                  <Input {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={control}
+            name={`vasDetails.${index}.gstPercent`}
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>GST %</FormLabel>
+                <FormControl>
+                  <Input type="number" step="0.01" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={control}
+            name={`vasDetails.${index}.room`}
+            render={({ field }) => (
+              <FormItem className="flex-grow">
+                <FormLabel>Room</FormLabel>
+                <Combobox
+                  options={roomOptions}
+                  value={field.value}
+                  onSelect={field.onChange}
+                  placeholder="--SELECT--"
+                />
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      ))}
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="default"
+          onClick={() => append({ vasName: "", quantity: "1", rate: "0", gstPercent: 0, room: "" })}
+        >
+          Add
+        </Button>
+        <Button type="button" variant="outline" onClick={() => remove()}>
+          Reset
+        </Button>
       </div>
+    </div>
   );
 };
 
@@ -1465,7 +1691,7 @@ async function handleCreateQuotation() {
 
                 <Separator />
 
-                <VasForm control={form.control} />
+                <VasForm form={form} />
             </form>
             </FormProvider>
         ) : (

@@ -16,7 +16,7 @@ interface WorkStatusRow {
   orderId: string;
   orderNo: string;
   customer: string;
-  bucket: "Machine Running" | "Pending" | "Qc Pending" | "Dispatch ready";
+  bucket: "Machine Running" | "Pending" | "Qc Pending" | "Dispatch ready" | "Completed";
   statuses: Set<string> | string[];
   lastUpdate?: string;
 }
@@ -152,7 +152,7 @@ const CARD_META: Record<string, {
     glow: "hover:shadow-green-200",
     dot: "bg-green-500",
     dotAnimate: false,
-    filterBucket: "Dispatch ready", // completed maps similarly; adjust if you have a "Completed" bucket
+    filterBucket: "Completed",
     subtitle: "fully completed",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
@@ -182,6 +182,7 @@ const BUCKET_BADGE: Record<string, { bg: string; text: string; dot: string; anim
   "Pending":         { bg: "bg-amber-100",   text: "text-amber-800",    dot: "bg-amber-400",   animate: false },
   "Qc Pending":      { bg: "bg-blue-100",    text: "text-blue-800",     dot: "bg-blue-500",    animate: false },
   "Dispatch ready":  { bg: "bg-orange-100",  text: "text-orange-800",   dot: "bg-orange-500",  animate: false },
+  "Completed":       { bg: "bg-green-100",   text: "text-green-800",    dot: "bg-green-500",   animate: false },
 };
 
 /* ─── Component ─────────────────────────────────────────────────────────────── */
@@ -369,6 +370,7 @@ export function WorkStatusPanel({ workStatusData, formatDateTime }: Props) {
                             row.bucket === "Machine Running" ? "border-emerald-200" :
                             row.bucket === "Pending"         ? "border-amber-200" :
                             row.bucket === "Qc Pending"      ? "border-blue-200" :
+                            row.bucket === "Completed"       ? "border-green-200" :
                                                                "border-orange-200"
                           )}>
                             <span className={cn("h-1.5 w-1.5 flex-shrink-0 rounded-full", bb.dot, bb.animate && "animate-pulse")} />

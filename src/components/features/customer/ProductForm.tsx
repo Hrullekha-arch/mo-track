@@ -60,6 +60,8 @@ export function ProductForm({
   const [activeMainSection, setActiveMainSection] = useState("main");
   const [currentProducts, setCurrentProducts] = useState<DealProduct[]>(initialProducts || []);
   const [fabricCategoryGroup, setFabricCategoryGroup] = useState("MAIN");
+  const [currentBcnimsQty, setCurrentBcnimsQty] = useState([]);
+  const [imsSearching, setImsSearching] = useState(false);
 
   useEffect(() => {
     setCurrentProducts(initialProducts || []);
@@ -113,9 +115,52 @@ export function ProductForm({
       form.setValue("newProduct.salesDescription", stockItem.itemName || "");
       form.setValue("newProduct.verticalRepeat", stockItem.verticalRepeatCms || "");
       form.setValue("newProduct.horizontalRepeat", stockItem.horizontalRepeatCms || "");
+      void handleBcnQtysearchfromIMS(stockItem.bcn || stockItem.id);
       console.log("✅ BCN selected:", stockItem);
     }
   };
+
+const handleBcnQtysearchfromIMS = async (bcn: string): Promise<number | null> => {
+  const normalizedBcn = String(bcn || "").trim();
+  if (!normalizedBcn) return null;
+
+  try {
+    setImsSearching(true);
+    const query = new URLSearchParams({ bcn: normalizedBcn });
+    const response = await fetch(`/api/ims-sheet?${query.toString()}`, {
+      method: "GET",
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      console.warn(`IMS fetch failed for BCN "${normalizedBcn}" status ${response.status}`);
+      setCurrentBcnimsQty(null);
+      return null;
+    }
+
+    const payload = await response.json();
+    console.log(`IMS response for BCN ${normalizedBcn}:`, payload);
+
+    const imsQty = typeof payload?.qty === "number" && Number.isFinite(payload.qty)
+      ? payload.qty
+      : null;
+
+    if (imsQty !== null) {
+      setCurrentBcnimsQty({ qty: imsQty, date: payload.date ?? null }); // ✅ set correct value
+      return imsQty;
+    } else {
+      setCurrentBcnimsQty(null); // ✅ nothing found
+      return null;
+    }
+
+  } catch (error) {
+    console.error("Error fetching IMS quantity:", error);
+    setCurrentBcnimsQty(null);
+    return null;
+  } finally {
+    setImsSearching(false); // ✅ always runs
+  }
+};
 
   const handleSaveHardware = (payload: any) => {
     console.log("✔️ Hardware Saved:", payload);
@@ -778,7 +823,66 @@ const handleStageItem = () => {
                         name="newProduct.quantity"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Qty</FormLabel>
+                            <FormLabel className="flex items-center justify-between">
+                              <span className="text-sm font-medium">Quantity</span>
+
+                              {imsSearching ? (
+                                // Loading state
+                                <div className="flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 px-2.5 py-0.5">
+                                  <svg
+                                    className="h-3 w-3 animate-spin text-gray-400"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                  </svg>
+                                  <span className="text-xs text-gray-400">Fetching stock...</span>
+                                </div>
+                              ) : currentBcnimsQty ? (
+                                // Loaded state
+                                <div className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 ${
+                                  (currentBcnimsQty.qty ?? 0) === 0
+                                    ? "border-red-200 bg-red-50"
+                                    : (currentBcnimsQty.qty ?? 0) < 10
+                                    ? "border-yellow-200 bg-yellow-50"
+                                    : "border-emerald-200 bg-emerald-50"
+                                }`}>
+                                  <span className={`h-1.5 w-1.5 rounded-full ${
+                                    (currentBcnimsQty.qty ?? 0) === 0
+                                      ? "bg-red-500"
+                                      : (currentBcnimsQty.qty ?? 0) < 10
+                                      ? "bg-yellow-500"
+                                      : "bg-emerald-500"
+                                  }`} />
+                                  <span className={`text-xs font-semibold ${
+                                    (currentBcnimsQty.qty ?? 0) === 0
+                                      ? "text-red-700"
+                                      : (currentBcnimsQty.qty ?? 0) < 10
+                                      ? "text-yellow-700"
+                                      : "text-emerald-700"
+                                  }`}>
+                                    Stock: {currentBcnimsQty.qty ?? 0}
+                                  </span>
+                                  {currentBcnimsQty.date && (
+                                    <>
+                                      <span className="text-gray-300">·</span>
+                                      <span className={`text-xs ${
+                                        (currentBcnimsQty.qty ?? 0) === 0
+                                          ? "text-red-600"
+                                          : (currentBcnimsQty.qty ?? 0) < 10
+                                          ? "text-yellow-600"
+                                          : "text-emerald-600"
+                                      }`}>
+                                        {currentBcnimsQty.date}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              ) : null}
+
+                            </FormLabel>
                             <FormControl>
                               <Input type="number" {...field} />
                             </FormControl>

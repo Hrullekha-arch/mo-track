@@ -36,6 +36,65 @@ const supplierCompanyDocId = (value: string) =>
   normalizeSupplierCompanyName(value)
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "") || "supplier";
+const trimToUndefined = (value: unknown) => {
+  const normalizedWhitespace = String(value ?? "").replace(/\s+/g, " ").trim();
+  return normalizedWhitespace || undefined;
+};
+const parseFiniteNumber = (value: unknown, fallback?: number) => {
+  if (value === undefined || value === null || value === "") return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+const buildSearchTokens = (value: string) => {
+  const source = String(value ?? "").toLowerCase();
+  const words = source
+    .split(/\s+/)
+    .map((token) => token.replace(/[^a-z0-9]/g, ""))
+    .filter(Boolean);
+  const compact = source.replace(/[^a-z0-9]/g, "");
+  const mergedWord = words.join("");
+  const set = new Set<string>(words);
+  if (compact.length >= 2) set.add(compact);
+  if (mergedWord.length >= 2) set.add(mergedWord);
+  return Array.from(set);
+};
+const buildVasStockBcn = (name: string) => {
+  const core = String(name ?? "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 80);
+  return `VAS-${core || "SERVICE"}`;
+};
+const isTruthyServiceFlag = (value: unknown) => {
+  if (typeof value === "boolean") return value;
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized === "true" || normalized === "yes" || normalized === "1";
+};
+const isVasStockRecord = (data: Record<string, any> | Stock) => {
+  const category = String((data as any)?.category ?? "").trim().toUpperCase();
+  const type = String((data as any)?.type ?? "").trim().toUpperCase();
+  return (
+    category === "VAS" ||
+    type === "VAS" ||
+    Boolean((data as any)?.isService) ||
+    isTruthyServiceFlag((data as any)?.serviceable) ||
+    isTruthyServiceFlag((data as any)?.servicable)
+  );
+};
+
+type VasStockUpsertInput = {
+  vasName: string;
+  bcn?: string;
+  rate?: number | string;
+  gstPercent?: number | string;
+  hsnOrSac?: string | null;
+  hsnCode?: string | null;
+  unit?: string;
+  serviceable?: boolean;
+  servicable?: boolean;
+  isActive?: boolean;
+};
 
 const buildSupplierCompanyPayload = (value: string, nowIso: string) => ({
   name: value,
@@ -580,14 +639,6 @@ export async function importStockData(
           s(row, COL.isService).toLowerCase() === "yes" ||
           resolvedCategory === "VAS";
 
-          function buildSearchTokens(value: string): string[] {
-          return value
-            .toLowerCase()
-            .split(/\s+/)
-            .map(w => w.replace(/[^a-z0-9]/g, ''))
-            .filter(Boolean);
-        }
-
         const itemNameTokens = buildSearchTokens(s(row, COL.itemName));
 
         const stockItem = {
@@ -902,6 +953,178 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
   } catch (error) {
     console.error("Error searching stock:", error);
     return [];
+  }
+}
+
+export async function searchVasStockServicesAction(query: string): Promise<Stock[]> {
+  const trimmed = String(query ?? "").trim();
+  if (!trimmed || trimmed.length < 2) return [];
+
+  try {
+    const loweredQuery = trimmed.toLowerCase();
+    const normalizedQuery = normalizeBcn(trimmed);
+    const fromGenericSearch = (await searchStockByBcn(trimmed)).filter((stock) =>
+      isVasStockRecord(stock)
+    );
+    if (fromGenericSearch.length > 0) {
+      return fromGenericSearch.slice(0, 30);
+    }
+
+    const stockCollection = adminDb.collection("stocks");
+    const directVasSnap = await stockCollection.where("category", "==", "VAS").limit(400).get();
+    const directVasResults = directVasSnap.docs
+      .map((doc: any) => ({ id: doc.id, ...doc.data() } as Stock))
+      .filter((stock: Stock) => {
+        if (!isVasStockRecord(stock)) return false;
+        const name = String(stock.itemName || stock.name || "").toLowerCase();
+        const bcn = String(stock.bcn || "").toUpperCase();
+        return name.includes(loweredQuery) || bcn.includes(normalizedQuery);
+      });
+    if (directVasResults.length > 0) {
+      return directVasResults.slice(0, 30);
+    }
+
+    const serviceSnap = await stockCollection.where("isService", "==", true).limit(400).get();
+    const serviceResults = serviceSnap.docs
+      .map((doc: any) => ({ id: doc.id, ...doc.data() } as Stock))
+      .filter((stock: Stock) => {
+        if (!isVasStockRecord(stock)) return false;
+        const name = String(stock.itemName || stock.name || "").toLowerCase();
+        const bcn = String(stock.bcn || "").toUpperCase();
+        return name.includes(loweredQuery) || bcn.includes(normalizedQuery);
+      });
+    if (serviceResults.length > 0) {
+      return serviceResults.slice(0, 30);
+    }
+
+    const tokenQuery = trimmed.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (tokenQuery.length < 2) return [];
+
+    const tokenSnap = await adminDb
+      .collection("stocks")
+      .where("itemNameTokens", "array-contains", tokenQuery)
+      .limit(60)
+      .get();
+
+    const fallback = tokenSnap.docs
+      .map((doc: any) => ({ id: doc.id, ...doc.data() } as Stock))
+      .filter((stock: Stock) => isVasStockRecord(stock));
+
+    return fallback.slice(0, 30);
+  } catch (error) {
+    console.error("Error searching VAS stock services:", error);
+    return [];
+  }
+}
+
+export async function upsertVasStockItemsAction(
+  entries: VasStockUpsertInput[]
+): Promise<{ success: boolean; message: string; count: number; skipped: number }> {
+  try {
+    const rows = Array.isArray(entries) ? entries : [];
+    if (!rows.length) {
+      return { success: true, message: "No VAS rows to sync.", count: 0, skipped: 0 };
+    }
+
+    const now = new Date().toISOString();
+    const seenDocIds = new Set<string>();
+    let batch = adminDb.batch();
+    let opCount = 0;
+    let count = 0;
+    let skipped = 0;
+
+    for (const row of rows) {
+      const vasName = trimToUndefined(row?.vasName);
+      if (!vasName) {
+        skipped++;
+        continue;
+      }
+
+      const proposedBcn = trimToUndefined(row?.bcn) || buildVasStockBcn(vasName);
+      const docId = sanitizeBcnDocId(proposedBcn);
+      if (!docId || seenDocIds.has(docId)) {
+        skipped++;
+        continue;
+      }
+      seenDocIds.add(docId);
+
+      const rate = Math.max(0, parseFiniteNumber(row?.rate, 0) ?? 0);
+      const gstPercent = Math.max(0, parseFiniteNumber(row?.gstPercent, 0) ?? 0);
+      const hsnOrSac = trimToUndefined(row?.hsnOrSac) || trimToUndefined(row?.hsnCode);
+      const unit = String(trimToUndefined(row?.unit) || "PCS").toUpperCase();
+
+      const payload = stripUndefined({
+        itemId: docId,
+        productId: docId,
+        bcn: proposedBcn,
+        bcnDigits: extractBcnDigits(proposedBcn),
+        name: vasName,
+        itemName: vasName,
+        itemNameTokens: buildSearchTokens(vasName),
+        category: "VAS",
+        categoryGroup: "SERVICE",
+        type: "vas",
+        isService: true,
+        serviceable: row?.serviceable ?? true,
+        servicable: row?.servicable ?? true,
+        unit,
+        totalQty: 0,
+        availableQty: 0,
+        reservedQty: 0,
+        damagedQty: 0,
+        cutQty: 0,
+        closingstock: 0,
+        quantity: 0,
+        maxlevel: 0,
+        supplierCompanyName: "VAS SERVICES",
+        supplierCollectionName: "VAS",
+        supplierCollectionCode: "VAS",
+        costPriceRs: 0,
+        costMultiplierRs: 1,
+        rrpWithGstRs: rate,
+        mrp: rate,
+        rlPrice: rate,
+        clPrice: rate,
+        hsnOrSac,
+        hsnCode: hsnOrSac,
+        gstPercent,
+        tax: gstPercent,
+        isActive: row?.isActive ?? true,
+        createdAt: now,
+        updatedAt: now,
+        lastUpdatedAt: now,
+      });
+
+      const stockRef = adminDb.collection("stocks").doc(docId);
+      batch.set(stockRef, payload, { merge: true });
+      opCount++;
+      count++;
+
+      if (opCount >= BATCH_SIZE) {
+        await batch.commit();
+        batch = adminDb.batch();
+        opCount = 0;
+      }
+    }
+
+    if (opCount > 0) {
+      await batch.commit();
+    }
+
+    return {
+      success: true,
+      message: `Synced ${count} VAS stock item(s).`,
+      count,
+      skipped,
+    };
+  } catch (error: any) {
+    console.error("Error syncing VAS stock items:", error);
+    return {
+      success: false,
+      message: error?.message || "Failed to sync VAS stock items.",
+      count: 0,
+      skipped: 0,
+    };
   }
 }
 

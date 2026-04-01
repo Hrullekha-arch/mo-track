@@ -236,6 +236,19 @@ function EditCustomerDialog({
   const [lookingFor,   setLookingFor]   = useState("");
   const [status,       setStatus]       = useState("");
   const [store,        setStore]        = useState<(typeof BRANCHES)[number]>(BRANCHES[0]);
+  const [inquiryStatus,       setInquiryStatus]       = useState("");
+  const [advanceReceived,     setAdvanceReceived]     = useState("");
+  const [measurementRequired, setMeasurementRequired] = useState("");
+  const [latestDealId,        setLatestDealId]        = useState("");
+  const [latestDealDocId,     setLatestDealDocId]     = useState("");
+  const [dealCustomerId,      setDealCustomerId]      = useState("");
+  const [dealName,            setDealName]            = useState("");
+  const [dealMode,            setDealMode]            = useState<"deal" | "instant_sale">("deal");
+  const [instantDealNo,       setInstantDealNo]       = useState("");
+  const [instantOrderId,      setInstantOrderId]      = useState("");
+  const [instantOrderAmount,  setInstantOrderAmount]  = useState("");
+  const [instantInvoiceNo,    setInstantInvoiceNo]    = useState("");
+  const [validationError,     setValidationError]     = useState("");
 
   // Return visit fields
   const [leadType,      setLeadType]      = useState("");
@@ -246,6 +259,9 @@ function EditCustomerDialog({
   useEffect(() => {
     if (!customer) return;
     const c = customer as any;
+    const ds = (c.dealSnapshot || {}) as Record<string, any>;
+    const cashsale = (c.cashsale || {}) as Record<string, any>;
+    const hasInstantSale = Boolean(cashsale?.created || cashsale?.type === "INSTANT" || cashsale?.OrderId);
     setFirstName(c.firstName || "");
     setFamilyName(c.familyName || "");
     setMobile(c.mobile || "");
@@ -255,6 +271,19 @@ function EditCustomerDialog({
     setStatus(c.status || "");
     const nextStore = String(c.store || c.storeName || "").trim();
     setStore((BRANCHES as readonly string[]).includes(nextStore) ? (nextStore as (typeof BRANCHES)[number]) : BRANCHES[0]);
+    setInquiryStatus(c.inquiryStatus || ds.status || (c.status === "Deal Created" ? "Inquery made" : ""));
+    setAdvanceReceived(c.advanceReceived || ds.advanceReceived || "");
+    setMeasurementRequired(c.measurementRequired || ds.measurementRequired || "");
+    setLatestDealId(c.latestDealId || ds.dealId || "");
+    setLatestDealDocId(c.latestDealDocId || ds.dealDocId || "");
+    setDealCustomerId(ds.customerId || "");
+    setDealName(ds.dealName || "");
+    setDealMode(hasInstantSale ? "instant_sale" : "deal");
+    setInstantDealNo(String(cashsale?.dealId || c.latestDealId || ds.dealId || ""));
+    setInstantOrderId(String(cashsale?.OrderId || ""));
+    setInstantOrderAmount(cashsale?.totalOrderAmount != null ? String(cashsale.totalOrderAmount) : "");
+    setInstantInvoiceNo(String(cashsale?.invoiceNo || c.invoiceNo || ""));
+    setValidationError("");
     setLeadType(c.leadType || "");
     setPaymentAmount(c.paymentAmount != null ? String(c.paymentAmount) : "");
     setPaymentMethod(c.paymentMethod || "");
@@ -265,8 +294,39 @@ function EditCustomerDialog({
   if (!customer) return null;
 
   const isPayment = PAYMENT_TYPES.includes(leadType);
+  const isDealCreated = status === "Deal Created";
+  const isInstantSale = isDealCreated && dealMode === "instant_sale";
 
   const handleSave = async () => {
+    setValidationError("");
+    const nowIso = new Date().toISOString();
+    if (isDealCreated) {
+      const missing: string[] = [];
+      if (!inquiryStatus.trim()) missing.push("Inquiry Status");
+      if (!measurementRequired.trim()) missing.push("Measurement Required");
+      if (!advanceReceived.trim()) missing.push("Advance Received");
+      if (!dealCustomerId.trim()) missing.push("Customer ID");
+      if (!dealName.trim()) missing.push("Deal Name");
+      if (dealMode === "instant_sale") {
+        if (!instantDealNo.trim()) missing.push("Deal No");
+        if (!instantOrderId.trim()) missing.push("Order ID");
+        if (!instantInvoiceNo.trim()) missing.push("Invoice No");
+        const parsedOrderAmount = Number(instantOrderAmount);
+        if (!instantOrderAmount.trim() || !Number.isFinite(parsedOrderAmount) || parsedOrderAmount <= 0) {
+          missing.push("Order Amount");
+        }
+      } else {
+        if (!latestDealId.trim()) missing.push("Latest Deal ID");
+        if (!latestDealDocId.trim()) missing.push("Latest Deal Doc ID");
+      }
+
+      if (missing.length > 0) {
+        setValidationError(`Fill required deal fields: ${missing.join(", ")}`);
+        setActiveSection("basic");
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const patch: Record<string, any> = {
@@ -282,6 +342,53 @@ function EditCustomerDialog({
         assignedStoreName: store,
         leadType,
       };
+      if (isDealCreated) {
+        const inquiry = inquiryStatus.trim();
+        const msr = measurementRequired.trim();
+        const adv = advanceReceived.trim();
+        const dealId = (dealMode === "instant_sale" ? instantDealNo : latestDealId).trim();
+        const dealDocId = latestDealDocId.trim() || dealId;
+        const custId = dealCustomerId.trim();
+        const title = dealName.trim();
+        patch.inquiryStatus = inquiry;
+        patch.measurementRequired = msr;
+        patch.advanceReceived = adv;
+        patch.latestDealId = dealId;
+        patch.latestDealDocId = dealDocId;
+        patch.dealSnapshot = {
+          status: inquiry,
+          dealDocId,
+          dealId,
+          customerId: custId,
+          dealName: title,
+          measurementRequired: msr,
+          advanceReceived: adv,
+          createdAt: nowIso,
+        };
+        if (dealMode === "instant_sale") {
+          const orderId = instantOrderId.trim();
+          const orderAmount = Number(instantOrderAmount) || 0;
+          const invoiceNo = instantInvoiceNo.trim();
+          const existingCashsaleCreatedAt = String((customer as any)?.cashsale?.createdAt || "").trim();
+          patch.cashsale = {
+            created: true,
+            OrderId: orderId,
+            dealId,
+            orderNo: orderId,
+            orderNumber: orderId,
+            crmOrderNo: orderId,
+            invoiceNo,
+            totalOrderAmount: orderAmount,
+            dealType: "CASHSALE",
+            status: "PURCHASED",
+            type: "INSTANT",
+            updatedAt: nowIso,
+            createdAt: existingCashsaleCreatedAt || nowIso,
+          };
+          patch.latestOrderId = orderId;
+          patch.invoiceNo = invoiceNo;
+        }
+      }
       if (isPayment) {
         patch.paymentAmount = Number(paymentAmount) || 0;
         patch.paymentMethod = paymentMethod;
@@ -370,7 +477,14 @@ function EditCustomerDialog({
 
               <div className="space-y-1.5">
                 <FL>Status</FL>
-                <Select value={status} onValueChange={setStatus}>
+                <Select
+                  value={status}
+                  onValueChange={(value) => {
+                    setStatus(value);
+                    setValidationError("");
+                    if (value === "Deal Created" && !inquiryStatus.trim()) setInquiryStatus("Inquery made");
+                  }}
+                >
                   <SelectTrigger className="rounded-xl border-slate-200 h-9 text-sm"><SelectValue placeholder="Select status" /></SelectTrigger>
                   <SelectContent className="rounded-xl">
                     <SelectItem value="Pending">Pending</SelectItem>
@@ -382,6 +496,97 @@ function EditCustomerDialog({
                   </SelectContent>
                 </Select>
               </div>
+
+              {isDealCreated && (
+                <div className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">Deal Created Details</p>
+                    <span className="text-[10px] font-semibold text-emerald-700">Required</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    <FL req>Inquiry Status</FL>
+                    <Input value={inquiryStatus} onChange={e => setInquiryStatus(e.target.value)} placeholder="Inquery made" className="rounded-xl border-emerald-200 h-9 text-sm bg-white" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <FL req>Deal Flow</FL>
+                    <Select value={dealMode} onValueChange={(value) => setDealMode(value as "deal" | "instant_sale")}>
+                      <SelectTrigger className="rounded-xl border-emerald-200 h-9 text-sm bg-white"><SelectValue placeholder="Select flow" /></SelectTrigger>
+                      <SelectContent className="rounded-xl">
+                        <SelectItem value="deal">Regular Deal</SelectItem>
+                        <SelectItem value="instant_sale">Instant Sale</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <FL req>Measurement Required</FL>
+                      <Select value={measurementRequired} onValueChange={setMeasurementRequired}>
+                        <SelectTrigger className="rounded-xl border-emerald-200 h-9 text-sm bg-white"><SelectValue placeholder="Select" /></SelectTrigger>
+                        <SelectContent className="rounded-xl">
+                          <SelectItem value="Yes">Yes</SelectItem>
+                          <SelectItem value="No">No</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <FL req>Advance Received</FL>
+                      <Select value={advanceReceived} onValueChange={setAdvanceReceived}>
+                        <SelectTrigger className="rounded-xl border-emerald-200 h-9 text-sm bg-white"><SelectValue placeholder="Select" /></SelectTrigger>
+                        <SelectContent className="rounded-xl">
+                          <SelectItem value="Yes">Yes</SelectItem>
+                          <SelectItem value="No">No</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  {!isInstantSale && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <FL req>Latest Deal ID</FL>
+                        <Input value={latestDealId} onChange={e => setLatestDealId(e.target.value)} placeholder="e.g. DEAL-043" className="rounded-xl border-emerald-200 h-9 text-sm bg-white font-mono" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <FL req>Latest Deal Doc ID</FL>
+                        <Input value={latestDealDocId} onChange={e => setLatestDealDocId(e.target.value)} placeholder="Firestore deal doc id" className="rounded-xl border-emerald-200 h-9 text-sm bg-white font-mono" />
+                      </div>
+                    </div>
+                  )}
+                  {isInstantSale && (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <FL req>Deal No</FL>
+                          <Input value={instantDealNo} onChange={e => setInstantDealNo(e.target.value)} placeholder="e.g. DEAL-043" className="rounded-xl border-emerald-200 h-9 text-sm bg-white font-mono" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <FL req>Order ID</FL>
+                          <Input value={instantOrderId} onChange={e => setInstantOrderId(e.target.value)} placeholder="e.g. ORD-1001" className="rounded-xl border-emerald-200 h-9 text-sm bg-white font-mono" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <FL req>Order Amount</FL>
+                          <Input type="number" value={instantOrderAmount} onChange={e => setInstantOrderAmount(e.target.value)} placeholder="0.00" className="rounded-xl border-emerald-200 h-9 text-sm bg-white" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <FL req>Invoice No</FL>
+                          <Input value={instantInvoiceNo} onChange={e => setInstantInvoiceNo(e.target.value)} placeholder="e.g. INV-2026-001" className="rounded-xl border-emerald-200 h-9 text-sm bg-white font-mono" />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <FL req>Customer ID</FL>
+                      <Input value={dealCustomerId} onChange={e => setDealCustomerId(e.target.value)} placeholder="Customer doc id" className="rounded-xl border-emerald-200 h-9 text-sm bg-white font-mono" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <FL req>Deal Name</FL>
+                      <Input value={dealName} onChange={e => setDealName(e.target.value)} placeholder="WalkIn" className="rounded-xl border-emerald-200 h-9 text-sm bg-white" />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-1.5">
                 <FL>Store</FL>
@@ -396,6 +601,9 @@ function EditCustomerDialog({
                   </SelectContent>
                 </Select>
               </div>
+              {validationError && (
+                <p className="text-xs font-medium text-rose-600">{validationError}</p>
+              )}
             </div>
           )}
 
@@ -816,6 +1024,15 @@ export default function WalkinDataPage() {
               {(c as any).cashsale && (
                 <SheetSection icon={<Receipt className="h-3.5 w-3.5" />} title="Order / Cash Sale">
                   <SheetRow label="Order ID"  value={<span className="font-mono text-xs">{(c as any).cashsale.OrderId}</span>} />
+                  {(c as any).cashsale.dealId && (
+                    <SheetRow label="Deal No" value={<span className="font-mono text-xs">{(c as any).cashsale.dealId}</span>} />
+                  )}
+                  {(c as any).cashsale.invoiceNo && (
+                    <SheetRow label="Invoice No" value={<span className="font-mono text-xs">{(c as any).cashsale.invoiceNo}</span>} />
+                  )}
+                  {Number((c as any).cashsale.totalOrderAmount) > 0 && (
+                    <SheetRow label="Order Amount" value={`₹${Number((c as any).cashsale.totalOrderAmount).toLocaleString("en-IN")}`} />
+                  )}
                   <SheetRow label="Deal Type" value={(c as any).cashsale.dealType} />
                   <SheetRow label="Sale Type" value={(c as any).cashsale.type} />
                   <SheetRow label="Status"    value={(c as any).cashsale.status} />

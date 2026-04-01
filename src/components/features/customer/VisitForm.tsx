@@ -168,6 +168,7 @@ const extractDeliveryItemsFromOrder = (order: any) => {
 
   const rawItems = [
     ...(Array.isArray(order?.sections?.NORMAL?.items) ? order.sections.NORMAL.items : []),
+    ...(Array.isArray(order?.sections?.VAS?.items) ? order.sections.VAS.items : []),
   ];
 
   const byKey = new Map<string, { id: string; label: string; qty: number }>();

@@ -348,15 +348,34 @@ function AllocateDialog({
     )
 }
 
-function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuccess, refreshKey }: { item: OrderItem, index: number, order: Order, orderId: string, orderCrmNo: string, onAllocationSuccess: () => void, refreshKey: number }) {
+function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuccess, refreshKey }: { 
+    item: OrderItem, 
+    index: number, 
+    order: Order, 
+    orderId: string, 
+    orderCrmNo: string, 
+    onAllocationSuccess: () => void, 
+    refreshKey: number 
+}) {
     const [stockInfo, setStockInfo] = useState<Stock | null>(null);
     const [loading, setLoading] = useState(true);
     const [allocatedQty, setAllocatedQty] = useState(0);
-    const [status, setStatus] = useState<{ text: string; variant: 'default' | 'secondary' | 'destructive' | 'outline', poNumber?: string, tallyBillNo?: string }>({ text: 'Loading...', variant: 'secondary' });
+    const [status, setStatus] = useState<{ 
+        text: string; 
+        variant: 'default' | 'secondary' | 'destructive' | 'outline', 
+        poNumber?: string, 
+        tallyBillNo?: string 
+    }>({ text: 'Loading...', variant: 'secondary' });
 
     const isOrderApproved = order.status === 'Approved';
     const invoiceRequired = order.invoicing?.invoiceRequired !== false;
+    const [currentBcnimsQty, setCurrentBcnimsQty] = useState<{ qty: number; date: string | null } | null>(null); // ✅ fixed type
+    const [imsSearching, setImsSearching] = useState(false);
 
+    const name = (item as any).fabricName || (item as any).furnitureName;
+    const unit = item.type === 'Fabric' ? 'Mtr' : '';
+
+    // ── Fetch stock & order data ─────────────────────────────────────────────
     useEffect(() => {
         const fetchItemData = async () => {
             setLoading(true);
@@ -388,17 +407,17 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
                 poPromise,
                 invoicePromise
             ]);
+
             const sumAvailableFromLengths = lengthsSnapshot.docs.reduce((sum, docSnap) => {
                 const data = docSnap.data() as any;
                 const available = Number(data?.availableLength ?? data?.availableQty ?? 0);
                 return sum + (Number.isFinite(available) ? available : 0);
             }, 0);
+
             const sumReservedFromLengths = lengthsSnapshot.docs.reduce((sum, docSnap) => {
                 const data = docSnap.data() as any;
                 const reserved = Number(data?.reservedQty);
-                if (Number.isFinite(reserved)) {
-                    return sum + reserved;
-                }
+                if (Number.isFinite(reserved)) return sum + reserved;
                 const original = Number(data?.originalLength ?? data?.quantity ?? 0);
                 const available = Number(data?.availableLength ?? data?.availableQty ?? 0);
                 const derived = original - available;
@@ -408,23 +427,24 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             const stockAvailable = Number(stock?.availableQty);
             const stockReserved = Number(stock?.reservedQty);
 
-            const resolvedStock = stock
-                ? {
-                    ...stock,
-                    availableQty: Number.isFinite(stockAvailable) && stockAvailable >= 0
-                        ? stockAvailable
-                        : sumAvailableFromLengths,
-                    reservedQty: Number.isFinite(stockReserved) && stockReserved >= 0
-                        ? stockReserved
-                        : sumReservedFromLengths,
-                }
-                : stock;
+            const resolvedStock = stock ? {
+                ...stock,
+                availableQty: Number.isFinite(stockAvailable) && stockAvailable >= 0
+                    ? stockAvailable
+                    : sumAvailableFromLengths,
+                reservedQty: Number.isFinite(stockReserved) && stockReserved >= 0
+                    ? stockReserved
+                    : sumReservedFromLengths,
+            } : stock;
 
             setStockInfo(resolvedStock);
             
             let totalReservedForOrder = 0;
             for (const lengthDoc of lengthsSnapshot.docs) {
-                const reservationsQuery = query(collection(lengthDoc.ref, 'reservedQty'), where('orderId', '==', orderId));
+                const reservationsQuery = query(
+                    collection(lengthDoc.ref, 'reservedQty'), 
+                    where('orderId', '==', orderId)
+                );
                 const reservationsSnapshot = await getDocs(reservationsQuery);
                 reservationsSnapshot.forEach(reservationDoc => {
                     totalReservedForOrder += reservationDoc.data().reservedQty || 0;
@@ -433,7 +453,6 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             setAllocatedQty(totalReservedForOrder);
 
             const requiredQty = parseFloat((item as any).quantity || '0');
-
             const matchedInvoice = invoiceSnaps.docs.find(d => {
                 const invoice = d.data() as Invoice;
                 const invoiceItems = invoice.sections?.NORMAL?.items || invoice.items || [];
@@ -445,7 +464,11 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
                 : 0;
 
             if (matchedInvoice) {
-                 setStatus({ text: `Invoice Generated: ${matchedInvoice.data().tallyVoucherNo || ''}`, variant: 'default', tallyBillNo: matchedInvoice.data().tallyVoucherNo });
+                setStatus({ 
+                    text: `Invoice Generated: ${matchedInvoice.data().tallyVoucherNo || ''}`, 
+                    variant: 'default', 
+                    tallyBillNo: matchedInvoice.data().tallyVoucherNo 
+                });
             } else if (totalReservedForOrder >= requiredQty) {
                 setStatus({
                     text: invoiceRequired ? 'Pending for Invoice' : 'Ready for Delivery',
@@ -464,52 +487,139 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
                         break;
                     }
                 }
-                if (!poFound) {
-                    setStatus({ text: 'Pending for PO', variant: 'destructive' });
-                }
+                if (!poFound) setStatus({ text: 'Pending for PO', variant: 'destructive' });
             }
+
             setLoading(false);
         };
+
         fetchItemData();
     }, [item, orderId, orderCrmNo, refreshKey, invoiceRequired]);
 
+    // ── Fetch IMS qty once stockInfo is ready ────────────────────────────────
+    useEffect(() => {
+        if (!loading && (stockInfo?.bcn || name)) {
+            handleBcnQtysearchfromIMS(stockInfo?.bcn || name); // ✅ triggers after stockInfo loads
+        }
+    }, [loading, stockInfo?.bcn]); // ✅ waits for loading to finish
 
-    const name = (item as any).fabricName || (item as any).furnitureName;
-    const unit = item.type === 'Fabric' ? 'Mtr' : '';
+    // ── IMS fetch function ───────────────────────────────────────────────────
+    const handleBcnQtysearchfromIMS = async (bcn: string): Promise<number | null> => {
+        const normalizedBcn = String(bcn || "").trim();
+        if (!normalizedBcn) return null;
+
+        try {
+            setImsSearching(true);
+            const queryParams = new URLSearchParams({ bcn: normalizedBcn });
+            const response = await fetch(`/api/ims-sheet?${queryParams.toString()}`, {
+                method: "GET",
+                cache: "no-store",
+            });
+
+            if (!response.ok) {
+                console.warn(`IMS fetch failed for BCN "${normalizedBcn}" status ${response.status}`);
+                setCurrentBcnimsQty(null);
+                return null;
+            }
+
+            const payload = await response.json();
+            console.log(`IMS response for BCN ${normalizedBcn}:`, payload);
+
+            const imsQty = typeof payload?.qty === "number" && Number.isFinite(payload.qty)
+                ? payload.qty
+                : null;
+
+            if (imsQty !== null) {
+                setCurrentBcnimsQty({ qty: imsQty, date: payload.date ?? null }); // ✅ correct shape
+                return imsQty;
+            } else {
+                setCurrentBcnimsQty(null);
+                return null;
+            }
+        } catch (error) {
+            console.error("Error fetching IMS quantity:", error);
+            setCurrentBcnimsQty(null);
+            return null;
+        } finally {
+            setImsSearching(false); // ✅ always runs
+        }
+    };
 
     return (
         <TableRow>
             <TableCell>{index + 1}</TableCell>
+
+            {/* Item Name */}
             <TableCell>
                 <p className="font-mono">{stockInfo?.bcn || name}</p>
                 <p className="text-xs text-muted-foreground">{stockInfo?.name || stockInfo?.itemName}</p>
             </TableCell>
+
+            {/* Supplier Code */}
             <TableCell>{stockInfo?.supplierCollectionCode || 'N/A'}</TableCell>
+
+            {/* Required Qty */}
             <TableCell>{(item as any).quantity} {unit}</TableCell>
+
+            {/* IMS Stock ✅ fixed — no more onLoad */}
+                <TableCell>
+                    {imsSearching ? (
+                        <div className="flex items-center gap-1.5">
+                            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                            <span className="text-xs text-muted-foreground">Fetching...</span>
+                        </div>
+                    ) : currentBcnimsQty?.qty != null ? (
+                        // ✅ Found
+                        <div className="flex flex-col gap-0.5">
+                            <span className="font-mono font-semibold text-sm">
+                                {currentBcnimsQty.qty.toFixed(2)}
+                                <span className="text-xs font-normal text-muted-foreground ml-1">Mtr</span>
+                            </span>
+                            {currentBcnimsQty.date && (
+                                <span className="text-[10px] text-muted-foreground">{currentBcnimsQty.date}</span>
+                            )}
+                        </div>
+                    ) : (
+                        // ❌ Not found in IMS
+                        <div className="flex items-center gap-1">
+                            <span className="inline-flex items-center rounded-md border border-dashed border-gray-300 bg-gray-50 px-2 py-0.5 text-xs text-gray-400">
+                                Not in IMS
+                            </span>
+                        </div>
+                    )}
+                </TableCell>
+
+            {/* Allocated Qty */}
             <TableCell>
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (stockInfo?.availableQty?.toFixed(2) ?? 'N/A')}
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (
+                    allocatedQty > 0 ? (
+                        <span className="font-semibold text-green-600">{allocatedQty.toFixed(2)}</span>
+                    ) : isOrderApproved && stockInfo ? (
+                        <AllocateDialog
+                            item={item}
+                            stock={stockInfo}
+                            orderId={orderId}
+                            onAllocationSuccess={onAllocationSuccess}
+                            invoiceRequired={invoiceRequired}
+                        />
+                    ) : (
+                        <Badge variant="outline">{order.status || 'Pending'}</Badge>
+                    )
+                )}
             </TableCell>
+
+            {/* Status */}
             <TableCell>
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (allocatedQty > 0 ? (
-                    <span className="font-semibold text-green-600">{allocatedQty.toFixed(2)}</span>
-                ) : isOrderApproved && stockInfo ? (
-                    <AllocateDialog
-                        item={item}
-                        stock={stockInfo}
-                        orderId={orderId}
-                        onAllocationSuccess={onAllocationSuccess}
-                        invoiceRequired={invoiceRequired}
-                    />
+                {loading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                    <Badge variant="outline">{order.status || 'Pending'}</Badge>
-                ))}
-            </TableCell>
-            <TableCell>
-                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 
-                 <Badge variant={status.variant} className={status.text.includes('Invoice Generated') ? 'bg-green-600' : ''}>
-                    {status.text} {status.poNumber && `: ${status.poNumber}`}
-                 </Badge>
-                }
+                    <Badge 
+                        variant={status.variant} 
+                        className={status.text.includes('Invoice Generated') ? 'bg-green-600' : ''}
+                    >
+                        {status.text} {status.poNumber && `: ${status.poNumber}`}
+                    </Badge>
+                )}
             </TableCell>
         </TableRow>
     );
@@ -805,6 +915,7 @@ function AllocateOrderTable({ order, onAllocationSuccess, refreshKey }: { order:
                                 <TableHead>Serial No</TableHead>
                                 <TableHead>Qty</TableHead>
                                 <TableHead>Stock</TableHead>
+                                <TableHead>IMS Stock</TableHead>
                                 <TableHead>Allocated Qty</TableHead>
                                 <TableHead>Status</TableHead>
                             </TableRow>

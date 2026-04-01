@@ -178,6 +178,11 @@ const normalizeText = (value?: string) =>
     .trim()
     .toLowerCase();
 
+const normalizeJobStatus = (value?: string) =>
+  String(value || "")
+    .trim()
+    .toUpperCase();
+
 const buildSkillId = (machineId: string, personId: string, category: string) =>
   `${machineId}_${personId}_${category.replace(/[^a-zA-Z0-9]/g, "_")}`;
 
@@ -232,6 +237,8 @@ export default function PmsPage() {
     timezoneOffsetMinutes: IST_TIMEZONE_OFFSET_MINUTES,
   });
   const [savingWorkingHours, setSavingWorkingHours] = useState(false);
+  const [lastAutoAdvanceAt, setLastAutoAdvanceAt] = useState<Date | null>(null);
+  const [autoAdvanceFailed, setAutoAdvanceFailed] = useState(false);
 
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [routingRows, setRoutingRows] = useState<PmsRouting[]>([]);
@@ -269,6 +276,13 @@ export default function PmsPage() {
   }>({ open: false, tab: "routing", text: "", loading: false, preview: [] });
 
   const [showInactiveMachines, setShowInactiveMachines] = useState(true);
+
+  // Skills tab state — must stay ABOVE every early return (Rules of Hooks)
+  const [selectedSkillMachine, setSelectedSkillMachine] = useState<string>("");
+  const [selectedSkillPerson, setSelectedSkillPerson] = useState<string>("");
+  const [copyToMachine, setCopyToMachine] = useState<string>("");
+  const [skillSearch, setSkillSearch] = useState<string>("");
+  const [viewFilter, setViewFilter] = useState<string>("all");
 
   useEffect(() => {
     const unsubProducts = onSnapshot(collection(db, "products"), (snap) => {
@@ -519,8 +533,18 @@ export default function PmsPage() {
             );
           const groupKey = toGroupKey(order.id, match?.id);
           const jobBucket = getJobBucket(groupKey);
-          const status = jobBucket.inProgress?.status || jobBucket.nextJob?.status || "WAITING";
-          const currentProcess = jobBucket.inProgress?.process || jobBucket.nextJob?.process || "Not scheduled";
+          const allJobsDoneForGroup =
+            jobBucket.sorted.length > 0 &&
+            jobBucket.sorted.every((job) => normalizeJobStatus(job.status) === "DONE");
+          const status = normalizeJobStatus(
+            jobBucket.inProgress?.status ||
+              jobBucket.nextJob?.status ||
+              (allJobsDoneForGroup ? "DONE" : "WAITING")
+          );
+          const currentProcess =
+            jobBucket.inProgress?.process ||
+            jobBucket.nextJob?.process ||
+            (allJobsDoneForGroup ? "Completed" : "Not scheduled");
           const stepNo = jobBucket.inProgress?.stepNo ?? jobBucket.nextJob?.stepNo;
           const plannedStart = jobBucket.nextPlan?.plannedStart;
           const plannedEnd = jobBucket.nextPlan?.plannedEnd;
@@ -536,7 +560,7 @@ export default function PmsPage() {
             ? jobs.some((job) => job.orderId === order.id && job.productId === match.id)
             : false;
           const waitingJob =
-            jobBucket.nextJob?.status === "WAITING" ? jobBucket.nextJob : undefined;
+            normalizeJobStatus(jobBucket.nextJob?.status) === "WAITING" ? jobBucket.nextJob : undefined;
           const prevJob =
             waitingJob && waitingJob.stepNo !== undefined
               ? jobBucket.sorted.find((job) => job.stepNo === waitingJob.stepNo! - 1)
@@ -633,7 +657,6 @@ export default function PmsPage() {
     const vasEligibleOrders = orders.filter(
       (order) => ((order.sections as any)?.VAS?.items?.length || 0) > 0
     );
-    const completedOrders = vasEligibleOrders.filter((order) => isOrderClosedForPms(order)).length;
 
     const orderRowsMap = new Map<
       string,
@@ -674,11 +697,11 @@ export default function PmsPage() {
       const hasWaiting = statuses.includes("WAITING");
       const allDone = statuses.length > 0 && statuses.every((status) => status === "DONE");
 
-      let bucket: "Pending" | "Machine Running" | "Qc Pending" | "Dispatch ready" = "Pending";
-      if (hasInProgress) bucket = "Machine Running";
+      let bucket: "Pending" | "Machine Running" | "Qc Pending" | "Dispatch ready" | "Completed" = "Pending";
+      if (allDone) bucket = "Completed";
+      else if (hasInProgress) bucket = "Machine Running";
       else if (hasPlanned) bucket = "Qc Pending";
       else if (hasWaiting) bucket = "Pending";
-      else if (allDone) bucket = "Dispatch ready";
 
       return {
         ...entry,
@@ -693,9 +716,10 @@ export default function PmsPage() {
         if (row.bucket === "Machine Running") acc.machineRunning += 1;
         if (row.bucket === "Qc Pending") acc.qcPending += 1;
         if (row.bucket === "Dispatch ready") acc.dispatchReady += 1;
+        if (row.bucket === "Completed") acc.completed += 1;
         return acc;
       },
-      { pending: 0, machineRunning: 0, qcPending: 0, dispatchReady: 0 }
+      { pending: 0, machineRunning: 0, qcPending: 0, dispatchReady: 0, completed: 0 }
     );
 
     const bucketRank: Record<string, number> = {
@@ -703,6 +727,7 @@ export default function PmsPage() {
       "Qc Pending": 1,
       Pending: 2,
       "Dispatch ready": 3,
+      Completed: 4,
     };
 
     rows.sort((a, b) => {
@@ -720,11 +745,11 @@ export default function PmsPage() {
         { key: "machineRunning", label: "Machine Running", value: counts.machineRunning },
         { key: "qcPending", label: "Qc Pending", value: counts.qcPending },
         { key: "dispatchReady", label: "Dispatch ready", value: counts.dispatchReady },
-        { key: "completed", label: "Completed", value: completedOrders },
+        { key: "completed", label: "Completed", value: counts.completed },
       ],
       rows,
     };
-  }, [orders, liveVasRowsAll, isOrderClosedForPms]);
+  }, [orders, liveVasRowsAll]);
 
   const resolveVasInfo = useCallback((order?: Order, productName?: string) => {
     const items = (order?.sections as any)?.VAS?.items || [];
@@ -860,13 +885,13 @@ export default function PmsPage() {
       .map(([groupKey, groupJobs]) => {
         if (!groupJobs.length) return null;
         const sortedJobs = [...groupJobs].sort((a, b) => (a.stepNo || 0) - (b.stepNo || 0));
-        const hasActive = sortedJobs.some((job) => job.status !== "DONE");
+        const hasActive = sortedJobs.some((job) => normalizeJobStatus(job.status) !== "DONE");
         if (!hasActive) return null;
 
         const currentJob =
-          sortedJobs.find((job) => job.status === "IN_PROGRESS") ||
-          sortedJobs.find((job) => job.status === "PLANNED") ||
-          sortedJobs.find((job) => job.status === "WAITING") ||
+          sortedJobs.find((job) => normalizeJobStatus(job.status) === "IN_PROGRESS") ||
+          sortedJobs.find((job) => normalizeJobStatus(job.status) === "PLANNED") ||
+          sortedJobs.find((job) => normalizeJobStatus(job.status) === "WAITING") ||
           sortedJobs[0];
 
         if (!currentJob) return null;
@@ -987,7 +1012,7 @@ export default function PmsPage() {
           person,
           plannedStart: currentPlan?.plannedStart ?? currentJob.plannedStart,
           plannedEnd: currentPlan?.plannedEnd ?? currentJob.plannedEnd,
-          status: currentJob.status || "WAITING",
+          status: normalizeJobStatus(currentJob.status) || "WAITING",
           routingSteps,
           currentStepNo,
           isFinalStep,
@@ -1098,7 +1123,7 @@ export default function PmsPage() {
     });
 
     const rows = jobs
-      .filter((job) => job.status !== "DONE")
+      .filter((job) => normalizeJobStatus(job.status) !== "DONE")
       .map((job) => {
         const order = ordersById.get(job.orderId);
         if (!isOrderInvoiced(order) || isOrderClosedForPms(order)) return null;
@@ -1277,8 +1302,11 @@ export default function PmsPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
         });
+        setLastAutoAdvanceAt(new Date());
+        setAutoAdvanceFailed(false);
       } catch (error) {
         console.error("PMS auto-advance failed:", error);
+        setAutoAdvanceFailed(true);
       } finally {
         autoAdvanceRef.current = false;
       }
@@ -2281,14 +2309,7 @@ export default function PmsPage() {
     toast({ title: `✓ Exported ${filename}` });
   };
 
-  // Add these state variables near the top
-const [selectedSkillMachine, setSelectedSkillMachine] = useState<string>("");
-const [selectedSkillPerson, setSelectedSkillPerson] = useState<string>("");
-const [copyToMachine, setCopyToMachine] = useState<string>("");
-const [skillSearch, setSkillSearch] = useState<string>("");
-const [viewFilter, setViewFilter] = useState<string>("all");
-
-// Helper functions
+  // Helper functions
 const getSelectedSkillCount = () => {
   if (!selectedSkillMachine || !selectedSkillPerson) return 0;
   return categories.filter(cat =>
@@ -2371,17 +2392,16 @@ const getGroupedSkills = () => {
       person?.role?.toLowerCase().includes(searchLower)
     );
   });
-    // after `filtered` is computed
+  // after `filtered` is computed — apply active-machine filter if selected
   const filteredFinal =
     viewFilter === "active"
       ? filtered.filter(({ machineId }) => machines.find(m => m.id === machineId)?.active !== false)
       : filtered;
 
-
   // Group based on view filter
   if (viewFilter === "machine") {
     const grouped = new Map<string, typeof pairs>();
-    filtered.forEach(pair => {
+    filteredFinal.forEach(pair => {
       const key = pair.machineId;
       if (!grouped.has(key)) grouped.set(key, []);
       grouped.get(key)!.push(pair);
@@ -2395,7 +2415,7 @@ const getGroupedSkills = () => {
 
   if (viewFilter === "person") {
     const grouped = new Map<string, typeof pairs>();
-    filtered.forEach(pair => {
+    filteredFinal.forEach(pair => {
       const key = pair.personId;
       if (!grouped.has(key)) grouped.set(key, []);
       grouped.get(key)!.push(pair);
@@ -2407,7 +2427,7 @@ const getGroupedSkills = () => {
     }));
   }
 
-  return [{ header: null, items: filtered }];
+  return [{ header: null, items: filteredFinal }];
 };
 
 
@@ -2498,6 +2518,23 @@ const getGroupedSkills = () => {
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* Engine heartbeat */}
+          <div className="flex items-center gap-2 border-t border-white/10 pt-2 text-[10px] text-slate-500">
+            <span className={cn(
+              "h-1.5 w-1.5 rounded-full flex-shrink-0",
+              autoAdvanceFailed ? "bg-red-500 animate-pulse" : lastAutoAdvanceAt ? "bg-emerald-500" : "bg-slate-600"
+            )} />
+            <span>
+              Auto-advance engine:{" "}
+              {autoAdvanceFailed
+                ? <span className="text-red-400 font-medium">last run failed</span>
+                : lastAutoAdvanceAt
+                  ? <span className="text-slate-400">last ran {lastAutoAdvanceAt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+                  : <span className="text-slate-600">starting…</span>}
+              {" · "}polls every {AUTO_ADVANCE_POLL_MS / 1000}s
+            </span>
           </div>
 
           {/* Working Hours collapsible */}
@@ -2650,7 +2687,8 @@ const getGroupedSkills = () => {
                         <TableHead className="text-[11px] uppercase tracking-wide">Machine</TableHead>
                         <TableHead className="text-[11px] uppercase tracking-wide">Person</TableHead>
                         <TableHead className="text-[11px] uppercase tracking-wide">Planned Start</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">ETA</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">ETA / Queue</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">Last Update</TableHead>
                         <TableHead className="text-[11px] uppercase tracking-wide">Reason</TableHead>
                         <TableHead className="text-[11px] uppercase tracking-wide text-right pr-4">Actions</TableHead>
                       </TableRow>
@@ -2658,7 +2696,7 @@ const getGroupedSkills = () => {
                     <TableBody>
                       {liveVasRowsFiltered.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={14} className="h-28 text-center">
+                          <TableCell colSpan={15} className="h-28 text-center">
                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
                               <Activity className="h-8 w-8 opacity-30" />
                               <p className="text-sm font-medium">No VAS items match this filter</p>
@@ -2749,8 +2787,20 @@ const getGroupedSkills = () => {
                               <TableCell className="text-xs tabular-nums text-muted-foreground whitespace-nowrap">
                                 {formatDateTime(row.plannedStart)}
                               </TableCell>
+                              <TableCell className="text-xs tabular-nums whitespace-nowrap">
+                                <div className="space-y-0.5">
+                                  <div className={row.eta ? "text-muted-foreground" : "text-muted-foreground/40"}>
+                                    {formatDateTime(row.eta) || "—"}
+                                  </div>
+                                  {row.status === "PLANNED" && row.plannedStart && (
+                                    <div className="text-[10px] font-medium text-amber-600">
+                                      {getQueueDelayLabel(row.plannedStart)}
+                                    </div>
+                                  )}
+                                </div>
+                              </TableCell>
                               <TableCell className="text-xs tabular-nums text-muted-foreground whitespace-nowrap">
-                                {formatDateTime(row.eta)}
+                                {formatDateTime(row.lastUpdate) || "—"}
                               </TableCell>
                               <TableCell className="text-xs max-w-[120px]">
                                 {row.noPlanReason ? (

@@ -18,6 +18,7 @@ import { firestore } from 'firebase-admin';
 import { VisitFormValues } from '@/components/features/customer/VisitForm';
 import { CpdFormValues } from '@/components/features/customer/CpdForm';
 import { getNextSequenceValue } from '@/lib/id-sequence';
+import { upsertVasStockItemsAction } from '@/app/dashboard/inventory/actions';
 
 
 // This function sends an SMS using the Fast2SMS API.
@@ -338,6 +339,22 @@ export async function createQuotationAction(customerId: string, dealId: string, 
 
     if (!quotationNo) {
       throw new Error("Unable to allocate a unique quotation number.");
+    }
+
+    const vasRowsForStock = (Array.isArray(values?.vasDetails) ? values.vasDetails : [])
+      .map((vas: any) => ({
+        vasName: String(vas?.vasName || "").trim(),
+        rate: Number(vas?.rate) || 0,
+        gstPercent: Number(vas?.gstPercent) || 0,
+        hsnCode: String(vas?.hsnCode || "").trim() || undefined,
+      }))
+      .filter((vas) => vas.vasName);
+
+    if (vasRowsForStock.length > 0) {
+      const syncResult = await upsertVasStockItemsAction(vasRowsForStock);
+      if (!syncResult.success) {
+        throw new Error(syncResult.message || "Failed to sync VAS stock catalog.");
+      }
     }
 
     const newQuotation: Quotation = {

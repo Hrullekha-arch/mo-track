@@ -92,6 +92,21 @@ interface DashboardOrderRow {
   risk: DashboardOrderRisk;
 }
 
+interface DashboardPrItemStatus {
+  fabricName: string;
+  poNumber?: string;
+  expectedDeliveryDate?: string;
+  received: boolean;
+  receivedLocation?: string;
+}
+
+interface DashboardOrderFabricSummary {
+  totalFabricCount: number;
+  inStockFabricCount: number;
+  prFabricCount: number;
+  prItems: DashboardPrItemStatus[];
+}
+
 const normalizeText = (value?: string) => String(value || "").trim().toLowerCase();
 
 const toDateSafe = (value: unknown): Date | null => {
@@ -159,6 +174,37 @@ const riskLabelMap: Record<DashboardOrderRisk, string> = {
   critical: "Critical",
   watch: "Watch",
   stable: "Stable",
+};
+
+const isInStockFabricStatus = (status?: string) => {
+  const normalizedStatus = normalizeText(status);
+  return normalizedStatus === "in stock" || normalizedStatus === "allocated";
+};
+
+const isPrFabricStatus = (status?: string) => {
+  const normalizedStatus = normalizeText(status);
+  return normalizedStatus === "pending for po" || normalizedStatus === "po generated";
+};
+
+const formatFabricDate = (value?: string) => {
+  const dateValue = toDateSafe(value);
+  return dateValue ? format(dateValue, "dd MMM yyyy") : "";
+};
+
+const isPurchaseRequestForOrder = (request: any, order: Order) => {
+  const requestDealId = String(request?.dealId || "").trim();
+  const requestOrderId = String(request?.orderSnapshot?.id || request?.dealSnapshot?.orderId || "").trim();
+  const requestCrmOrderNo = String(
+    request?.orderSnapshot?.crmOrderNo || request?.dealSnapshot?.crmOrderNo || ""
+  ).trim();
+
+  const orderDealId = String(order?.dealId || "").trim();
+  const orderCrmOrderNo = String(order?.crmOrderNo || "").trim();
+
+  if (requestOrderId && requestOrderId === order.id) return true;
+  if (requestCrmOrderNo && requestCrmOrderNo === orderCrmOrderNo) return true;
+  if (requestDealId && (requestDealId === orderCrmOrderNo || requestDealId === orderDealId)) return true;
+  return false;
 };
 
 
@@ -606,6 +652,127 @@ const  SalesmanDashboardV2 =() => {
     );
   }, [activeOrderRows, orderSearch]);
 
+  const orderFabricSummaryMap = useMemo(() => {
+    const summaryMap = new Map<string, DashboardOrderFabricSummary>();
+
+    (orders as Order[]).forEach((order) => {
+      const fabrics = Array.isArray(order.fabricDetails) ? order.fabricDetails : [];
+      const relatedRequests = purchaseRequests.filter((request) => isPurchaseRequestForOrder(request, order));
+
+      const findRequestLine = (fabricName?: string, itemCode?: string) => {
+        const normalizedFabricName = normalizeText(fabricName);
+        const normalizedItemCode = normalizeText(itemCode);
+
+        for (const request of relatedRequests) {
+          const requestLines = Array.isArray(request?.fabricDetails) ? request.fabricDetails : [];
+          for (const line of requestLines) {
+            const sameFabricName =
+              normalizedFabricName && normalizeText(line?.fabricName) === normalizedFabricName;
+            const sameItemCode = normalizedItemCode && normalizeText(line?.itemCode) === normalizedItemCode;
+            if (sameFabricName || sameItemCode) return { request, line };
+          }
+        }
+        return null;
+      };
+
+      const resolveAllocationLocation = (fabricName?: string, itemCode?: string) => {
+        const normalizedFabricName = normalizeText(fabricName);
+        const normalizedItemCode = normalizeText(itemCode);
+        const normalItems = Array.isArray(order?.sections?.NORMAL?.items) ? order.sections.NORMAL.items : [];
+
+        const matchedItem = normalItems.find((item: any) => {
+          const normalizedBcn = normalizeText(item?.bcn);
+          const normalizedDescription = normalizeText(item?.description || item?.itemName);
+          return (
+            (normalizedItemCode && normalizedBcn === normalizedItemCode) ||
+            normalizedBcn === normalizedFabricName ||
+            normalizedDescription === normalizedFabricName
+          );
+        });
+
+        if (!matchedItem) return "";
+
+        const lengths = Array.isArray(matchedItem?.allocation?.lengths) ? matchedItem.allocation.lengths : [];
+        const lots = Array.isArray(matchedItem?.allocation?.lots) ? matchedItem.allocation.lots : [];
+        const locationLabels = [...lengths, ...lots]
+          .map((entry: any) => String(entry?.rack || entry?.warehouseId || "").trim())
+          .filter(Boolean);
+
+        return Array.from(new Set(locationLabels)).join(", ");
+      };
+
+      const inStockFabricCount = fabrics.filter((fabric) => isInStockFabricStatus(fabric.status)).length;
+
+      const prItems: DashboardPrItemStatus[] = fabrics
+        .filter((fabric) => isPrFabricStatus(fabric.status))
+        .map((fabric) => {
+          const matched = findRequestLine(fabric.fabricName, fabric.itemCode);
+          const matchedRequest = matched?.request;
+          const matchedLine = matched?.line;
+
+          const poNumber = String(fabric.poNumber || matchedLine?.poNumber || "").trim() || undefined;
+          const expectedDeliveryDate =
+            String(
+              fabric.expectedDeliveryDate ||
+                matchedLine?.expectedDeliveryDate ||
+                matchedRequest?.poDeliveryDate ||
+                matchedRequest?.promiseDeliveryDate ||
+                ""
+            ).trim() || undefined;
+
+          const poMilestones = Array.isArray(matchedRequest?.poMilestones) ? matchedRequest.poMilestones : [];
+          const receivedFromPoMilestone = poMilestones.some((milestone: any) => {
+            if (Number(milestone?.stepId) !== 3) return false;
+            if (normalizeText(milestone?.status) !== "completed") return false;
+            const milestoneItemName = normalizeText(milestone?.itemName);
+            return !milestoneItemName || milestoneItemName === normalizeText(fabric.fabricName);
+          });
+
+          const received =
+            isInStockFabricStatus(fabric.status) ||
+            Number(matchedLine?.receivedQty || 0) > 0 ||
+            normalizeText(matchedRequest?.status) === "completed" ||
+            receivedFromPoMilestone;
+
+          const allocatedLocation = resolveAllocationLocation(fabric.fabricName, fabric.itemCode);
+          const receivedLocation = received
+            ? String(matchedLine?.rack || matchedLine?.warehouseId || "").trim() || allocatedLocation || "Inventory"
+            : undefined;
+
+          return {
+            fabricName: fabric.fabricName || "Fabric",
+            poNumber,
+            expectedDeliveryDate,
+            received,
+            receivedLocation,
+          };
+        });
+
+      summaryMap.set(order.id, {
+        totalFabricCount: fabrics.length,
+        inStockFabricCount,
+        prFabricCount: prItems.length,
+        prItems,
+      });
+    });
+
+    return summaryMap;
+  }, [orders, purchaseRequests]);
+
+  const getOrderFabricSummary = useCallback(
+    (order: Order): DashboardOrderFabricSummary => {
+      return (
+        orderFabricSummaryMap.get(order.id) || {
+          totalFabricCount: Array.isArray(order.fabricDetails) ? order.fabricDetails.length : 0,
+          inStockFabricCount: 0,
+          prFabricCount: 0,
+          prItems: [],
+        }
+      );
+    },
+    [orderFabricSummaryMap]
+  );
+
   const filteredLeads = useMemo(() => {
     const q = leadSearch.trim().toLowerCase();
     if (!q) return walkinLeads;
@@ -623,6 +790,8 @@ const  SalesmanDashboardV2 =() => {
   // ── Return dialog type colors ──
   const rtColor = returnTypeColor(returnCustomerType);
   const RtIcon = returnTypeIcon(returnCustomerType);
+
+  console.log("Rendering dashboard with orders:", filteredOrderRows, "and walk-in leads:", walkinLeads);
 
   return (
     <>
@@ -770,7 +939,9 @@ const  SalesmanDashboardV2 =() => {
                   {loading ? (
                     [...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-2xl" />)
                   ) : filteredOrderRows.length ? (
-                    filteredOrderRows.map((row) => (
+                    filteredOrderRows.map((row) => {
+                      const fabricSummary = getOrderFabricSummary(row.order);
+                      return (
                       <div key={row.order.id} className={`rounded-2xl border p-4 ${riskContainerClassMap[row.risk]}`}>
                         <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
                           <div>
@@ -790,13 +961,53 @@ const  SalesmanDashboardV2 =() => {
                           <span>Next: <span className="font-semibold text-slate-800">{row.nextStep}</span></span>
                           <span>Age: <span className="font-semibold text-slate-800">{row.ageDays}d</span></span>
                         </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 mb-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-3 gap-y-1">
+                            <p className="text-xs text-slate-500">
+                              Total Fabric Count: <span className="font-semibold text-slate-800">{fabricSummary.totalFabricCount}</span>
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              In Stock: <span className="font-semibold text-emerald-700">{fabricSummary.inStockFabricCount}</span>
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              For PR: <span className="font-semibold text-amber-700">{fabricSummary.prFabricCount}</span>
+                            </p>
+                          </div>
+                          {fabricSummary.prItems.length > 0 ? (
+                            <div className="mt-2 space-y-1">
+                              {fabricSummary.prItems.slice(0, 3).map((item, index) => {
+                                const expectedDateLabel = formatFabricDate(item.expectedDeliveryDate);
+                                return (
+                                  <p key={`${row.order.id}-${item.fabricName}-${index}`} className="text-[11px] text-slate-500 leading-relaxed">
+                                    <span className="font-medium text-slate-700">{item.fabricName}</span>:{" "}
+                                    {item.received
+                                      ? `Received at ${item.receivedLocation || "Inventory"}`
+                                      : expectedDateLabel
+                                        ? `Expected by ${expectedDateLabel}`
+                                        : item.poNumber
+                                          ? `PR ${item.poNumber} in process`
+                                          : "PR pending"}
+                                  </p>
+                                );
+                              })}
+                              {fabricSummary.prItems.length > 3 && (
+                                <p className="text-[11px] text-slate-400">
+                                  +{fabricSummary.prItems.length - 3} more PR item(s)
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-slate-400 mt-2">No fabrics waiting on PR.</p>
+                          )}
+                        </div>
                         <div className="flex justify-end">
                           <Button asChild size="sm" variant="outline" className="rounded-xl h-7 text-xs border-slate-200">
                             <Link href={`/dashboard/orders/${row.order.id}`}>Open Order</Link>
                           </Button>
                         </div>
                       </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
                       <CheckCircle2 className="h-8 w-8 opacity-30" />
