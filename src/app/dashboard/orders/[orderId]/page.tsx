@@ -561,7 +561,12 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             {/* Required Qty */}
             <TableCell>{(item as any).quantity} {unit}</TableCell>
 
-            {/* IMS Stock ✅ fixed — no more onLoad */}
+             {/* crm inventory Stock    */}
+            <TableCell>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (stockInfo?.availableQty?.toFixed(2) ?? 'N/A')}
+            </TableCell>
+
+            {/* IMS Stock Cell */}
                 <TableCell>
                     {imsSearching ? (
                         <div className="flex items-center gap-1.5">
