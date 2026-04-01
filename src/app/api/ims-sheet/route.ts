@@ -79,8 +79,8 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    //const todayHeader = formatDateForSheetHeader(new Date());
-    const todayHeader = "28/03/2026";
+    const todayHeader = formatDateForSheetHeader(new Date());
+    //const todayHeader = "28/03/2026";
     const headerRow = rows[0] ?? [];
     const dateColumnIndex = headerRow.findIndex(
       (column) => String(column ?? "").trim() === todayHeader
