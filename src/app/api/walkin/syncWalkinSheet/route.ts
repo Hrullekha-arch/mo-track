@@ -406,6 +406,9 @@ export async function POST() {
       const acknowledged = toBoolean(acknowledgedStatus.status);
       const dealCreatedYesNo = computeDealCreatedYesNo(walkin);
       const cashsaleYesNo = computeCashsaleYesNo(walkin);
+      const hasInstantSaleDetails =
+        toBoolean(cashsale.created) ||
+        !!pickFirst(cashsale.OrderId, cashsale.orderId, cashsale.orderID, cashsale.dealId, walkin.saleFlowType);
       const rowByHeader: Record<string, string> = {
         Timestamp: formatTimestamp(walkin.createdAt),
         "Full Name": fullName,
@@ -475,9 +478,9 @@ export async function POST() {
         "Deal Snapshot Advance Received": pickFirst(dealSnapshot.advanceReceived),
         "Deal Snapshot Measurement Required": pickFirst(dealSnapshot.measurementRequired),
         "Deal Snapshot Created At": formatTimestampIfAny(dealSnapshot.createdAt),
-        "Cashsale Created": formatYesNo(cashsale.created),
-        "Cashsale Deal Type": pickFirst(cashsale.dealType),
-        "Cashsale Type": pickFirst(cashsale.type),
+        "Cashsale Created": formatYesNo(hasInstantSaleDetails),
+        "Cashsale Deal Type": pickFirst(cashsale.dealType, walkin.saleFlowType),
+        "Cashsale Type": pickFirst(cashsale.type, hasInstantSaleDetails ? "INSTANT" : ""),
         "Cashsale Status": pickFirst(cashsale.status),
         "Cashsale Created At": formatTimestampIfAny(cashsale.createdAt),
         "Cashsale Deal ID": pickFirst(cashsale.dealId),

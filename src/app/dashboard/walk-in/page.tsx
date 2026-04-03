@@ -119,6 +119,39 @@ function LeadTypeBadge({ type }: { type?: string }) {
   );
 }
 
+const getInstantSaleMeta = (customer: Walkin_Customer | Record<string, any>) => {
+  const record = customer as any;
+  const cashsale = (record?.cashsale || {}) as Record<string, any>;
+  const rawType = String(cashsale?.dealType || record?.saleFlowType || '').trim().toLowerCase();
+  const hasInstantSale = Boolean(
+    cashsale?.created ||
+      cashsale?.OrderId ||
+      cashsale?.orderId ||
+      cashsale?.orderID ||
+      rawType
+  );
+  if (!hasInstantSale) return null;
+
+  if (rawType.includes('walkin')) {
+    return { label: 'Walkin Sale', className: 'bg-blue-50 text-blue-700 border-blue-200' };
+  }
+  if (rawType.includes('cash')) {
+    return { label: 'Cashsale', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+  }
+  return { label: 'Instant Sale', className: 'bg-indigo-50 text-indigo-700 border-indigo-200' };
+};
+
+function InstantSaleBadge({ customer }: { customer: Walkin_Customer }) {
+  const saleMeta = getInstantSaleMeta(customer);
+  if (!saleMeta) return null;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${saleMeta.className}`}>
+      <Receipt className="h-2.5 w-2.5" />
+      {saleMeta.label}
+    </span>
+  );
+}
+
 // ─── Sheet helpers ────────────────────────────────────────────────────────────
 function SheetSection({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -261,7 +294,12 @@ function EditCustomerDialog({
     const c = customer as any;
     const ds = (c.dealSnapshot || {}) as Record<string, any>;
     const cashsale = (c.cashsale || {}) as Record<string, any>;
-    const hasInstantSale = Boolean(cashsale?.created || cashsale?.type === "INSTANT" || cashsale?.OrderId);
+    const hasInstantSale = Boolean(
+      cashsale?.created ||
+      cashsale?.type === "INSTANT" ||
+      cashsale?.OrderId ||
+      String(c.saleFlowType || "").trim()
+    );
     setFirstName(c.firstName || "");
     setFamilyName(c.familyName || "");
     setMobile(c.mobile || "");
@@ -370,6 +408,13 @@ function EditCustomerDialog({
           const orderAmount = Number(instantOrderAmount) || 0;
           const invoiceNo = instantInvoiceNo.trim();
           const existingCashsaleCreatedAt = String((customer as any)?.cashsale?.createdAt || "").trim();
+          const existingDealType = String(
+            (customer as any)?.cashsale?.dealType || (customer as any)?.saleFlowType || ""
+          )
+            .trim()
+            .toLowerCase();
+          const normalizedDealType = existingDealType.includes("walkin") ? "WALKIN-SALE" : "CASHSALE";
+          const saleFlowType = normalizedDealType === "WALKIN-SALE" ? "walkin-sale" : "cashsale";
           patch.cashsale = {
             created: true,
             OrderId: orderId,
@@ -379,14 +424,17 @@ function EditCustomerDialog({
             crmOrderNo: orderId,
             invoiceNo,
             totalOrderAmount: orderAmount,
-            dealType: "CASHSALE",
+            dealType: normalizedDealType,
             status: "PURCHASED",
             type: "INSTANT",
+            saleChannel: saleFlowType,
             updatedAt: nowIso,
             createdAt: existingCashsaleCreatedAt || nowIso,
           };
           patch.latestOrderId = orderId;
           patch.invoiceNo = invoiceNo;
+          patch.saleFlowType = saleFlowType;
+          patch.saleFlowSource = "walkin";
         }
       }
       if (isPayment) {
@@ -958,6 +1006,7 @@ export default function WalkinDataPage() {
                         <StatusBadge status={c.status} />
                         {/* ── New / Returning chip ── */}
                         <CustomerTypeBadge type={(c as any).customerType} />
+                        <InstantSaleBadge customer={c} />
                         {(c as any).leadType && <LeadTypeBadge type={(c as any).leadType} />}
                       </div>
                     </div>
@@ -973,6 +1022,7 @@ export default function WalkinDataPage() {
                 <SheetRow label="Customer Type" value={
                   <CustomerTypeBadge type={(c as any).customerType} />
                 } />
+                <SheetRow label="Sale Flow" value={getInstantSaleMeta(c)?.label || "â€”"} />
                 <SheetRow label="Looking For" value={fmtLooking((c as any).lookingFor)} />
                 <SheetRow label="Created" value={(c as any).createdAt ? format(new Date((c as any).createdAt), "dd MMM yyyy, hh:mm a") : "—"} />
               </SheetSection>
@@ -1020,9 +1070,9 @@ export default function WalkinDataPage() {
                 </SheetSection>
               )}
 
-              {/* Cash sale */}
+              {/* Cash sale / instant sale */}
               {(c as any).cashsale && (
-                <SheetSection icon={<Receipt className="h-3.5 w-3.5" />} title="Order / Cash Sale">
+                <SheetSection icon={<Receipt className="h-3.5 w-3.5" />} title="Order / Instant Sale">
                   <SheetRow label="Order ID"  value={<span className="font-mono text-xs">{(c as any).cashsale.OrderId}</span>} />
                   {(c as any).cashsale.dealId && (
                     <SheetRow label="Deal No" value={<span className="font-mono text-xs">{(c as any).cashsale.dealId}</span>} />
@@ -1033,6 +1083,7 @@ export default function WalkinDataPage() {
                   {Number((c as any).cashsale.totalOrderAmount) > 0 && (
                     <SheetRow label="Order Amount" value={`₹${Number((c as any).cashsale.totalOrderAmount).toLocaleString("en-IN")}`} />
                   )}
+                  <SheetRow label="Sale Flow" value={getInstantSaleMeta(c)?.label || "â€”"} />
                   <SheetRow label="Deal Type" value={(c as any).cashsale.dealType} />
                   <SheetRow label="Sale Type" value={(c as any).cashsale.type} />
                   <SheetRow label="Status"    value={(c as any).cashsale.status} />
@@ -1133,6 +1184,9 @@ export default function WalkinDataPage() {
                         <div>
                           <div className="font-semibold text-stone-800 text-[13px] leading-tight">{(c as any).firstName} {(c as any).familyName}</div>
                           <div className="text-[10px] font-mono text-stone-400">{(c as any).walkinId || c.id?.slice(0, 8)}</div>
+                          <div className="mt-1">
+                            <InstantSaleBadge customer={c} />
+                          </div>
                         </div>
                       </div>
                     </TableCell>

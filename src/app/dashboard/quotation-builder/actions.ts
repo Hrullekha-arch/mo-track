@@ -747,89 +747,120 @@ export async function createInstantQuotationOrderAction(
       expectedValue,
     });
 
-    if (isCashsale) {
-      try {
-        const resolvedOrderNo = String(
-          (createdOrder as any)?.orderNo ||
-          (createdOrder as any)?.crmOrderNo ||
-          (createdOrder as any)?.id ||
-          ''
+    try {
+      const resolvedOrderNo = String(
+        (createdOrder as any)?.orderNo ||
+        (createdOrder as any)?.crmOrderNo ||
+        (createdOrder as any)?.id ||
+        ''
+      ).trim();
+      const resolvedCrmOrderNo = String((createdOrder as any)?.crmOrderNo || '').trim();
+      const resolvedTotalOrderAmount = Math.max(
+        0,
+        toNumber(
+          (createdOrder as any)?.totalAmount ??
+            (createdOrder as any)?.overallSummary?.grandTotal ??
+            expectedValue
+        )
+      );
+      const instantSaleKind = isCashsale ? 'cashsale' : 'walkin-sale';
+      const instantSaleDealType = isCashsale ? 'CASHSALE' : 'WALKIN-SALE';
+
+      let walkinRef = normalizedLeadId
+        ? adminDb.collection('Walkin_Customer').doc(normalizedLeadId)
+        : null;
+      let walkinSnap = walkinRef ? await walkinRef.get() : null;
+
+      const tryResolveByField = async (field: string, value: string) => {
+        if (walkinRef && walkinSnap?.exists) return;
+        if (!value.trim()) return;
+        const walkinQuery = await adminDb
+          .collection('Walkin_Customer')
+          .where(field, '==', value)
+          .limit(1)
+          .get();
+        if (!walkinQuery.empty) {
+          walkinRef = walkinQuery.docs[0].ref;
+          walkinSnap = walkinQuery.docs[0];
+        }
+      };
+
+      await tryResolveByField('mobile', customerMobile);
+      const customerMobileNormalized = normalizePhone(customerMobile);
+      await tryResolveByField('mobileNormalized', customerMobileNormalized);
+      const customerMobileLast10 =
+        customerMobileNormalized.length >= 10
+          ? customerMobileNormalized.slice(-10)
+          : customerMobileNormalized;
+      await tryResolveByField('mobileLast10', customerMobileLast10);
+
+      if (walkinRef && walkinSnap?.exists) {
+        const walkinData = (walkinSnap.data() || {}) as Record<string, any>;
+        const existingCashsale = (walkinData?.cashsale || {}) as Record<string, any>;
+        const walkinCreatedAt =
+          typeof walkinData?.createdAt === 'string' && walkinData.createdAt.trim()
+            ? walkinData.createdAt
+            : nowIso;
+        const cashsaleCreatedAt =
+          typeof existingCashsale?.createdAt === 'string' && existingCashsale.createdAt.trim()
+            ? existingCashsale.createdAt
+            : walkinCreatedAt;
+        const resolvedInvoiceNo = String(
+          normalizedInvoiceNo || existingCashsale?.invoiceNo || walkinData?.invoiceNo || ''
         ).trim();
-        const resolvedCrmOrderNo = String((createdOrder as any)?.crmOrderNo || '').trim();
-        const resolvedTotalOrderAmount = Math.max(
-          0,
-          toNumber(
-            (createdOrder as any)?.totalAmount ??
-              (createdOrder as any)?.overallSummary?.grandTotal ??
-              expectedValue
-          )
+        const normalizedLeadStatus = String(walkinData?.status || '').trim().toLowerCase();
+        const nextLeadStatus =
+          normalizedLeadStatus === 'completed' || normalizedLeadStatus === 'went-back'
+            ? String(walkinData?.status || '')
+            : 'Deal Created';
+
+        const cashsaleUpdate = {
+          ...existingCashsale,
+          created: true,
+          OrderId: createdOrder.id,
+          orderId: createdOrder.id,
+          orderID: createdOrder.id,
+          dealId: String((createdOrder as any)?.dealId || dealDocId || '').trim(),
+          orderNo: resolvedOrderNo || createdOrder.id,
+          orderNumber: resolvedOrderNo || createdOrder.id,
+          crmOrderNo: resolvedCrmOrderNo || '',
+          invoiceNo: resolvedInvoiceNo,
+          totalOrderAmount: resolvedTotalOrderAmount,
+          dealType: instantSaleDealType,
+          status: resolvedInvoiceNo ? 'INVOICED' : 'PURCHASED',
+          type: 'INSTANT',
+          saleChannel: instantSaleKind,
+          updatedAt: nowIso,
+          createdAt: cashsaleCreatedAt,
+        };
+
+        const latestDealId = String(
+          (createdOrder as any)?.dealId || dealDocId || walkinData?.latestDealId || ''
+        ).trim();
+
+        await walkinRef.set(
+          {
+            cashsale: cashsaleUpdate,
+            status: nextLeadStatus || 'Deal Created',
+            inquiryStatus: String(walkinData?.inquiryStatus || 'Inquery made').trim() || 'Inquery made',
+            latestDealId,
+            latestDealDocId: String(walkinData?.latestDealDocId || dealDocId || latestDealId).trim(),
+            latestOrderId: createdOrder.id,
+            invoiceNo: resolvedInvoiceNo,
+            action: `instant-sale:${instantSaleKind}`,
+            saleFlowType: instantSaleKind,
+            saleFlowSource: 'walkin',
+            lastUpdatedAt: nowIso,
+          },
+          { merge: true }
         );
-
-        let walkinRef = normalizedLeadId
-          ? adminDb.collection('Walkin_Customer').doc(normalizedLeadId)
-          : null;
-        let walkinSnap = walkinRef ? await walkinRef.get() : null;
-
-        if ((!walkinRef || !walkinSnap?.exists) && customerMobile) {
-          const walkinByMobile = await adminDb
-            .collection('Walkin_Customer')
-            .where('mobile', '==', customerMobile)
-            .limit(1)
-            .get();
-
-          if (!walkinByMobile.empty) {
-            walkinRef = walkinByMobile.docs[0].ref;
-            walkinSnap = walkinByMobile.docs[0];
-          }
-        }
-
-        if (walkinRef && walkinSnap?.exists) {
-          const walkinData = walkinSnap.data() as any;
-          const existingCashsale = walkinData?.cashsale as any;
-          const cashsaleAlreadyCreated = Boolean(existingCashsale?.created);
-
-          if (cashsaleAlreadyCreated) {
-            console.info(
-              `[createInstantQuotationOrderAction] Cashsale already marked for lead "${walkinRef.id}" (OrderId="${String(existingCashsale?.OrderId || '')}")`
-            );
-          } else {
-            const walkinCreatedAt =
-              typeof walkinData?.createdAt === 'string' && walkinData.createdAt.trim()
-                ? walkinData.createdAt
-                : nowIso;
-
-            const cashsaleUpdate = {
-              created: true,
-              OrderId: createdOrder.id,
-              dealId: String((createdOrder as any)?.dealId || dealDocId || '').trim(),
-              orderNo: resolvedOrderNo || createdOrder.id,
-              orderNumber: resolvedOrderNo || createdOrder.id,
-              crmOrderNo: resolvedCrmOrderNo || '',
-              totalOrderAmount: resolvedTotalOrderAmount,
-              dealType: 'CASHSALE',
-              status: 'PURCHASED',
-              type: 'INSTANT',
-              updatedAt: nowIso,
-              createdAt: walkinCreatedAt,
-            };
-
-            await walkinRef.set(
-              {
-                cashsale: cashsaleUpdate,
-                status: 'Deal Created',
-                lastUpdatedAt: nowIso,
-              },
-              { merge: true }
-            );
-          }
-        } else {
-          console.warn(
-            `[createInstantQuotationOrderAction] Walk-in lead not found for cashsale update. leadId="${normalizedLeadId}", mobile="${customerMobile}"`
-          );
-        }
-      } catch (error) {
-        console.error('Walk-in cashsale update error:', error);
+      } else {
+        console.warn(
+          `[createInstantQuotationOrderAction] Walk-in lead not found for instant sale update. leadId="${normalizedLeadId}", mobile="${customerMobile}"`
+        );
       }
+    } catch (error) {
+      console.error('Walk-in instant sale update error:', error);
     }
 
     return {
