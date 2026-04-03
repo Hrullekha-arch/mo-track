@@ -58,10 +58,9 @@ import {
 
 export const navItems = [
     { href: "/dashboard", icon: Home, label: "Home", roles: ['admin', 'employee', 'Accounts'] },
-    { href: "/dashboard/fms", icon: Factory, label: "FMS", roles: ['admin', 'employee'] },
-    { href: "/dashboard/pms", icon: ClipboardList, label: "PMS", roles: ['admin'] },
+    // { href: "/dashboard/fms", icon: Factory, label: "FMS", roles: ['admin', 'employee'] },
+    { href: "/dashboard/pms", icon: ClipboardList, label: "PMS", roles: ['admin', 'employee'] },
     { href: "/dashboard/approvals", icon: FileSignature, label: "Approvals", roles: ['admin', 'Accounts'] },
-    { href: "/dashboard/purchase-entry", icon: ClipboardList, label: "Purchase Entry", roles: ['admin', 'Accounts'] },
     { href: "/dashboard/stock-verification", icon: PackageSearch, label: "Stock Verification", roles: ['admin', 'employee'] },
     { href: "/dashboard/visits", icon: CalendarCheck, label: "Visits", roles: ['admin', 'employee'] },
     { href: "/dashboard/complain-approval", icon: ShieldCheck, label: "Complain Approval", roles: ['admin', 'employee'] },
@@ -72,7 +71,7 @@ export const navItems = [
     { href: "/dashboard/inbound", icon: Archive, label: "Inbound", roles: ['admin', 'employee'] },
     { href: "/dashboard/inventory", icon: Warehouse, label: "Inventory", roles: ['admin', 'employee'] },
     { href: "/dashboard/Billing", icon: FileText, label: "Invoice", roles: ['admin', 'employee'] },
-    { href: "/dashboard/cutting", icon: Scissors, label: "Cutting & Details", roles: ['admin', 'employee'] },
+    //{ href: "/dashboard/cutting", icon: Scissors, label: "Cutting & Details", roles: ['admin', 'employee'] },
     { href: "/dashboard/all-orders", icon: Table, label: "Details", roles: ['admin'] },
     { href: "/dashboard/users", icon: UserCog, label: "User Management", roles: ['admin'] },
     { href: "/dashboard/user-report", icon: Users, label: "User Report", roles: ['admin'] },

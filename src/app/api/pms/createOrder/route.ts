@@ -69,7 +69,10 @@ export async function POST(request: Request) {
     }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     const invoiceRequired = orderDataSnapshot?.invoicing?.invoiceRequired !== false;
+=======
+>>>>>>> 920249b (Add PMS embellishment workflow and routing admin tools)
 =======
 >>>>>>> 920249b (Add PMS embellishment workflow and routing admin tools)
     const invoicingStatus = orderDataSnapshot?.invoicing?.status;
