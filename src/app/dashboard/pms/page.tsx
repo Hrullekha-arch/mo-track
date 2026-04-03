@@ -97,6 +97,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { Order } from "@/lib/types";
 import {
@@ -105,7 +106,6 @@ import {
   formatTimeInZone,
   IST_TIME_ZONE,
 } from "@/lib/pms/time";
-import { WorkStatusPanel } from "@/components/features/pms/WorkStatusPanel";
 
 
 type PmsProduct = { id: string; name: string; category: string };
@@ -121,6 +121,7 @@ type PmsSkill = {
   allowed: boolean;
 };
 type PmsDowntime = { id: string; machineId: string; from: string; to: string; reason?: string };
+type PmsCategory = { id: string; name: string; createdAt?: string; updatedAt?: string };
 type PmsJob = {
   id: string;
   orderId: string;
@@ -145,13 +146,83 @@ type PmsPlan = {
   plannedEnd?: string;
 };
 
+type EmbellishmentFormValues = {
+  customerName: string;
+  customerPhone: string;
+  numberOfWindows: string;
+  numberOfPanels: string;
+  embellishmentBarcode: string;
+  stitchingPerPanel: string;
+  handWorkTime: string;
+};
+
+type StoredEmbellishment = {
+  enabled?: boolean;
+  customerName?: string;
+  customerPhone?: string;
+  numberOfWindows?: number;
+  numberOfPanels?: number;
+  embellishmentBarcode?: string;
+  stitchingPerPanel?: number;
+  handWorkTime?: number;
+  totalHours?: number;
+  totalTime?: number;
+  hourlyCharge?: number;
+  chargeAmount?: number;
+};
+
+type CreateJobDialogRow = {
+  key: string;
+  orderId: string;
+  orderNo: string;
+  customer: string;
+  customerPhone?: string;
+  vasName: string;
+  qty: number;
+  matchedProductId?: string;
+  matchedProductName?: string;
+  hasRouting?: boolean;
+  invoiceReady: boolean;
+  hasJobsForProduct: boolean;
+  vasIndex: number;
+  embellishment?: StoredEmbellishment;
+};
+
+type CreateJobDialogState = {
+  open: boolean;
+  row: CreateJobDialogRow | null;
+  embellishmentEnabled: boolean;
+  form: EmbellishmentFormValues;
+};
+
+type PmsEmbellishmentRecord = StoredEmbellishment & {
+  id: string;
+  orderId?: string;
+  orderNo?: string;
+  customer?: string;
+  customerPhone?: string;
+  vasName?: string;
+  vasIndex?: number;
+  productId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  updatedBy?: {
+    id?: string | null;
+    name?: string | null;
+    role?: string | null;
+  };
+};
+
 const toNumber = (value: string) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const roundToTwoDecimals = (value: number) => Math.round(value * 100) / 100;
+
 const IST_TIMEZONE_OFFSET_MINUTES = 330;
 const AUTO_ADVANCE_POLL_MS = 15_000;
+const EMBELLISHMENT_HOURLY_CHARGE = 300;
 
 const formatDateTime = (value?: string) => {
   return formatDateTimeInZone(value, {
@@ -178,19 +249,121 @@ const normalizeText = (value?: string) =>
     .trim()
     .toLowerCase();
 
-const normalizeJobStatus = (value?: string) =>
+const normalizePmsItemKey = (value?: string) =>
   String(value || "")
     .trim()
-    .toUpperCase();
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+const PMS_EXCLUDED_ITEM_KEYS = new Set([
+  "wallpaper-laying-charges",
+  "installation",
+  "installatation-charges",
+  "sofa-stitching-charges",
+  "loose-material",
+]);
+
+const isPmsExcludedItem = (...values: Array<unknown>) =>
+  values.some((value) => PMS_EXCLUDED_ITEM_KEYS.has(normalizePmsItemKey(String(value ?? ""))));
+
+const matchesPmsSearch = (search: string, values: unknown[]) => {
+  const query = normalizeText(search);
+  if (!query) return true;
+  const haystack = values
+    .flatMap((value) => {
+      if (Array.isArray(value)) return value.map((item) => String(item ?? ""));
+      return [String(value ?? "")];
+    })
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(query);
+};
 
 const buildSkillId = (machineId: string, personId: string, category: string) =>
   `${machineId}_${personId}_${category.replace(/[^a-zA-Z0-9]/g, "_")}`;
+
+const EMBELLISHMENT_PROCESS_KEYS = new Set([
+  "embelshment work",
+  "embelishment work",
+  "embellishment work",
+]);
+
+const REQUIRED_ROUTING_FINISH_STEPS = ["Q&Q", "Final Complete Kitting", "Packaging"] as const;
+const ROUTING_QUICK_ADD_STEPS = [
+  "Embelshment work",
+  "Q&Q",
+  "Final Complete Kitting",
+  "Packaging",
+] as const;
+
+const emptyEmbellishmentForm: EmbellishmentFormValues = {
+  customerName: "",
+  customerPhone: "",
+  numberOfWindows: "",
+  numberOfPanels: "",
+  embellishmentBarcode: "",
+  stitchingPerPanel: "",
+  handWorkTime: "",
+};
+
+const toFormString = (value: unknown) => {
+  if (value === null || value === undefined) return "";
+  return String(value);
+};
+
+const isEmbellishmentProcess = (process?: string) =>
+  EMBELLISHMENT_PROCESS_KEYS.has(
+    String(process || "")
+      .trim()
+      .toLowerCase()
+  );
+
+const buildEmbellishmentForm = (
+  row?: Partial<CreateJobDialogRow> | null,
+  existing?: StoredEmbellishment
+): EmbellishmentFormValues => ({
+  customerName: toFormString(existing?.customerName ?? row?.customer ?? ""),
+  customerPhone: toFormString(existing?.customerPhone ?? row?.customerPhone ?? ""),
+  numberOfWindows: toFormString(existing?.numberOfWindows),
+  numberOfPanels: toFormString(existing?.numberOfPanels),
+  embellishmentBarcode: toFormString(existing?.embellishmentBarcode),
+  stitchingPerPanel: toFormString(existing?.stitchingPerPanel),
+  handWorkTime: toFormString(existing?.handWorkTime),
+});
+
+const appendRoutingProcesses = (
+  rows: PmsRouting[],
+  productId: string,
+  processes: readonly string[]
+) => {
+  const existingProcesses = new Set(rows.map((row) => normalizeText(row.process)));
+  let nextStep = rows.length ? Math.max(...rows.map((row) => row.stepNo)) + 1 : 1;
+  const additions: PmsRouting[] = [];
+
+  processes.forEach((process) => {
+    if (existingProcesses.has(normalizeText(process))) return;
+    additions.push({
+      id: `local-${process.replace(/[^a-zA-Z0-9]/g, "_")}-${Date.now()}-${nextStep}`,
+      productId,
+      stepNo: nextStep,
+      process,
+      cycleMinutes: 10,
+      ops: 1,
+    });
+    existingProcesses.add(normalizeText(process));
+    nextStep += 1;
+  });
+
+  return [...rows, ...additions];
+};
 
 export default function PmsPage() {
   const { role, user } = useAuth();
   const { toast } = useToast();
 
   const [products, setProducts] = useState<PmsProduct[]>([]);
+  const [pmsCategories, setPmsCategories] = useState<PmsCategory[]>([]);
   const [routing, setRouting] = useState<PmsRouting[]>([]);
   const [machines, setMachines] = useState<PmsMachine[]>([]);
   const [people, setPeople] = useState<PmsPerson[]>([]);
@@ -199,9 +372,12 @@ export default function PmsPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [jobs, setJobs] = useState<PmsJob[]>([]);
   const [plans, setPlans] = useState<PmsPlan[]>([]);
+  const [embellishmentRecords, setEmbellishmentRecords] = useState<PmsEmbellishmentRecord[]>([]);
+  const [activeTab, setActiveTab] = useState("live");
   const [vasSearch, setVasSearch] = useState("");
-  const [vasStatusFilter, setVasStatusFilter] = useState<string>("ALL");
-  const [workingHoursExpanded, setWorkingHoursExpanded] = useState(false);
+  const [statusSearch, setStatusSearch] = useState("");
+  const [workDetailSearch, setWorkDetailSearch] = useState("");
+  const [embellishmentSearch, setEmbellishmentSearch] = useState("");
   const [creatingJobKey, setCreatingJobKey] = useState<string | null>(null);
   const [runningAutopilot, setRunningAutopilot] = useState(false);
   const [runningPriorityReplan, setRunningPriorityReplan] = useState(false);
@@ -231,6 +407,12 @@ export default function PmsPage() {
   const [manualDoneRemainingQty, setManualDoneRemainingQty] = useState("");
   const [manualDoneReason, setManualDoneReason] = useState("");
   const [manualDoneSaving, setManualDoneSaving] = useState(false);
+  const [createJobDialog, setCreateJobDialog] = useState<CreateJobDialogState>({
+    open: false,
+    row: null,
+    embellishmentEnabled: false,
+    form: emptyEmbellishmentForm,
+  });
   const [workingHours, setWorkingHours] = useState({
     startTime: "10:00",
     endTime: "20:00",
@@ -262,6 +444,7 @@ export default function PmsPage() {
   }>({ open: false, type: "product", id: "", name: "" });
 
   const [newProduct, setNewProduct] = useState({ name: "", category: "" });
+  const [newCategoryName, setNewCategoryName] = useState("");
   const [newMachine, setNewMachine] = useState({ name: "", process: "", shiftMinutes: "480" });
   const [newPerson, setNewPerson] = useState({ name: "", role: "" });
   const [newDowntime, setNewDowntime] = useState({ machineId: "", from: "", to: "", reason: "" });
@@ -287,6 +470,11 @@ export default function PmsPage() {
   useEffect(() => {
     const unsubProducts = onSnapshot(collection(db, "products"), (snap) => {
       setProducts(snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) })));
+    });
+    const unsubPmsCategories = onSnapshot(collection(db, "pmsCategories"), (snap) => {
+      setPmsCategories(
+        snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) }))
+      );
     });
     const unsubRouting = onSnapshot(collection(db, "routing"), (snap) => {
       setRouting(snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) })));
@@ -315,11 +503,17 @@ export default function PmsPage() {
     const unsubPlans = onSnapshot(collection(db, "plan"), (snap) => {
       setPlans(snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) })));
     });
+    const unsubEmbellishment = onSnapshot(collection(db, "pmsEmbellishment"), (snap) => {
+      setEmbellishmentRecords(
+        snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) }))
+      );
+    });
 
 
 
     return () => {
       unsubProducts();
+      unsubPmsCategories();
       unsubRouting();
       unsubMachines();
       unsubPeople();
@@ -328,6 +522,7 @@ export default function PmsPage() {
       unsubOrders();
       unsubJobs();
       unsubPlans();
+      unsubEmbellishment();
     };
   }, []);
 
@@ -353,12 +548,27 @@ export default function PmsPage() {
     const rows = routing
       .filter((row) => row.productId === selectedProductId)
       .sort((a, b) => a.stepNo - b.stepNo);
-    setRoutingRows(rows.length ? rows : []);
+    setRoutingRows((prev) => {
+      if (rows.length) return rows;
+      const localRows = prev
+        .filter(
+          (row) =>
+            row.productId === selectedProductId && String(row.id || "").startsWith("local-")
+        )
+        .sort((a, b) => a.stepNo - b.stepNo);
+      return localRows;
+    });
   }, [routing, selectedProductId]);
 
   const categories = useMemo(
-    () => Array.from(new Set(products.map((product) => product.category).filter(Boolean))),
-    [products]
+    () =>
+      Array.from(
+        new Set([
+          ...products.map((product) => product.category).filter(Boolean),
+          ...pmsCategories.map((category) => category.name).filter(Boolean),
+        ])
+      ).sort((left, right) => left.localeCompare(right)),
+    [products, pmsCategories]
   );
 
   // Filtered data
@@ -402,6 +612,21 @@ export default function PmsPage() {
     };
   }, [products, machines, people, downtimes]);
 
+  const createJobTotals = useMemo(() => {
+    const panels = toNumber(createJobDialog.form.numberOfPanels);
+    const stitchingPerPanel = toNumber(createJobDialog.form.stitchingPerPanel);
+    const handWorkTime = toNumber(createJobDialog.form.handWorkTime);
+    const totalMinutes = panels * stitchingPerPanel + handWorkTime;
+    const totalHours = roundToTwoDecimals(totalMinutes / 60);
+    const chargeAmount = roundToTwoDecimals(totalHours * EMBELLISHMENT_HOURLY_CHARGE);
+    return {
+      totalMinutes: roundToTwoDecimals(totalMinutes),
+      totalHours,
+      hourlyCharge: EMBELLISHMENT_HOURLY_CHARGE,
+      chargeAmount,
+    };
+  }, [createJobDialog.form]);
+
   const isOrderInvoiced = useCallback((order?: Order) => {
     if (!order) return false;
     if (order.invoicing?.invoiceRequired === false) return true;
@@ -428,6 +653,9 @@ export default function PmsPage() {
     const machineById = new Map(machines.map((machine) => [machine.id, machine]));
     const personById = new Map(people.map((person) => [person.id, person]));
     const productById = new Map(products.map((product) => [product.id, product]));
+    const embellishmentByRowKey = new Map(
+      embellishmentRecords.map((record) => [record.id, record])
+    );
     const routingByProduct = new Map<string, PmsRouting[]>();
     routing.forEach((step) => {
       if (!routingByProduct.has(step.productId)) routingByProduct.set(step.productId, []);
@@ -477,7 +705,7 @@ export default function PmsPage() {
       const product = productById.get(productId);
       if (!product?.category) return "Missing product category";
       const steps = routingByProduct.get(productId) || [];
-      if (steps.length === 0) return "No routing for product";
+      if (steps.length === 0) return "Routing not created for this product";
       if (waitingJob?.process) {
         const routingProcesses = new Set(steps.map((step) => normalizeText(step.process)));
         if (!routingProcesses.has(normalizeText(waitingJob.process))) {
@@ -514,8 +742,15 @@ export default function PmsPage() {
           (order.sections?.VAS?.items?.length || 0) > 0 && !isOrderClosedForPms(order)
       )
       .flatMap((order) => {
-        return (order.sections?.VAS?.items || []).map((item, index) => {
+        return (order.sections?.VAS?.items || []).flatMap((item, index) => {
           const vasName = item.description || item.group || "VAS";
+          const exclusionCandidates = [vasName, item.group, item.roomName, item.type];
+          if (isPmsExcludedItem(...exclusionCandidates)) return [];
+          const rowKey = `${order.id}-vas-${index}`;
+          const existingEmbellishment =
+            embellishmentByRowKey.get(rowKey) ||
+            (item as any)?.meta?.embellishment ||
+            (item as any)?.embellishment;
           const searchCandidates = [
             vasName,
             item.group,
@@ -531,6 +766,8 @@ export default function PmsPage() {
                 return left === right || left.includes(right) || right.includes(left);
               })
             );
+          const hasRouting =
+            Boolean(match?.id) && (routingByProduct.get(match!.id) || []).length > 0;
           const groupKey = toGroupKey(order.id, match?.id);
           const jobBucket = getJobBucket(groupKey);
           const allJobsDoneForGroup =
@@ -580,11 +817,12 @@ export default function PmsPage() {
             ? "Normal"
             : "Low";
 
-          return {
-            key: `${order.id}-vas-${index}`,
+          return [{
+            key: rowKey,
             orderId: order.id,
             orderNo: order.crmOrderNo || order.orderNo || order.id,
             customer: order.customerSnapshot?.name || order.customerName || "N/A",
+            customerPhone: order.customerSnapshot?.phone || order.customerPhone || "",
             vasName,
             qty: item.qty ?? item.quantity ?? 0,
             group: item.group || "-",
@@ -603,28 +841,40 @@ export default function PmsPage() {
               order.createdAt,
             matchedProductId: match?.id,
             matchedProductName: match?.name,
+            hasRouting,
             hasJobsForProduct,
             noPlanReason,
             invoiceReady,
             orderPriority,
             priorityLabel,
             isEmergency,
-          };
+            vasIndex: index,
+            embellishment: existingEmbellishment,
+          }];
         });
       });
     return rows;
-  }, [orders, jobs, plans, machines, people, products, routing, skills, isOrderInvoiced, isOrderClosedForPms]);
+  }, [orders, jobs, plans, machines, people, products, routing, skills, embellishmentRecords, isOrderInvoiced, isOrderClosedForPms]);
 
   const liveVasRows = useMemo(() => {
-    const search = vasSearch.trim().toLowerCase();
-    const filtered = search
-      ? liveVasRowsAll.filter((row) =>
-          [row.orderNo, row.customer, row.vasName, row.machineName, row.personName, row.group]
-            .join(" ")
-            .toLowerCase()
-            .includes(search)
-        )
-      : liveVasRowsAll;
+    const filtered = liveVasRowsAll.filter((row) =>
+      matchesPmsSearch(vasSearch, [
+        row.orderNo,
+        row.customer,
+        row.customerPhone,
+        row.vasName,
+        row.group,
+        row.machineName,
+        row.personName,
+        row.matchedProductName,
+        row.currentProcess,
+        row.nextProcess,
+        row.status,
+        row.embellishment?.embellishmentBarcode,
+        row.embellishment?.customerPhone,
+        row.embellishment?.customerName,
+      ])
+    );
 
     const rank: Record<string, number> = { IN_PROGRESS: 0, PLANNED: 1, WAITING: 2, DONE: 3 };
     return [...filtered].sort((a, b) => {
@@ -636,6 +886,42 @@ export default function PmsPage() {
       return aTime - bTime;
     });
   }, [liveVasRowsAll, vasSearch]);
+
+  const routingNotEnteredItems = useMemo(() => {
+    const itemsByProduct = new Map<
+      string,
+      {
+        productId: string;
+        productName: string;
+        orderNo: string;
+        customer: string;
+        vasName: string;
+      }
+    >();
+
+    liveVasRowsAll.forEach((row) => {
+      if (!row.matchedProductId || row.hasRouting) return;
+      if (itemsByProduct.has(row.matchedProductId)) return;
+      itemsByProduct.set(row.matchedProductId, {
+        productId: row.matchedProductId,
+        productName: row.matchedProductName || row.vasName,
+        orderNo: row.orderNo,
+        customer: row.customer,
+        vasName: row.vasName,
+      });
+    });
+
+    const query = normalizeText(productSearch);
+    return Array.from(itemsByProduct.values())
+      .filter((item) =>
+        !query ||
+        [item.productName, item.orderNo, item.customer, item.vasName]
+          .join(" ")
+          .toLowerCase()
+          .includes(query)
+      )
+      .sort((left, right) => left.productName.localeCompare(right.productName));
+  }, [liveVasRowsAll, productSearch]);
 
   const liveStats = useMemo(() => {
     const totalItems = liveVasRows.length;
@@ -752,7 +1038,10 @@ export default function PmsPage() {
   }, [orders, liveVasRowsAll]);
 
   const resolveVasInfo = useCallback((order?: Order, productName?: string) => {
-    const items = (order?.sections as any)?.VAS?.items || [];
+    const items = ((order?.sections as any)?.VAS?.items || []).filter(
+      (item: any) =>
+        !isPmsExcludedItem(item?.description, item?.group, item?.roomName, item?.type)
+    );
     if (!items.length) {
       return { vasName: productName || "VAS", vasGroup: "-", qty: 0 };
     }
@@ -801,6 +1090,12 @@ export default function PmsPage() {
     const peopleById = new Map(people.map((person) => [person.id, person]));
     const machineById = new Map(machines.map((machine) => [machine.id, machine]));
     const productById = new Map(products.map((product) => [product.id, product]));
+    const embellishmentByOrderProduct = new Map<string, PmsEmbellishmentRecord>();
+    embellishmentRecords.forEach((record) => {
+      const key = `${record.orderId || ""}__${record.productId || ""}`;
+      if (!record.orderId || !record.productId || embellishmentByOrderProduct.has(key)) return;
+      embellishmentByOrderProduct.set(key, record);
+    });
     const routingByProduct = new Map<string, PmsRouting[]>();
     routing.forEach((step) => {
       if (!routingByProduct.has(step.productId)) routingByProduct.set(step.productId, []);
@@ -958,6 +1253,10 @@ export default function PmsPage() {
         const currentPersonId = currentPlanDoc?.personId;
 
         const vasInfo = resolveVasInfo(order, product?.name);
+        if (isPmsExcludedItem(product?.name, vasInfo.vasName, vasInfo.vasGroup)) return null;
+        const embellishmentRecord = embellishmentByOrderProduct.get(
+          `${currentJob.orderId || ""}__${currentJob.productId || ""}`
+        );
         const resetJobs = sortedJobs.filter(
           (job) => job.status === "PLANNED" || job.status === "WAITING"
         );
@@ -1027,6 +1326,7 @@ export default function PmsPage() {
           resetJobIds,
           resetPlanDocIds,
           blockedByLabel,
+          embellishment: embellishmentRecord,
         };
       })
       .filter(Boolean) as Array<{
@@ -1069,6 +1369,7 @@ export default function PmsPage() {
         resetJobIds: string[];
         resetPlanDocIds: string[];
         blockedByLabel?: string;
+        embellishment?: PmsEmbellishmentRecord;
       }>;
 
     const statusRank: Record<string, number> = {
@@ -1089,13 +1390,19 @@ export default function PmsPage() {
         : Number.MAX_SAFE_INTEGER;
       return aTime - bTime;
     });
-  }, [plans, jobs, orders, people, machines, products, routing, resolveVasInfo, isOrderClosedForPms]);
+  }, [plans, jobs, orders, people, machines, products, routing, embellishmentRecords, resolveVasInfo, isOrderClosedForPms]);
 
   const workSheetStepRows = useMemo(() => {
     const ordersById = new Map(orders.map((order) => [order.id, order]));
     const peopleById = new Map(people.map((person) => [person.id, person]));
     const machineById = new Map(machines.map((machine) => [machine.id, machine]));
     const productById = new Map(products.map((product) => [product.id, product]));
+    const embellishmentByOrderProduct = new Map<string, PmsEmbellishmentRecord>();
+    embellishmentRecords.forEach((record) => {
+      const key = `${record.orderId || ""}__${record.productId || ""}`;
+      if (!record.orderId || !record.productId || embellishmentByOrderProduct.has(key)) return;
+      embellishmentByOrderProduct.set(key, record);
+    });
     const routingByProduct = new Map<string, PmsRouting[]>();
     routing.forEach((step) => {
       if (!routingByProduct.has(step.productId)) routingByProduct.set(step.productId, []);
@@ -1138,6 +1445,10 @@ export default function PmsPage() {
           : undefined;
         const plan = planByJob.get(job.id);
         const vasInfo = resolveVasInfo(order, product?.name);
+        if (isPmsExcludedItem(product?.name, vasInfo.vasName, vasInfo.vasGroup)) return null;
+        const embellishment = embellishmentByOrderProduct.get(
+          `${job.orderId || ""}__${job.productId || ""}`
+        );
         const processName = job.process || currentStep?.process || "Not scheduled";
         const processLabel = job.stepNo ? `${processName} (Step ${job.stepNo})` : processName;
         const nextLabel = nextStep?.process
@@ -1159,6 +1470,7 @@ export default function PmsPage() {
           process: processLabel,
           plannedStart: job.plannedStart || plan?.plannedStart,
           plannedEnd: job.plannedEnd || plan?.plannedEnd,
+          embellishment,
         };
       })
       .filter(Boolean) as Array<{
@@ -1176,6 +1488,7 @@ export default function PmsPage() {
       plannedStart?: string;
       plannedEnd?: string;
       stepNo?: number;
+      embellishment?: PmsEmbellishmentRecord;
     }>;
 
     const compareOrderNo = (left: string, right: string) => {
@@ -1201,7 +1514,262 @@ export default function PmsPage() {
       const bTime = b.plannedStart ? new Date(b.plannedStart).getTime() : Number.MAX_SAFE_INTEGER;
       return aTime - bTime;
     });
-  }, [jobs, orders, people, machines, products, routing, plans, resolveVasInfo, isOrderInvoiced, isOrderClosedForPms]);
+  }, [jobs, orders, people, machines, products, routing, plans, embellishmentRecords, resolveVasInfo, isOrderInvoiced, isOrderClosedForPms]);
+
+  const workStatusRows = useMemo(() => {
+    const ordersById = new Map(orders.map((order) => [order.id, order]));
+    const productById = new Map(products.map((product) => [product.id, product]));
+    const embellishmentByOrderProduct = new Map<string, PmsEmbellishmentRecord>();
+    embellishmentRecords.forEach((record) => {
+      const key = `${record.orderId || ""}__${record.productId || ""}`;
+      if (!record.orderId || !record.productId || embellishmentByOrderProduct.has(key)) return;
+      embellishmentByOrderProduct.set(key, record);
+    });
+    const routingByProduct = new Map<string, PmsRouting[]>();
+    routing.forEach((step) => {
+      if (!routingByProduct.has(step.productId)) routingByProduct.set(step.productId, []);
+      routingByProduct.get(step.productId)!.push(step);
+    });
+    routingByProduct.forEach((steps, key) => {
+      routingByProduct.set(
+        key,
+        [...steps].sort((a, b) => (a.stepNo || 0) - (b.stepNo || 0))
+      );
+    });
+
+    const jobsByGroup = new Map<string, PmsJob[]>();
+    jobs.forEach((job) => {
+      if (!job.orderId) return;
+      const key = job.jobGroupId || (job.productId ? `${job.orderId}_${job.productId}` : job.orderId);
+      if (!jobsByGroup.has(key)) jobsByGroup.set(key, []);
+      jobsByGroup.get(key)!.push(job);
+    });
+
+    const compareOrderNo = (left: string, right: string) => {
+      const leftNum = Number(left);
+      const rightNum = Number(right);
+      const leftIsNum = Number.isFinite(leftNum);
+      const rightIsNum = Number.isFinite(rightNum);
+      if (leftIsNum && rightIsNum) return leftNum - rightNum;
+      return String(left).localeCompare(String(right));
+    };
+
+    return Array.from(jobsByGroup.values())
+      .map((groupJobs) => {
+        const sortedJobs = [...groupJobs].sort((a, b) => (a.stepNo || 0) - (b.stepNo || 0));
+        const firstJob = sortedJobs[0];
+        if (!firstJob?.orderId) return null;
+
+        const order = ordersById.get(firstJob.orderId);
+        if (!order || !isOrderInvoiced(order) || isOrderClosedForPms(order)) return null;
+
+        const product = firstJob.productId ? productById.get(firstJob.productId) : undefined;
+        const routingSteps = firstJob.productId
+          ? routingByProduct.get(firstJob.productId) || []
+          : [];
+        const activeJob =
+          sortedJobs.find((job) => job.status === "IN_PROGRESS") ||
+          sortedJobs.find((job) => job.status === "PLANNED") ||
+          sortedJobs.find((job) => job.status === "WAITING") ||
+          sortedJobs[sortedJobs.length - 1];
+        const nextStep =
+          activeJob?.stepNo !== undefined && activeJob?.stepNo !== null
+            ? routingSteps.find((step) => step.stepNo === activeJob.stepNo! + 1)
+            : undefined;
+        const jobStatuses = Array.from(
+          new Set(sortedJobs.map((job) => String(job.status || "WAITING").toUpperCase()))
+        );
+        const doneSteps = sortedJobs.filter((job) => job.status === "DONE").length;
+        const totalSteps = Math.max(routingSteps.length, sortedJobs.length, 1);
+        const progressPercent = Math.max(
+          0,
+          Math.min(100, Math.round((doneSteps / totalSteps) * 100))
+        );
+        const currentProcess =
+          activeJob?.process || nextStep?.process || routingSteps[0]?.process || "Not scheduled";
+        const processSearch = [currentProcess, nextStep?.process]
+          .map((value) => normalizeText(value))
+          .filter(Boolean);
+        const lastUpdate = sortedJobs
+          .map(
+            (job) =>
+              job.updatedAt ||
+              job.actualEnd ||
+              job.actualStart ||
+              job.plannedEnd ||
+              job.plannedStart
+          )
+          .filter(Boolean)
+          .sort()
+          .slice(-1)[0];
+        const stage =
+          jobStatuses.includes("IN_PROGRESS")
+            ? "Machine Running"
+            : jobStatuses.includes("PLANNED") || jobStatuses.includes("WAITING")
+            ? "Pending"
+            : "Completed";
+        const embellishment = embellishmentByOrderProduct.get(
+          `${firstJob.orderId || ""}__${firstJob.productId || ""}`
+        );
+        const vasInfo = resolveVasInfo(order, product?.name);
+        if (isPmsExcludedItem(product?.name, vasInfo.vasName, vasInfo.vasGroup)) return null;
+
+        return {
+          key:
+            firstJob.jobGroupId ||
+            `${firstJob.orderId || ""}__${firstJob.productId || vasInfo.vasName}`,
+          orderNo: order.crmOrderNo || order.orderNo || order.id,
+          customer: order.customerSnapshot?.name || order.customerName || "N/A",
+          vasName: vasInfo.vasName,
+          productName: product?.name || firstJob.productId || "Unknown product",
+          stage,
+          jobStatuses,
+          doneSteps,
+          totalSteps,
+          progressPercent,
+          lastUpdate,
+          qcPending:
+            stage !== "Completed" &&
+            processSearch.some(
+              (value) =>
+                value.includes("qc") ||
+                value.includes("q&q") ||
+                value.includes("quality")
+            ),
+          dispatchReady:
+            stage !== "Completed" &&
+            processSearch.some(
+              (value) =>
+                value.includes("dispatch") ||
+                value.includes("packaging") ||
+                value.includes("kitting")
+            ),
+          embellishment,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        const orderCompare = compareOrderNo(a!.orderNo, b!.orderNo);
+        if (orderCompare !== 0) return orderCompare;
+        return a!.vasName.localeCompare(b!.vasName);
+      }) as Array<{
+      key: string;
+      orderNo: string;
+      customer: string;
+      vasName: string;
+      productName: string;
+      stage: string;
+      jobStatuses: string[];
+      doneSteps: number;
+      totalSteps: number;
+      progressPercent: number;
+      lastUpdate?: string;
+      qcPending: boolean;
+      dispatchReady: boolean;
+      embellishment?: PmsEmbellishmentRecord;
+    }>;
+  }, [
+    jobs,
+    orders,
+    products,
+    routing,
+    embellishmentRecords,
+    isOrderInvoiced,
+    isOrderClosedForPms,
+    resolveVasInfo,
+  ]);
+
+  const workStatusSummary = useMemo(() => {
+    const filteredRows = workStatusRows.filter((row) =>
+      matchesPmsSearch(statusSearch, [
+        row.orderNo,
+        row.customer,
+        row.vasName,
+        row.productName,
+        row.stage,
+        row.jobStatuses,
+        row.embellishment?.embellishmentBarcode,
+        row.embellishment?.customerName,
+        row.embellishment?.customerPhone,
+      ])
+    );
+    const totalOrders = filteredRows.length;
+    const pending = filteredRows.filter((row) => row.stage === "Pending").length;
+    const machineRunning = filteredRows.filter(
+      (row) => row.stage === "Machine Running"
+    ).length;
+    const qcPending = filteredRows.filter((row) => row.qcPending).length;
+    const dispatchReady = filteredRows.filter((row) => row.dispatchReady).length;
+    const completed = filteredRows.filter((row) => row.stage === "Completed").length;
+    const embellishment = filteredRows.filter((row) => row.embellishment?.enabled).length;
+    return {
+      totalOrders,
+      pending,
+      machineRunning,
+      qcPending,
+      dispatchReady,
+      completed,
+      embellishment,
+    };
+  }, [workStatusRows, statusSearch]);
+
+  const filteredWorkStatusRows = useMemo(
+    () =>
+      workStatusRows.filter((row) =>
+        matchesPmsSearch(statusSearch, [
+          row.orderNo,
+          row.customer,
+          row.vasName,
+          row.productName,
+          row.stage,
+          row.jobStatuses,
+          row.embellishment?.embellishmentBarcode,
+          row.embellishment?.customerName,
+          row.embellishment?.customerPhone,
+        ])
+      ),
+    [workStatusRows, statusSearch]
+  );
+
+  const filteredWorkDetailRows = useMemo(
+    () =>
+      workDetailRows.filter((row) =>
+        matchesPmsSearch(workDetailSearch, [
+          row.orderNo,
+          row.customer,
+          row.vasName,
+          row.vasGroup,
+          row.process,
+          row.nextProcess,
+          row.person,
+          row.machine,
+          row.status,
+          row.embellishment?.embellishmentBarcode,
+          row.embellishment?.customerName,
+          row.embellishment?.customerPhone,
+        ])
+      ),
+    [workDetailRows, workDetailSearch]
+  );
+
+  const filteredEmbellishmentRows = useMemo(
+    () =>
+      liveVasRows.filter((row) =>
+        matchesPmsSearch(embellishmentSearch, [
+          row.orderNo,
+          row.customer,
+          row.customerPhone,
+          row.vasName,
+          row.group,
+          row.matchedProductName,
+          row.status,
+          row.embellishment?.embellishmentBarcode,
+          row.embellishment?.customerName,
+          row.embellishment?.customerPhone,
+        ])
+      ),
+    [liveVasRows, embellishmentSearch]
+  );
 
   const syncingWorkSheetRef = useRef(false);
   const lastWorkSheetPayloadRef = useRef("");
@@ -1221,6 +1789,7 @@ export default function PmsPage() {
       process: string;
       plannedStart?: string;
       plannedEnd?: string;
+      embellishment?: PmsEmbellishmentRecord;
     }>
   ) => {
     const header = [
@@ -1236,6 +1805,8 @@ export default function PmsPage() {
       "Process (step)",
       "Planned Start",
       "Planned End",
+      "Embelshment",
+      "Embelshment Total Time",
     ];
 
     const values = rows.map((row) => [
@@ -1251,10 +1822,18 @@ export default function PmsPage() {
       row.process,
       formatDateTime(row.plannedStart),
       formatDateTime(row.plannedEnd),
+      row.embellishment?.enabled ? "YES" : "NO",
+      row.embellishment?.enabled ? row.embellishment?.totalTime || 0 : "",
     ]);
 
     return [header, ...values];
   };
+
+  const handleOpenRoutingSetup = useCallback((productId?: string) => {
+    if (!productId) return;
+    setSelectedProductId(productId);
+    setActiveTab("routing");
+  }, []);
 
   useEffect(() => {
     if (role && role !== "admin") return;
@@ -1320,7 +1899,20 @@ export default function PmsPage() {
     };
   }, [role]);
 
-  const handleCreateJobsForRow = async (row: any) => {
+  const handleCloseCreateJobDialog = () => {
+    setCreateJobDialog({
+      open: false,
+      row: null,
+      embellishmentEnabled: false,
+      form: emptyEmbellishmentForm,
+    });
+  };
+
+  const prepareCreateJobEditor = (
+    row: CreateJobDialogRow,
+    open: boolean,
+    options?: { allowExistingJobs?: boolean }
+  ) => {
     if (
       runningAutopilot ||
       runningPriorityReplan ||
@@ -1346,17 +1938,180 @@ export default function PmsPage() {
       });
       return;
     }
-    if (row.hasJobsForProduct) {
+    if (!row.hasRouting && open) {
+      toast({
+        variant: "destructive",
+        title: "Routing not created",
+        description:
+          role === "admin"
+            ? "Create routing for this PMS product first, then create jobs."
+            : "Ask admin to create routing for this PMS product first.",
+      });
+      if (role === "admin") {
+        handleOpenRoutingSetup(row.matchedProductId);
+      }
+      return;
+    }
+    if (row.hasJobsForProduct && !options?.allowExistingJobs) {
       toast({
         title: "Jobs already exist",
         description: "PMS jobs are already created for this VAS item.",
       });
       return;
     }
+    const existing = row.embellishment;
+    setCreateJobDialog({
+      open,
+      row,
+      embellishmentEnabled: Boolean(existing?.enabled),
+      form: buildEmbellishmentForm(row, existing),
+    });
+  };
 
-    const qty = Number(row.qty) || 1;
+  const handleOpenCreateJobDialog = (row: CreateJobDialogRow) => {
+    prepareCreateJobEditor(row, true);
+  };
+
+  const handleSelectEmbellishmentRow = (row: CreateJobDialogRow) => {
+    prepareCreateJobEditor(row, false, { allowExistingJobs: true });
+  };
+
+  const handleCreateJobDialogFieldChange = (
+    field: keyof EmbellishmentFormValues,
+    value: string
+  ) => {
+    setCreateJobDialog((prev) => ({
+      ...prev,
+      form: {
+        ...prev.form,
+        [field]: value,
+      },
+    }));
+  };
+
+  const persistEmbellishmentForRow = async (
+    row: CreateJobDialogRow,
+    embellishment: StoredEmbellishment
+  ) => {
+    const nowIso = new Date().toISOString();
+    await setDoc(
+      doc(db, "pmsEmbellishment", row.key),
+      {
+        ...embellishment,
+        orderId: row.orderId,
+        orderNo: row.orderNo,
+        customer: row.customer,
+        customerPhone: row.customerPhone || embellishment.customerPhone || "",
+        vasName: row.vasName,
+        vasIndex: row.vasIndex,
+        productId: row.matchedProductId || "",
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        updatedBy: {
+          id: user?.id || null,
+          name: user?.name || null,
+          role: user?.role || null,
+        },
+      },
+      { merge: true }
+    );
+  };
+
+  const getValidatedEmbellishmentPayload = () => {
+    if (!createJobDialog.embellishmentEnabled) return undefined;
+
+    const customerName = createJobDialog.form.customerName.trim();
+    const customerPhone = createJobDialog.form.customerPhone.trim();
+    const numberOfWindows = toNumber(createJobDialog.form.numberOfWindows);
+    const numberOfPanels = toNumber(createJobDialog.form.numberOfPanels);
+    const embellishmentBarcode = createJobDialog.form.embellishmentBarcode.trim();
+    const stitchingPerPanel = toNumber(createJobDialog.form.stitchingPerPanel);
+    const handWorkTime = toNumber(createJobDialog.form.handWorkTime);
+
+    if (
+      !customerName ||
+      !customerPhone ||
+      numberOfWindows <= 0 ||
+      numberOfPanels <= 0 ||
+      !embellishmentBarcode ||
+      stitchingPerPanel <= 0 ||
+      handWorkTime < 0
+    ) {
+      toast({
+        variant: "destructive",
+        title: "Embelshment form incomplete",
+        description:
+          "Fill customer, windows, panels, barcode, stitching per panel, and hand work time.",
+      });
+      return null;
+    }
+
+    return {
+      enabled: true,
+      customerName,
+      customerPhone,
+      numberOfWindows,
+      numberOfPanels,
+      embellishmentBarcode,
+      stitchingPerPanel,
+      handWorkTime,
+      totalHours: createJobTotals.totalHours,
+      totalTime: createJobTotals.totalMinutes,
+      hourlyCharge: createJobTotals.hourlyCharge,
+      chargeAmount: createJobTotals.chargeAmount,
+    } satisfies StoredEmbellishment;
+  };
+
+  const handleSaveEmbellishmentDetails = async () => {
+    const row = createJobDialog.row;
+    if (!row) return;
+    const embellishmentPayload = getValidatedEmbellishmentPayload();
+    if (embellishmentPayload === null) return;
+    if (!embellishmentPayload) {
+      toast({
+        title: "Enable Embelshment work",
+        description: "Turn on Embelshment work to save the dashboard form.",
+      });
+      return;
+    }
+
     setCreatingJobKey(row.key);
     try {
+      await persistEmbellishmentForRow(row, embellishmentPayload);
+      toast({
+        title: "Embelshment details saved",
+        description: `Saved ${row.vasName} with total time ${embellishmentPayload.totalTime} min and charge ${embellishmentPayload.chargeAmount}.`,
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Save failed",
+        description: (error as Error).message,
+      });
+    } finally {
+      setCreatingJobKey(null);
+    }
+  };
+
+  const handleSubmitCreateJobs = async () => {
+    const row = createJobDialog.row;
+    if (!row) return;
+    const qty = Number(row.qty) || 1;
+    let embellishmentPayload: StoredEmbellishment | undefined;
+
+    if (createJobDialog.embellishmentEnabled) {
+      embellishmentPayload = getValidatedEmbellishmentPayload() || undefined;
+      if (embellishmentPayload === undefined && createJobDialog.embellishmentEnabled) {
+        return;
+      }
+    }
+
+    setCreatingJobKey(row.key);
+    try {
+      if (embellishmentPayload) {
+        await persistEmbellishmentForRow(row, embellishmentPayload);
+      }
+
       const createRes = await fetch("/api/pms/createOrder", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1364,6 +2119,7 @@ export default function PmsPage() {
           orderId: row.orderId,
           productId: row.matchedProductId,
           qty,
+          embellishment: embellishmentPayload,
         }),
       });
       const createData = await createRes.json().catch(() => ({}));
@@ -1379,8 +2135,11 @@ export default function PmsPage() {
 
       toast({
         title: "PMS jobs created",
-        description: `Scheduled ${row.vasName} (Qty: ${qty}).`,
+        description: embellishmentPayload
+          ? `Scheduled ${row.vasName} with Embelshment work (Total Time: ${embellishmentPayload.totalTime} min, Charge: ${embellishmentPayload.chargeAmount}).`
+          : `Scheduled ${row.vasName} (Qty: ${qty}).`,
       });
+      handleCloseCreateJobDialog();
     } catch (error) {
       toast({
         variant: "destructive",
@@ -1416,7 +2175,15 @@ export default function PmsPage() {
       return;
     setResettingAutopilot(true);
     try {
-      const jobGroupMap = new Map<string, { orderId: string; productId: string; qty: number }>();
+      const jobGroupMap = new Map<
+        string,
+        {
+          orderId: string;
+          productId: string;
+          qty: number;
+          embellishment?: StoredEmbellishment;
+        }
+      >();
       let skipped = 0;
       liveVasRowsAll.forEach((row) => {
         if (!row.matchedProductId) {
@@ -1428,8 +2195,16 @@ export default function PmsPage() {
         const existing = jobGroupMap.get(key);
         if (existing) {
           existing.qty += qty;
+          if (!existing.embellishment && row.embellishment?.enabled) {
+            existing.embellishment = row.embellishment;
+          }
         } else {
-          jobGroupMap.set(key, { orderId: row.orderId, productId: row.matchedProductId, qty });
+          jobGroupMap.set(key, {
+            orderId: row.orderId,
+            productId: row.matchedProductId,
+            qty,
+            embellishment: row.embellishment?.enabled ? row.embellishment : undefined,
+          });
         }
       });
 
@@ -1455,6 +2230,7 @@ export default function PmsPage() {
               orderId: group.orderId,
               productId: group.productId,
               qty: group.qty,
+              embellishment: group.embellishment,
             }),
           });
           const createData = await createRes.json().catch(() => ({}));
@@ -1922,6 +2698,33 @@ export default function PmsPage() {
     toast({ title: "✓ Product added successfully" });
   };
 
+  const handleAddCategory = async () => {
+    const categoryName = newCategoryName.trim();
+    if (!categoryName) {
+      toast({ variant: "destructive", title: "Category name is required." });
+      return;
+    }
+
+    const normalized = normalizeText(categoryName);
+    const existing = categories.some((category) => normalizeText(category) === normalized);
+    if (existing) {
+      setNewProduct((prev) => ({ ...prev, category: categoryName }));
+      setNewCategoryName("");
+      toast({ title: "Category already exists", description: "Selected the existing category." });
+      return;
+    }
+
+    await addDoc(collection(db, "pmsCategories"), {
+      name: categoryName,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    setNewProduct((prev) => ({ ...prev, category: categoryName }));
+    setNewCategoryName("");
+    toast({ title: "âœ“ Category added successfully" });
+  };
+
   const handleDeleteProduct = async (id: string) => {
     const relatedRouting = routing.filter((r) => r.productId === id);
     if (relatedRouting.length > 0) {
@@ -1952,23 +2755,63 @@ export default function PmsPage() {
     ]);
   };
 
+  const handleStartRoutingCreation = (productId: string) => {
+    setSelectedProductId(productId);
+    setRoutingRows((prev) => {
+      const savedRows = routing
+        .filter((row) => row.productId === productId)
+        .sort((a, b) => a.stepNo - b.stepNo);
+      if (savedRows.length) return savedRows;
+
+      const localRows = prev
+        .filter((row) => row.productId === productId && String(row.id || "").startsWith("local-"))
+        .sort((a, b) => a.stepNo - b.stepNo);
+      if (localRows.length) return localRows;
+
+      return [
+        {
+          id: `local-${Date.now()}`,
+          productId,
+          stepNo: 1,
+          process: "",
+          cycleMinutes: 0,
+          ops: 1,
+        },
+      ];
+    });
+  };
+
+  const handleQuickAddRoutingProcesses = (processes: readonly string[]) => {
+    if (!selectedProductId) return;
+    setRoutingRows((prev) => appendRoutingProcesses(prev, selectedProductId, processes));
+  };
+
   const handleSaveRouting = async () => {
     if (!selectedProductId) return;
-    const stepNos = routingRows.map((row) => row.stepNo);
+    const rowsToSave = appendRoutingProcesses(
+      routingRows,
+      selectedProductId,
+      REQUIRED_ROUTING_FINISH_STEPS
+    );
+    if (rowsToSave.length !== routingRows.length) {
+      setRoutingRows(rowsToSave);
+    }
+
+    const stepNos = rowsToSave.map((row) => row.stepNo);
     const uniqueSteps = new Set(stepNos);
     if (uniqueSteps.size !== stepNos.length) {
       toast({ variant: "destructive", title: "Step numbers must be unique." });
       return;
     }
-    const sorted = [...routingRows].sort((a, b) => a.stepNo - b.stepNo);
+    const sorted = [...rowsToSave].sort((a, b) => a.stepNo - b.stepNo);
 
-    const isAscending = routingRows.every((row, idx) => row.stepNo === sorted[idx]?.stepNo);
+    const isAscending = rowsToSave.every((row, idx) => row.stepNo === sorted[idx]?.stepNo);
     if (!isAscending) {
       toast({ variant: "destructive", title: "Step numbers must be in ascending order." });
       return;
     }
 
-    const invalidRow = routingRows.find((row) => row.cycleMinutes <= 0 || row.ops <= 0 || !row.process);
+    const invalidRow = rowsToSave.find((row) => row.cycleMinutes <= 0 || row.ops <= 0 || !row.process);
     if (invalidRow) {
       toast({ variant: "destructive", title: "All fields are required and must be positive." });
       return;
@@ -1976,9 +2819,9 @@ export default function PmsPage() {
 
     setSavingRouting(true);
     const existing = routing.filter((row) => row.productId === selectedProductId);
-    const keepIds = new Set(routingRows.map((row) => `${selectedProductId}_${row.stepNo}`));
+    const keepIds = new Set(rowsToSave.map((row) => `${selectedProductId}_${row.stepNo}`));
 
-    const updates = routingRows.map((row) => {
+    const updates = rowsToSave.map((row) => {
       const id = `${selectedProductId}_${row.stepNo}`;
       return setDoc(
         doc(db, "routing", id),
@@ -2434,21 +3277,21 @@ const getGroupedSkills = () => {
 
   return (
     <TooltipProvider>
-      <div className="container mx-auto p-4 md:p-6 space-y-4 max-w-[1800px]">
-
-        {/* ── COMMAND HEADER ─────────────────────────────────────────────────── */}
-        <div className="rounded-2xl border-2 border-slate-800 bg-slate-900 text-white p-5 space-y-4">
-          {/* Title row */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10">
-                <Cpu className="h-5 w-5 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight leading-none">PMS Control Center</h1>
-                <p className="text-slate-400 text-xs mt-0.5">Production Management System — Admin Mode</p>
-              </div>
+      <div className="p-6 space-y-6 w-full">
+        {/* Header with Stats */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-4xl font-bold tracking-tight">PMS Control Center</h1>
+              <p className="text-muted-foreground mt-1">
+                Production Management System configuration and analytics
+              </p>
             </div>
+            <Badge variant="outline" className="text-sm px-4 py-2">
+              <Settings2 className="mr-2 h-4 w-4" />
+              Admin Mode
+            </Badge>
+          </div>
 
             {/* Autopilot actions */}
             <div className="flex flex-wrap items-center gap-2">
@@ -2568,308 +3411,291 @@ const getGroupedSkills = () => {
                 </Button>
                 <p className="text-[10px] text-slate-500 self-end pb-1">IST (UTC+05:30) · offset {workingHours.timezoneOffsetMinutes}m</p>
               </div>
-            )}
-          </div>
+              <div className="text-xs text-muted-foreground">
+                Scheduling timezone: IST (UTC+05:30). Stored offset: {workingHours.timezoneOffsetMinutes} minutes.
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
-        <Tabs defaultValue="live" className="space-y-4">
-          <div className="overflow-x-auto">
-            <TabsList className="inline-flex h-10 gap-0.5 p-1 rounded-xl bg-muted min-w-max">
-              <TabsTrigger value="live" className="rounded-lg gap-1.5 text-xs px-3 data-[state=active]:bg-background data-[state=active]:shadow">
-                <Activity className="h-3.5 w-3.5" />
-                Live VAS
-                {liveStats.inProgress > 0 && (
-                  <span className="ml-1 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[9px] font-bold text-white leading-none">
-                    {liveStats.inProgress}
-                  </span>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="work-status" className="rounded-lg gap-1.5 text-xs px-3 data-[state=active]:bg-background data-[state=active]:shadow">
-                <BarChart2 className="h-3.5 w-3.5" />
-                Work Status
-              </TabsTrigger>
-              <TabsTrigger value="work" className="rounded-lg gap-1.5 text-xs px-3 data-[state=active]:bg-background data-[state=active]:shadow">
-                <ListChecks className="h-3.5 w-3.5" />
-                Work Detail
-              </TabsTrigger>
-              <TabsTrigger value="routing" className="rounded-lg gap-1.5 text-xs px-3 data-[state=active]:bg-background data-[state=active]:shadow">
-                <Package className="h-3.5 w-3.5" />
-                Routing
-              </TabsTrigger>
-              <TabsTrigger value="machines" className="rounded-lg gap-1.5 text-xs px-3 data-[state=active]:bg-background data-[state=active]:shadow">
-                <Settings2 className="h-3.5 w-3.5" />
-                Machines
-              </TabsTrigger>
-              <TabsTrigger value="people" className="rounded-lg gap-1.5 text-xs px-3 data-[state=active]:bg-background data-[state=active]:shadow">
-                <UserCheck className="h-3.5 w-3.5" />
-                People
-              </TabsTrigger>
-              <TabsTrigger value="skills" className="rounded-lg gap-1.5 text-xs px-3 data-[state=active]:bg-background data-[state=active]:shadow">
-                <Users className="h-3.5 w-3.5" />
-                Skills
-              </TabsTrigger>
-              <TabsTrigger value="downtime" className="rounded-lg gap-1.5 text-xs px-3 data-[state=active]:bg-background data-[state=active]:shadow">
-                <Clock className="h-3.5 w-3.5" />
-                Downtime
-                {stats.downtimeEvents > 0 && (
-                  <span className="ml-1 rounded-full bg-orange-500 px-1.5 py-0.5 text-[9px] font-bold text-white leading-none">
-                    {stats.downtimeEvents}
-                  </span>
-                )}
-              </TabsTrigger>
-            </TabsList>
-          </div>
-
-          {/* WORK STATUS TAB */}
-          {/* WORK STATUS TAB */}
-          <TabsContent value="work-status" className="space-y-4">
-            <WorkStatusPanel workStatusData={workStatusData} formatDateTime={formatDateTime} />
-          </TabsContent>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+          <TabsList className="grid w-full max-w-6xl grid-cols-4 md:grid-cols-8">
+            <TabsTrigger value="live" className="gap-2">
+              <Eye className="h-4 w-4" />
+              Live VAS
+            </TabsTrigger>
+            <TabsTrigger value="status" className="gap-2">
+              <TrendingUp className="h-4 w-4" />
+              Work Status
+            </TabsTrigger>
+            <TabsTrigger value="work" className="gap-2">
+              <ListChecks className="h-4 w-4" />
+              Work Detail
+            </TabsTrigger>
+            <TabsTrigger value="embellishment" className="gap-2">
+              <Check className="h-4 w-4" />
+              Embelshment
+            </TabsTrigger>
+            <TabsTrigger value="routing" className="gap-2">
+              <Package className="h-4 w-4" />
+              Routing
+            </TabsTrigger>
+            <TabsTrigger value="machines" className="gap-2">
+              <Settings2 className="h-4 w-4" />
+              Machines
+            </TabsTrigger>
+            <TabsTrigger value="skills" className="gap-2">
+              <Users className="h-4 w-4" />
+              Skills
+            </TabsTrigger>
+            <TabsTrigger value="downtime" className="gap-2">
+              <Clock className="h-4 w-4" />
+              Downtime
+            </TabsTrigger>
+          </TabsList>
 
           {/* LIVE VAS TAB */}
-          <TabsContent value="live" className="space-y-3">
-            {/* Search + Filter Bar */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="relative w-full sm:w-72">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  className="pl-9"
-                  placeholder="Search order / customer / VAS..."
-                  value={vasSearch}
-                  onChange={(e) => setVasSearch(e.target.value)}
-                />
-              </div>
-
-              {/* Status filter pills */}
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  { key: "ALL", label: "All", count: liveStats.totalItems, cls: "bg-slate-100 text-slate-700 hover:bg-slate-200 data-[active=true]:bg-slate-700 data-[active=true]:text-white" },
-                  { key: "IN_PROGRESS", label: "In Progress", count: liveStats.inProgress, cls: "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 data-[active=true]:bg-emerald-600 data-[active=true]:text-white" },
-                  { key: "PLANNED", label: "Planned", count: liveStats.planned, cls: "bg-blue-50 text-blue-700 hover:bg-blue-100 data-[active=true]:bg-blue-600 data-[active=true]:text-white" },
-                  { key: "WAITING", label: "Waiting", count: liveStats.waiting, cls: "bg-amber-50 text-amber-700 hover:bg-amber-100 data-[active=true]:bg-amber-500 data-[active=true]:text-white" },
-                  { key: "DONE", label: "Done", count: liveStats.done, cls: "bg-slate-50 text-slate-500 hover:bg-slate-100 data-[active=true]:bg-slate-500 data-[active=true]:text-white" },
-                  { key: "EMERGENCY", label: "Emergency", count: liveStats.emergency, cls: "bg-red-50 text-red-700 hover:bg-red-100 data-[active=true]:bg-red-600 data-[active=true]:text-white" },
-                ].map((f) => (
-                  <button
-                    key={f.key}
-                    data-active={vasStatusFilter === f.key}
-                    onClick={() => setVasStatusFilter(f.key)}
-                    className={cn(
-                      "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-all focus:outline-none",
-                      "border-transparent",
-                      f.cls
-                    )}
-                  >
-                    {f.label}
-                    <span className="rounded-full bg-black/10 px-1.5 py-0.5 text-[10px] font-bold tabular-nums leading-none">
-                      {f.count}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Table */}
+          <TabsContent value="live" className="space-y-4">
             <Card>
-              <CardContent className="p-0">
-                <div className="overflow-x-auto rounded-xl">
+              <CardHeader>
+                <CardTitle>Live VAS Tracker</CardTitle>
+                <CardDescription>
+                  Real-time view of VAS work, current processing, and upcoming steps with ETA.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="secondary">Total: {liveStats.totalItems}</Badge>
+                    <Badge className="bg-emerald-600 hover:bg-emerald-600">In Progress: {liveStats.inProgress}</Badge>
+                    <Badge className="bg-blue-600 hover:bg-blue-600">Planned: {liveStats.planned}</Badge>
+                    <Badge className="bg-amber-500 hover:bg-amber-500">Waiting: {liveStats.waiting}</Badge>
+                    <Badge className="bg-red-600 hover:bg-red-600">Emergency: {liveStats.emergency}</Badge>
+                    <Badge variant="outline">Done: {liveStats.done}</Badge>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Search className="h-4 w-4 text-muted-foreground" />
+                    <Input
+                      className="w-full md:w-64"
+                      placeholder="Search order id / name / BCN / barcode..."
+                      value={vasSearch}
+                      onChange={(event) => setVasSearch(event.target.value)}
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleRunAutopilot}
+                      disabled={
+                        runningAutopilot ||
+                        runningPriorityReplan ||
+                        resettingAutopilot ||
+                        Boolean(priorityUpdatingOrderId) ||
+                        Boolean(deletingPlanKey)
+                      }
+                    >
+                      {runningAutopilot && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Run Autopilot
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={handleRunPriorityReplan}
+                      disabled={
+                        runningAutopilot ||
+                        runningPriorityReplan ||
+                        resettingAutopilot ||
+                        Boolean(priorityUpdatingOrderId) ||
+                        Boolean(deletingPlanKey)
+                      }
+                    >
+                      {runningPriorityReplan && (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      )}
+                      Priority Replan
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => setResetAutopilotDialogOpen(true)}
+                      disabled={
+                        runningAutopilot ||
+                        runningPriorityReplan ||
+                        resettingAutopilot ||
+                        Boolean(priorityUpdatingOrderId) ||
+                        Boolean(deletingPlanKey)
+                      }
+                    >
+                      {resettingAutopilot && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Reset & Rerun
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto rounded-md border">
                   <Table>
                     <TableHeader>
-                      <TableRow className="bg-muted/40 hover:bg-muted/40">
-                        <TableHead className="text-[11px] uppercase tracking-wide pl-4">Order</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">Customer</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">VAS Item</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide text-center">Qty</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">PMS Product</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">Status</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">Priority</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">Current Step</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">Machine</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">Person</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">Planned Start</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">ETA / Queue</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">Last Update</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">Reason</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide text-right pr-4">Actions</TableHead>
+                      <TableRow>
+                        <TableHead>Order No</TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>VAS Item</TableHead>
+                        <TableHead>Qty</TableHead>
+                        <TableHead>PMS Product</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Priority</TableHead>
+                        <TableHead>Current Step</TableHead>
+                        <TableHead>Machine</TableHead>
+                        <TableHead>Person</TableHead>
+                        <TableHead>Production Start</TableHead>
+                        <TableHead>Production Complete</TableHead>
+                        <TableHead>Not Scheduled Reason</TableHead>
+                        <TableHead className="min-w-[260px] text-right">Action</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {liveVasRowsFiltered.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={15} className="h-28 text-center">
-                            <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                              <Activity className="h-8 w-8 opacity-30" />
-                              <p className="text-sm font-medium">No VAS items match this filter</p>
-                              <button onClick={() => setVasStatusFilter("ALL")} className="text-xs text-blue-500 hover:underline">Show all</button>
-                            </div>
+                          <TableCell colSpan={14} className="h-24 text-center text-muted-foreground">
+                            No VAS items are active right now.
                           </TableCell>
                         </TableRow>
                       ) : (
-                        liveVasRowsFiltered.map((row) => {
-                          const statusBorderColor =
-                            row.isEmergency ? "border-l-red-500" :
-                            row.status === "IN_PROGRESS" ? "border-l-emerald-500" :
-                            row.status === "PLANNED" ? "border-l-blue-500" :
-                            row.status === "WAITING" ? "border-l-amber-400" :
-                            row.status === "DONE" ? "border-l-slate-300" : "border-l-transparent";
-
-                          return (
-                            <TableRow key={row.key} className={cn(
-                              "border-l-[3px] hover:bg-muted/30 transition-colors",
-                              statusBorderColor,
-                              row.isEmergency && "bg-red-50/40"
-                            )}>
-                              <TableCell className="font-bold text-sm pl-4 whitespace-nowrap">
-                                {row.orderNo}
-                                {row.isEmergency && (
-                                  <span className="ml-1.5 inline-flex items-center rounded-full bg-red-100 px-1.5 py-0.5 text-[9px] font-bold text-red-700 animate-pulse">!!</span>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-sm max-w-[140px] truncate" title={row.customer}>{row.customer}</TableCell>
-                              <TableCell>
-                                <div>
-                                  <div className="font-medium text-sm leading-tight">{row.vasName}</div>
-                                  {row.group && row.group !== "-" && (
-                                    <div className="text-[10px] text-muted-foreground">{row.group}</div>
+                        liveVasRows.map((row) => (
+                          <TableRow key={row.key}>
+                            <TableCell className="font-medium">{row.orderNo}</TableCell>
+                            <TableCell>{row.customer}</TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="font-medium">{row.vasName}</div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <div className="text-xs text-muted-foreground">{row.group}</div>
+                                  {row.embellishment?.enabled && (
+                                    <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+                                      Embelshment work
+                                    </Badge>
                                   )}
                                 </div>
-                              </TableCell>
-                              <TableCell className="text-center font-mono text-sm">{row.qty}</TableCell>
-                              <TableCell>
-                                {row.matchedProductName ? (
-                                  <span className="text-sm font-medium">{row.matchedProductName}</span>
-                                ) : (
-                                  <span className="text-xs text-destructive font-medium">No match</span>
+                              </div>
+                            </TableCell>
+                            <TableCell>{row.qty}</TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="font-medium">{row.matchedProductName || "No match"}</div>
+                                {!row.matchedProductName && (
+                                  <div className="text-xs text-muted-foreground">Create PMS product</div>
                                 )}
-                              </TableCell>
-                              <TableCell>
-                                <span className={cn(
-                                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold",
-                                  row.status === "IN_PROGRESS" && "bg-emerald-100 text-emerald-700",
-                                  row.status === "PLANNED" && "bg-blue-100 text-blue-700",
-                                  row.status === "WAITING" && "bg-amber-100 text-amber-700",
-                                  row.status === "DONE" && "bg-slate-100 text-slate-600"
-                                )}>
-                                  {row.status === "IN_PROGRESS" && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />}
-                                  {row.status.replace("_", " ")}
-                                </span>
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant={row.isEmergency ? "destructive" : "secondary"}
-                                  className={cn(
-                                    "text-xs",
-                                    row.isEmergency && "animate-pulse",
-                                    !row.isEmergency && row.orderPriority <= 0 && "bg-orange-100 text-orange-700 hover:bg-orange-100",
-                                    !row.isEmergency && row.orderPriority > 0 && row.priorityLabel === "Normal" && "bg-slate-100 text-slate-600 hover:bg-slate-100"
-                                  )}
-                                >
-                                  {row.priorityLabel}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="text-sm max-w-[160px]">
-                                <span className="font-medium">{row.currentProcess}</span>
-                              </TableCell>
-                              <TableCell className="text-sm">
-                                {row.machineName !== "TBD" ? (
-                                  <span className="font-medium">{row.machineName}</span>
-                                ) : (
-                                  <span className="text-muted-foreground text-xs">TBD</span>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-sm">
-                                {row.personName !== "TBD" ? (
-                                  <span>{row.personName}</span>
-                                ) : (
-                                  <span className="text-muted-foreground text-xs">TBD</span>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-xs tabular-nums text-muted-foreground whitespace-nowrap">
-                                {formatDateTime(row.plannedStart)}
-                              </TableCell>
-                              <TableCell className="text-xs tabular-nums whitespace-nowrap">
-                                <div className="space-y-0.5">
-                                  <div className={row.eta ? "text-muted-foreground" : "text-muted-foreground/40"}>
-                                    {formatDateTime(row.eta) || "—"}
-                                  </div>
-                                  {row.status === "PLANNED" && row.plannedStart && (
-                                    <div className="text-[10px] font-medium text-amber-600">
-                                      {getQueueDelayLabel(row.plannedStart)}
+                                {row.matchedProductId && !row.hasRouting && (
+                                  <div className="space-y-1">
+                                    <div className="text-xs font-medium text-amber-600">
+                                      Routing not created yet
                                     </div>
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-xs tabular-nums text-muted-foreground whitespace-nowrap">
-                                {formatDateTime(row.lastUpdate) || "—"}
-                              </TableCell>
-                              <TableCell className="text-xs max-w-[120px]">
-                                {row.noPlanReason ? (
-                                  <Tooltip>
-                                    <TooltipTrigger>
-                                      <span className="text-amber-600 font-medium truncate block max-w-[110px]">{row.noPlanReason}</span>
-                                    </TooltipTrigger>
-                                    <TooltipContent>{row.noPlanReason}</TooltipContent>
-                                  </Tooltip>
-                                ) : (
-                                  <span className="text-muted-foreground">—</span>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-right pr-4">
-                                <div className="flex justify-end gap-1.5">
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
+                                    {role === "admin" && (
                                       <Button
                                         size="sm"
-                                        variant={row.hasJobsForProduct ? "secondary" : "outline"}
+                                        variant="secondary"
                                         className="h-7 px-2 text-xs"
-                                        disabled={
-                                          creatingJobKey === row.key || row.hasJobsForProduct ||
-                                          !row.matchedProductId || !row.invoiceReady ||
-                                          resettingAutopilot || runningAutopilot ||
-                                          runningPriorityReplan || Boolean(deletingPlanKey)
-                                        }
-                                        onClick={() => handleCreateJobsForRow(row)}
+                                        onClick={() => handleOpenRoutingSetup(row.matchedProductId)}
                                       >
-                                        {creatingJobKey === row.key ? <Loader2 className="h-3 w-3 animate-spin" /> :
-                                         row.hasJobsForProduct ? <Check className="h-3 w-3" /> :
-                                         <PlayCircle className="h-3 w-3" />}
+                                        Create Routing
                                       </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      {row.hasJobsForProduct ? "Jobs already created" : !row.invoiceReady ? "Invoice required" : !row.matchedProductId ? "No PMS product match" : "Create PMS Jobs"}
-                                    </TooltipContent>
-                                  </Tooltip>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        size="sm"
-                                        variant={row.isEmergency ? "outline" : "ghost"}
-                                        className={cn("h-7 px-2 text-xs", !row.isEmergency && "text-muted-foreground hover:text-destructive")}
-                                        disabled={
-                                          priorityUpdatingOrderId === row.orderId ||
-                                          runningAutopilot || runningPriorityReplan ||
-                                          resettingAutopilot || Boolean(deletingPlanKey)
-                                        }
-                                        onClick={() => handleSetOrderEmergencyPriority(row.orderId, !row.isEmergency)}
-                                      >
-                                        {priorityUpdatingOrderId === row.orderId ? (
-                                          <Loader2 className="h-3 w-3 animate-spin" />
-                                        ) : row.isEmergency ? (
-                                          <X className="h-3 w-3" />
-                                        ) : (
-                                          <Zap className="h-3 w-3" />
-                                        )}
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      {row.isEmergency ? "Clear Emergency" : "Mark as Emergency"}
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                className={cn(
+                                  row.status === "IN_PROGRESS" && "bg-emerald-600 hover:bg-emerald-600",
+                                  row.status === "PLANNED" && "bg-blue-600 hover:bg-blue-600",
+                                  row.status === "WAITING" && "bg-amber-500 hover:bg-amber-500",
+                                  row.status === "DONE" && "bg-slate-500 hover:bg-slate-500"
+                                )}
+                              >
+                                {row.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={row.isEmergency ? "destructive" : "secondary"}
+                                className={cn(
+                                  row.isEmergency && "animate-pulse",
+                                  !row.isEmergency &&
+                                    row.orderPriority <= 0 &&
+                                    "bg-orange-100 text-orange-700 hover:bg-orange-100",
+                                  !row.isEmergency &&
+                                    row.orderPriority > 0 &&
+                                    "bg-slate-100 text-slate-700 hover:bg-slate-100"
+                                )}
+                              >
+                                {row.priorityLabel}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{row.currentProcess}</TableCell>
+                            <TableCell>{row.machineName}</TableCell>
+                            <TableCell>{row.personName}</TableCell>
+                            <TableCell>{formatDateTime(row.plannedStart)}</TableCell>
+                            <TableCell>{formatDateTime(row.eta)}</TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div>{row.noPlanReason || "-"}</div>
+                                {row.matchedProductId && !row.hasRouting && role === "admin" && (
+                                  <div className="text-xs text-amber-600">
+                                    Admin suggestion: create routing for this product.
+                                  </div>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2 whitespace-nowrap">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="shrink-0 whitespace-nowrap"
+                                  disabled={
+                                    creatingJobKey === row.key ||
+                                    row.hasJobsForProduct ||
+                                    !row.matchedProductId ||
+                                    !row.hasRouting ||
+                                    !row.invoiceReady ||
+                                    resettingAutopilot ||
+                                    runningAutopilot ||
+                                    runningPriorityReplan ||
+                                    Boolean(deletingPlanKey)
+                                  }
+                                  onClick={() => handleOpenCreateJobDialog(row)}
+                                >
+                                  {row.hasJobsForProduct
+                                    ? "Jobs Created"
+                                    : creatingJobKey === row.key
+                                    ? "Creating..."
+                                    : row.embellishment?.enabled
+                                    ? "Create Jobs"
+                                    : "Create Jobs"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant={row.isEmergency ? "outline" : "destructive"}
+                                  className="min-w-[150px] shrink-0 whitespace-nowrap"
+                                  disabled={
+                                    priorityUpdatingOrderId === row.orderId ||
+                                    runningAutopilot ||
+                                    runningPriorityReplan ||
+                                    resettingAutopilot ||
+                                    Boolean(deletingPlanKey)
+                                  }
+                                  onClick={() =>
+                                    handleSetOrderEmergencyPriority(row.orderId, !row.isEmergency)
+                                  }
+                                >
+                                  {priorityUpdatingOrderId === row.orderId && (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  )}
+                                  {row.isEmergency ? "Clear Emergency" : "Mark Emergency"}
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
                       )}
                     </TableBody>
                   </Table>
@@ -2887,69 +3713,563 @@ const getGroupedSkills = () => {
             </Card>
           </TabsContent>
 
-          {/* WORK DETAIL TAB */}
-          <TabsContent value="work" className="space-y-3">
-            {/* Summary strip */}
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              {[
-                { label: "In Progress", val: workDetailRows.filter(r => r.status === "IN_PROGRESS").length, cls: "bg-emerald-100 text-emerald-700 border-emerald-200" },
-                { label: "Planned", val: workDetailRows.filter(r => r.status === "PLANNED").length, cls: "bg-blue-100 text-blue-700 border-blue-200" },
-                { label: "Waiting", val: workDetailRows.filter(r => r.status === "WAITING").length, cls: "bg-amber-100 text-amber-700 border-amber-200" },
-                { label: "Total", val: workDetailRows.length, cls: "bg-slate-100 text-slate-700 border-slate-200" },
-              ].map(s => (
-                <span key={s.label} className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-0.5 text-xs font-semibold", s.cls)}>
-                  {s.label}: <span className="tabular-nums font-extrabold">{s.val}</span>
-                </span>
-              ))}
+          <TabsContent value="status" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Work Status</CardTitle>
+                <CardDescription>
+                  Dashboard summary of active PMS orders, step progress, and Embelshment readiness.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center gap-2">
+                  <Search className="h-4 w-4 text-muted-foreground" />
+                  <Input
+                    className="w-full md:w-80"
+                    placeholder="Search order id / name / BCN / barcode..."
+                    value={statusSearch}
+                    onChange={(event) => setStatusSearch(event.target.value)}
+                  />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-7">
+                  <Card className="border-slate-300 bg-slate-900 text-white">
+                    <CardContent className="space-y-3 p-5">
+                      <div className="flex items-center justify-between">
+                        <Package className="h-5 w-5 text-slate-200" />
+                        <div className="text-4xl font-bold">{workStatusSummary.totalOrders}</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-semibold">Total Orders</div>
+                        <div className="text-sm text-slate-300">all active orders</div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-amber-200 bg-amber-50">
+                    <CardContent className="space-y-3 p-5">
+                      <div className="flex items-center justify-between">
+                        <Clock className="h-5 w-5 text-amber-500" />
+                        <div className="text-4xl font-bold text-amber-600">{workStatusSummary.pending}</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-semibold text-amber-700">Pending</div>
+                        <div className="text-sm text-amber-600">waiting to start</div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-emerald-200 bg-emerald-50">
+                    <CardContent className="space-y-3 p-5">
+                      <div className="flex items-center justify-between">
+                        <TrendingUp className="h-5 w-5 text-emerald-500" />
+                        <div className="text-4xl font-bold text-emerald-600">
+                          {workStatusSummary.machineRunning}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-semibold text-emerald-700">Machine Running</div>
+                        <div className="text-sm text-emerald-600">in production now</div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-blue-200 bg-blue-50">
+                    <CardContent className="space-y-3 p-5">
+                      <div className="flex items-center justify-between">
+                        <Check className="h-5 w-5 text-blue-500" />
+                        <div className="text-4xl font-bold text-blue-600">{workStatusSummary.qcPending}</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-semibold text-blue-700">Qc Pending</div>
+                        <div className="text-sm text-blue-600">awaiting quality check</div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-orange-200 bg-orange-50">
+                    <CardContent className="space-y-3 p-5">
+                      <div className="flex items-center justify-between">
+                        <Package className="h-5 w-5 text-orange-500" />
+                        <div className="text-4xl font-bold text-orange-600">
+                          {workStatusSummary.dispatchReady}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-semibold text-orange-700">Dispatch ready</div>
+                        <div className="text-sm text-orange-600">ready to ship</div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-green-200 bg-green-50">
+                    <CardContent className="space-y-3 p-5">
+                      <div className="flex items-center justify-between">
+                        <Check className="h-5 w-5 text-green-500" />
+                        <div className="text-4xl font-bold text-green-600">
+                          {workStatusSummary.completed}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-semibold text-green-700">Completed</div>
+                        <div className="text-sm text-green-600">fully completed</div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-fuchsia-200 bg-fuchsia-50">
+                    <CardContent className="space-y-3 p-5">
+                      <div className="flex items-center justify-between">
+                        <Check className="h-5 w-5 text-fuchsia-500" />
+                        <div className="text-4xl font-bold text-fuchsia-600">
+                          {workStatusSummary.embellishment}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-semibold text-fuchsia-700">Embelshment</div>
+                        <div className="text-sm text-fuchsia-600">work enabled</div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="overflow-x-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Order</TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>VAS Item</TableHead>
+                        <TableHead>Stage</TableHead>
+                        <TableHead>Job Statuses</TableHead>
+                        <TableHead>Progress</TableHead>
+                        <TableHead>Last Update</TableHead>
+                        <TableHead>Embelshment</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredWorkStatusRows.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                            No PMS work status rows found.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        filteredWorkStatusRows.map((row) => (
+                          <TableRow key={`status-${row.key}`}>
+                            <TableCell className="font-medium">{row.orderNo}</TableCell>
+                            <TableCell>{row.customer}</TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="font-medium">{row.vasName}</div>
+                                <div className="text-xs text-muted-foreground">{row.productName}</div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                className={cn(
+                                  row.stage === "Machine Running" &&
+                                    "bg-emerald-100 text-emerald-700 hover:bg-emerald-100",
+                                  row.stage === "Pending" &&
+                                    "bg-amber-100 text-amber-700 hover:bg-amber-100",
+                                  row.stage === "Completed" &&
+                                    "bg-green-100 text-green-700 hover:bg-green-100"
+                                )}
+                              >
+                                {row.stage}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-2">
+                                {row.jobStatuses.map((status) => (
+                                  <Badge key={`${row.key}-${status}`} variant="outline">
+                                    {status}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </TableCell>
+                            <TableCell className="min-w-[180px]">
+                              <div className="space-y-2">
+                                <div className="text-sm text-muted-foreground">
+                                  {row.doneSteps}/{row.totalSteps} steps
+                                </div>
+                                <div className="h-2 rounded-full bg-muted">
+                                  <div
+                                    className="h-2 rounded-full bg-emerald-500 transition-all"
+                                    style={{ width: `${row.progressPercent}%` }}
+                                  />
+                                </div>
+                                <div className="text-sm font-medium text-emerald-600">
+                                  {row.progressPercent}%
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>{formatDateTime(row.lastUpdate)}</TableCell>
+                            <TableCell>
+                              {row.embellishment?.enabled ? (
+                                <div className="space-y-1">
+                                  <Badge variant="outline" className="border-fuchsia-300 text-fuchsia-700">
+                                    Embelshment work
+                                  </Badge>
+                                  <div className="text-xs text-muted-foreground">
+                                    Total Time: {row.embellishment.totalTime || 0} min
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-sm text-muted-foreground">No</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="embellishment" className="space-y-4">
+            <div className="grid gap-6 xl:grid-cols-[1.1fr_1fr]">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Embelshment Dashboard</CardTitle>
+                  <CardDescription>
+                    Select a VAS item and fill the Embelshment work form directly from the PMS dashboard.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Search className="h-4 w-4 text-muted-foreground" />
+                    <Input
+                      className="w-full md:w-80"
+                      placeholder="Search order id / name / BCN / barcode..."
+                      value={embellishmentSearch}
+                      onChange={(event) => setEmbellishmentSearch(event.target.value)}
+                    />
+                  </div>
+
+                  <div className="rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Order No</TableHead>
+                          <TableHead>Customer</TableHead>
+                          <TableHead>VAS Item</TableHead>
+                          <TableHead>PMS Product</TableHead>
+                          <TableHead>Status</TableHead>
+                        <TableHead className="min-w-[260px] text-right">Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredEmbellishmentRows.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                              No VAS items available for Embelshment work.
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          filteredEmbellishmentRows.map((row) => {
+                            const isSelected = createJobDialog.row?.key === row.key;
+                            return (
+                              <TableRow
+                                key={`embellishment-${row.key}`}
+                                className={cn(isSelected && "bg-primary/5")}
+                              >
+                                <TableCell className="font-medium">{row.orderNo}</TableCell>
+                                <TableCell>{row.customer}</TableCell>
+                                <TableCell>
+                                  <div className="space-y-1">
+                                    <div className="font-medium">{row.vasName}</div>
+                                    <div className="text-xs text-muted-foreground">{row.group}</div>
+                                  </div>
+                                </TableCell>
+                                <TableCell>{row.matchedProductName || "No match"}</TableCell>
+                                <TableCell>
+                                  <div className="flex flex-wrap gap-2">
+                                    <Badge variant="secondary">{row.status}</Badge>
+                                    {row.embellishment?.enabled && (
+                                      <Badge variant="outline">Filled</Badge>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button
+                                    size="sm"
+                                    variant={isSelected ? "secondary" : "outline"}
+                                    onClick={() => handleSelectEmbellishmentRow(row)}
+                                    disabled={!row.matchedProductId}
+                                  >
+                                    {isSelected ? "Selected" : "Open Form"}
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Embelshment Form</CardTitle>
+                  <CardDescription>
+                    {createJobDialog.row
+                      ? `Fill the form for ${createJobDialog.row.vasName} and save it on the dashboard.`
+                      : "Select a VAS item from the left side to open the form."}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {createJobDialog.row ? (
+                    <>
+                      <div className="grid gap-3 rounded-lg border p-4 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">Order:</span>{" "}
+                          <span className="font-medium">{createJobDialog.row.orderNo}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Customer:</span>{" "}
+                          <span className="font-medium">{createJobDialog.row.customer}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">PMS Product:</span>{" "}
+                          <span className="font-medium">
+                            {createJobDialog.row.matchedProductName || createJobDialog.row.matchedProductId}
+                          </span>
+                        </div>
+                      </div>
+
+                      {createJobDialog.row.matchedProductId && !createJobDialog.row.hasRouting && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                          Routing is not created for this PMS product yet.
+                          {role === "admin" ? " Create routing first, then create jobs." : " Ask admin to create routing first."}
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between rounded-lg border p-4">
+                        <div className="space-y-1">
+                          <div className="font-medium">Embelshment work</div>
+                          <p className="text-sm text-muted-foreground">
+                            Enable this condition to fill the dashboard form.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={createJobDialog.embellishmentEnabled}
+                          onCheckedChange={(checked) =>
+                            setCreateJobDialog((prev) => ({
+                              ...prev,
+                              embellishmentEnabled: checked,
+                              form:
+                                checked && prev.row
+                                  ? buildEmbellishmentForm(prev.row, prev.row.embellishment)
+                                  : prev.form,
+                            }))
+                          }
+                        />
+                      </div>
+
+                      {createJobDialog.embellishmentEnabled ? (
+                        <>
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label>Customer&apos;s Name</Label>
+                              <Input
+                                value={createJobDialog.form.customerName}
+                                onChange={(e) =>
+                                  handleCreateJobDialogFieldChange("customerName", e.target.value)
+                                }
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Customer Phone Number</Label>
+                              <Input
+                                value={createJobDialog.form.customerPhone}
+                                onChange={(e) =>
+                                  handleCreateJobDialogFieldChange("customerPhone", e.target.value)
+                                }
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Number of Windows</Label>
+                              <Input
+                                type="number"
+                                min="0"
+                                value={createJobDialog.form.numberOfWindows}
+                                onChange={(e) =>
+                                  handleCreateJobDialogFieldChange("numberOfWindows", e.target.value)
+                                }
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Number of Panel</Label>
+                              <Input
+                                type="number"
+                                min="0"
+                                value={createJobDialog.form.numberOfPanels}
+                                onChange={(e) =>
+                                  handleCreateJobDialogFieldChange("numberOfPanels", e.target.value)
+                                }
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Embelshment Barcode</Label>
+                              <Input
+                                value={createJobDialog.form.embellishmentBarcode}
+                                onChange={(e) =>
+                                  handleCreateJobDialogFieldChange(
+                                    "embellishmentBarcode",
+                                    e.target.value
+                                  )
+                                }
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Steaching Per Panel (min)</Label>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={createJobDialog.form.stitchingPerPanel}
+                                onChange={(e) =>
+                                  handleCreateJobDialogFieldChange("stitchingPerPanel", e.target.value)
+                                }
+                              />
+                            </div>
+                            <div className="space-y-2 md:col-span-2">
+                              <Label>Hand Work Time (min)</Label>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={createJobDialog.form.handWorkTime}
+                                onChange={(e) =>
+                                  handleCreateJobDialogFieldChange("handWorkTime", e.target.value)
+                                }
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid gap-3 rounded-lg bg-muted/40 p-4 text-sm md:grid-cols-2">
+                            <div>
+                              <div className="text-muted-foreground">Total Time (min)</div>
+                              <div className="text-lg font-semibold">{createJobTotals.totalMinutes} min</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Total Hours</div>
+                              <div className="text-lg font-semibold">{createJobTotals.totalHours} hr</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">1 Hour Charge</div>
+                              <div className="text-lg font-semibold">{createJobTotals.hourlyCharge}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Charge Amount</div>
+                              <div className="text-lg font-semibold">{createJobTotals.chargeAmount}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {createJobTotals.totalHours} hr x {createJobTotals.hourlyCharge}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              onClick={handleSaveEmbellishmentDetails}
+                              disabled={creatingJobKey === createJobDialog.row.key}
+                            >
+                              {creatingJobKey === createJobDialog.row.key && (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              )}
+                              Save Details
+                            </Button>
+                            <Button
+                              onClick={handleSubmitCreateJobs}
+                              disabled={
+                                creatingJobKey === createJobDialog.row.key ||
+                                createJobDialog.row.hasJobsForProduct ||
+                                !createJobDialog.row.hasRouting
+                              }
+                            >
+                              {creatingJobKey === createJobDialog.row.key && (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              )}
+                              {createJobDialog.row.hasJobsForProduct ? "Jobs Created" : "Save & Create Jobs"}
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+                          Turn on <span className="font-medium text-foreground">Embelshment work</span> to show the form fields here.
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
+                      Choose a VAS item from the dashboard list to open the Embelshment form.
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
+          </TabsContent>
+
+          {/* WORK DETAIL TAB */}
+          <TabsContent value="work" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Work Detail</CardTitle>
+                <CardDescription>
+                  Planned work queue by person, VAS item, and routing roadmap.
+                  Planned start time indicates the first available machine/person slot as per queue.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="secondary">Planned: {filteredWorkDetailRows.length}</Badge>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Search className="h-4 w-4 text-muted-foreground" />
+                    <Input
+                      className="w-full md:w-80"
+                      placeholder="Search order id / name / BCN / barcode..."
+                      value={workDetailSearch}
+                      onChange={(event) => setWorkDetailSearch(event.target.value)}
+                    />
+                  </div>
+                </div>
 
             <Card>
               <CardContent className="p-0">
                 <div className="overflow-x-auto rounded-xl">
                   <Table>
                     <TableHeader>
-                      <TableRow className="bg-muted/40 hover:bg-muted/40">
-                        <TableHead className="text-[11px] uppercase tracking-wide pl-4 w-8"></TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">Order</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">Customer</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">VAS / Product</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide text-center w-14">Qty</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">Progress</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">Current Step</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">Next Step</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">Assigned To</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-wide">Status</TableHead>
-                        <TableHead className="text-right text-[11px] uppercase tracking-wide pr-4">Actions</TableHead>
+                      <TableRow>
+                        <TableHead>Order No</TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>VAS Item</TableHead>
+                        <TableHead>Qty</TableHead>
+                        <TableHead>Current Step</TableHead>
+                        <TableHead>Next Step</TableHead>
+                        <TableHead>Person</TableHead>
+                        <TableHead>Machine</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {workDetailRows.length === 0 ? (
+                      {filteredWorkDetailRows.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={11} className="h-28 text-center">
-                            <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                              <ListChecks className="h-8 w-8 opacity-30" />
-                              <p className="text-sm font-medium">No planned work yet</p>
-                              <p className="text-xs">Run autopilot to schedule jobs</p>
-                            </div>
+                          <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
+                            No planned work yet.
                           </TableCell>
                         </TableRow>
                       ) : (
-                        workDetailRows.map((row) => {
-                          const isExpanded = Boolean(expandedWorkRows[row.key]);
-                          const canDeletePlan = (row.resetJobIds.length > 0 || row.resetPlanDocIds.length > 0) && row.status !== "IN_PROGRESS";
-                          const canManualDone = row.isFinalStep && row.status === "IN_PROGRESS" && Boolean(row.currentJobId);
-                          const doneSteps = row.routingSteps.filter(s => {
-                            const sp = row.stepPlanMap.get(s.stepNo);
-                            return String(sp?.status || (row.currentStepNo && s.stepNo < row.currentStepNo ? "DONE" : "")).toUpperCase() === "DONE";
-                          }).length;
-                          const totalSteps = row.routingSteps.length || row.totalSteps || 1;
-                          const progressPct = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
-
-                          const borderCls =
-                            row.status === "IN_PROGRESS" ? "border-l-emerald-500" :
-                            row.status === "PLANNED" ? "border-l-blue-400" :
-                            row.status === "WAITING" ? "border-l-amber-400" : "border-l-slate-200";
-
+                        filteredWorkDetailRows.map((row) => {
+                          const canDeletePlan =
+                            (row.resetJobIds.length > 0 || row.resetPlanDocIds.length > 0) &&
+                            row.status !== "IN_PROGRESS";
+                          const canManualDone =
+                            row.isFinalStep &&
+                            row.status === "IN_PROGRESS" &&
+                            Boolean(row.currentJobId);
                           return (
                             <Fragment key={row.key}>
                               <TableRow className={cn(
@@ -2966,14 +4286,20 @@ const getGroupedSkills = () => {
                                 <TableCell className="font-bold text-sm whitespace-nowrap">{row.orderNo}</TableCell>
                                 <TableCell className="text-sm max-w-[130px] truncate" title={row.customer}>{row.customer}</TableCell>
                                 <TableCell>
-                                  <div>
-                                    <div className="font-medium text-sm leading-tight">{row.vasName}</div>
-                                    <div className="text-[10px] text-muted-foreground">{row.productName}</div>
+                                  <div className="space-y-1">
+                                    <div className="font-medium">{row.vasName}</div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <div className="text-xs text-muted-foreground">{row.vasGroup}</div>
+                                      {row.embellishment?.enabled && (
+                                        <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+                                          Embelshment work
+                                        </Badge>
+                                      )}
+                                    </div>
                                   </div>
                                 </TableCell>
-                                <TableCell className="text-center font-mono text-sm">{row.qty}</TableCell>
-                                {/* Progress */}
-                                <TableCell className="min-w-[110px]">
+                                <TableCell>{row.qty}</TableCell>
+                                <TableCell>
                                   <div className="space-y-1">
                                     <div className="flex justify-between text-[10px]">
                                       <span className="text-muted-foreground">{doneSteps}/{totalSteps} steps</span>
@@ -2989,6 +4315,19 @@ const getGroupedSkills = () => {
                                         style={{ width: `${Math.max(progressPct > 0 ? 6 : 0, progressPct)}%` }}
                                       />
                                     </div>
+                                    {row.status === "PLANNED" && (
+                                      <div className="text-[11px] font-medium text-amber-600">
+                                        {getQueueDelayLabel(row.plannedStart)}
+                                      </div>
+                                    )}
+                                    {row.blockedByLabel && (
+                                      <div
+                                        className="text-[11px] text-muted-foreground"
+                                        title={row.blockedByLabel}
+                                      >
+                                        {row.blockedByLabel}
+                                      </div>
+                                    )}
                                   </div>
                                 </TableCell>
                                 {/* Current step */}
@@ -3013,148 +4352,227 @@ const getGroupedSkills = () => {
                                 </TableCell>
                                 {/* Next step */}
                                 <TableCell>
-                                  {row.nextProcess ? (
-                                    <div>
-                                      <div className="text-sm text-muted-foreground">{row.nextProcess}</div>
-                                      <div className="text-[10px] text-muted-foreground tabular-nums">{formatDateTime(row.nextPlannedStart)}</div>
-                                    </div>
-                                  ) : (
-                                    <span className={cn("text-xs", row.isFinalStep ? "text-emerald-600 font-medium" : "text-muted-foreground")}>
-                                      {row.isFinalStep ? "Final step" : "—"}
-                                    </span>
-                                  )}
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      row.status === "IN_PROGRESS" && "border-emerald-500 text-emerald-600",
+                                      row.status === "PLANNED" && "border-blue-500 text-blue-600",
+                                      row.status === "WAITING" && "border-amber-500 text-amber-600",
+                                      row.status === "DONE" &&
+                                        "border-green-500 bg-green-400 text-green-950"
+                                    )}
+                                  >
+                                    {row.status === "DONE" ? "Completed" : row.status}
+                                  </Badge>
                                 </TableCell>
-                                {/* Assigned */}
-                                <TableCell>
-                                  <div className="space-y-0.5">
-                                    <div className="text-sm font-medium">{row.person || <span className="text-muted-foreground text-xs">TBD</span>}</div>
-                                    <div className="text-[10px] text-muted-foreground">{row.machine || ""}</div>
-                                  </div>
-                                </TableCell>
-                                {/* Status */}
-                                <TableCell>
-                                  <span className={cn(
-                                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold",
-                                    row.status === "IN_PROGRESS" && "bg-emerald-100 text-emerald-700",
-                                    row.status === "PLANNED" && "bg-blue-100 text-blue-700",
-                                    row.status === "WAITING" && "bg-amber-100 text-amber-700",
-                                    row.status === "DONE" && "bg-green-100 text-green-700"
-                                  )}>
-                                    {row.status === "IN_PROGRESS" && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />}
-                                    {row.status.replace("_", " ")}
-                                  </span>
-                                </TableCell>
-                                {/* Actions */}
-                                <TableCell className="text-right pr-4" onClick={e => e.stopPropagation()}>
-                                  <div className="flex justify-end items-center gap-1">
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button size="sm" variant="default" className="h-7 px-2"
-                                          disabled={!canManualDone || manualDoneSaving || deletingPlanKey === row.key || runningAutopilot || runningPriorityReplan || resettingAutopilot || Boolean(priorityUpdatingOrderId)}
-                                          onClick={() => handleOpenManualDoneDialog(row)}>
-                                          {manualDoneSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>{canManualDone ? "Mark final step done" : row.isFinalStep ? "Not in progress" : "Not the final step"}</TooltipContent>
-                                    </Tooltip>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button size="sm" variant="destructive" className="h-7 px-2"
-                                          disabled={!canDeletePlan || deletingPlanKey === row.key || runningAutopilot || runningPriorityReplan || resettingAutopilot || Boolean(priorityUpdatingOrderId)}
-                                          onClick={() => handleDeletePlannedWork(row)}>
-                                          {deletingPlanKey === row.key ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>{canDeletePlan ? "Delete plan & reset to waiting" : row.status === "IN_PROGRESS" ? "Cannot delete in-progress plan" : "No removable plan"}</TooltipContent>
-                                    </Tooltip>
+                                <TableCell className="text-right">
+                                  <div className="flex justify-end gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="default"
+                                      disabled={
+                                        !canManualDone ||
+                                        manualDoneSaving ||
+                                        deletingPlanKey === row.key ||
+                                        runningAutopilot ||
+                                        runningPriorityReplan ||
+                                        resettingAutopilot ||
+                                        Boolean(priorityUpdatingOrderId)
+                                      }
+                                      onClick={() => handleOpenManualDoneDialog(row)}
+                                    >
+                                      <Check className="mr-2 h-4 w-4" />
+                                      Manual Done
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      disabled={
+                                        !canDeletePlan ||
+                                        deletingPlanKey === row.key ||
+                                        runningAutopilot ||
+                                        runningPriorityReplan ||
+                                        resettingAutopilot ||
+                                        Boolean(priorityUpdatingOrderId)
+                                      }
+                                      onClick={() => handleDeletePlannedWork(row)}
+                                    >
+                                      {deletingPlanKey === row.key ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <>
+                                          <Trash2 className="mr-2 h-4 w-4" />
+                                          Delete Plan
+                                        </>
+                                      )}
+                                    </Button>
                                   </div>
                                 </TableCell>
                               </TableRow>
-
-                              {/* Expanded routing roadmap */}
-                              {isExpanded && (
-                                <TableRow>
-                                  <TableCell colSpan={11} className="bg-slate-50/60 border-l-[3px] border-l-slate-200 px-6 py-4">
-                                    <div className="space-y-2">
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Routing Roadmap</span>
-                                        <span className="text-xs text-muted-foreground">— {row.productName}</span>
-                                        <span className="ml-auto text-xs text-muted-foreground">{row.currentStepNo ? `Step ${row.currentStepNo} of ${totalSteps}` : `${totalSteps} steps`}</span>
+                              <TableRow>
+                                <TableCell colSpan={10} className="bg-muted/30">
+                                  <div className="space-y-3">
+                                    <div className="text-xs text-muted-foreground">
+                                      Routing roadmap for {row.productName}
+                                    </div>
+                                    {row.embellishment?.enabled && (
+                                      <div className="rounded-lg border bg-white p-4">
+                                        <div className="mb-3 flex items-center justify-between">
+                                          <div className="text-sm font-medium">Embelshment Details</div>
+                                          <Badge variant="outline">Configured</Badge>
+                                        </div>
+                                        <div className="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-4">
+                                          <div>
+                                            <div className="text-muted-foreground">Customer</div>
+                                            <div className="font-medium">
+                                              {row.embellishment.customerName || row.customer}
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <div className="text-muted-foreground">Phone</div>
+                                            <div className="font-medium">
+                                              {row.embellishment.customerPhone || "-"}
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <div className="text-muted-foreground">Windows</div>
+                                            <div className="font-medium">
+                                              {row.embellishment.numberOfWindows || 0}
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <div className="text-muted-foreground">Panels</div>
+                                            <div className="font-medium">
+                                              {row.embellishment.numberOfPanels || 0}
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <div className="text-muted-foreground">Barcode</div>
+                                            <div className="font-medium">
+                                              {row.embellishment.embellishmentBarcode || "-"}
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <div className="text-muted-foreground">Steaching / Panel (min)</div>
+                                            <div className="font-medium">
+                                              {row.embellishment.stitchingPerPanel || 0} min
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <div className="text-muted-foreground">Hand Work Time (min)</div>
+                                            <div className="font-medium">
+                                              {row.embellishment.handWorkTime || 0} min
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <div className="text-muted-foreground">Total Time (min)</div>
+                                            <div className="font-medium">
+                                              {row.embellishment.totalTime || 0} min
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <div className="text-muted-foreground">Total Hours</div>
+                                            <div className="font-medium">
+                                              {row.embellishment.totalHours || 0} hr
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <div className="text-muted-foreground">1 Hour Charge</div>
+                                            <div className="font-medium">
+                                              {row.embellishment.hourlyCharge || EMBELLISHMENT_HOURLY_CHARGE}
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <div className="text-muted-foreground">Charge Amount</div>
+                                            <div className="font-medium">
+                                              {row.embellishment.chargeAmount || 0}
+                                            </div>
+                                          </div>
+                                        </div>
                                       </div>
-                                      {row.routingSteps.length === 0 ? (
-                                        <p className="text-sm text-muted-foreground py-2">No routing steps configured for this product.</p>
-                                      ) : (
-                                        <div className="overflow-x-auto pb-1">
-                                          <div className="flex items-start gap-0 min-w-max">
-                                            {row.routingSteps.map((step, idx) => {
-                                              const cur = row.currentStepNo ?? 0;
-                                              const sp = row.stepPlanMap.get(step.stepNo);
-                                              const rawSt = String(sp?.status || (cur && step.stepNo < cur ? "DONE" : "")).trim().toUpperCase();
-                                              const isDone = rawSt === "DONE";
-                                              const isIP = rawSt === "IN_PROGRESS";
-                                              const isCur = Boolean(cur && step.stepNo === cur);
-                                              const isPending = !isDone && !isIP && !isCur;
-
-                                              const cardCls = isDone
-                                                ? "bg-green-50 border-green-400 shadow-green-100"
-                                                : isIP
-                                                ? "bg-emerald-50 border-emerald-500 shadow-emerald-100 ring-2 ring-emerald-400/30"
-                                                : isCur
-                                                ? "bg-blue-50 border-blue-400 shadow-blue-100 ring-2 ring-blue-400/20"
-                                                : "bg-white border-slate-200";
-                                              const numCls = isDone
-                                                ? "bg-green-500 text-white"
-                                                : isIP
-                                                ? "bg-emerald-500 text-white animate-pulse"
-                                                : isCur
-                                                ? "bg-blue-500 text-white"
-                                                : "bg-slate-200 text-slate-500";
-                                              const connCls = isDone ? "bg-green-400" : isIP || isCur ? "bg-blue-300" : "bg-slate-200";
-
-                                              const displayStart = isDone ? (sp?.actualStart || sp?.plannedStart) : sp?.plannedStart;
-                                              const displayEnd = isDone ? (sp?.actualEnd || sp?.plannedEnd) : sp?.plannedEnd;
-
+                                    )}
+                                    {row.routingSteps.length === 0 ? (
+                                      <div className="text-sm text-muted-foreground">
+                                        No routing steps found for this product.
+                                      </div>
+                                    ) : (
+                                      <div className="overflow-x-auto">
+                                        <div className="flex items-center gap-2 min-w-max">
+                                          {row.routingSteps.map((step, index) => {
+                                            const currentStep = row.currentStepNo ?? 0;
+                                            const stepPlan = row.stepPlanMap.get(step.stepNo);
+                                            const rawStepStatus = String(
+                                              stepPlan?.status ||
+                                                (currentStep && step.stepNo < currentStep ? "DONE" : "")
+                                            )
+                                              .trim()
+                                              .toUpperCase();
+                                            const isDone = rawStepStatus === "DONE";
+                                            const isInProgress = rawStepStatus === "IN_PROGRESS";
+                                            const isCurrent = currentStep && step.stepNo === currentStep;
+                                            const stepStart = formatDateTime(
+                                              isDone
+                                                ? stepPlan?.actualStart || stepPlan?.plannedStart
+                                                : stepPlan?.plannedStart
+                                            );
+                                            const stepEnd = formatDateTime(
+                                              isDone
+                                                ? stepPlan?.actualEnd || stepPlan?.plannedEnd
+                                                : stepPlan?.plannedEnd
+                                            );
+                                            const stepPerson = stepPlan?.personName;
+                                            const tone = isDone
+                                              ? "bg-green-400 border-green-500 text-green-950"
+                                              : isInProgress
+                                              ? "bg-emerald-100 border-emerald-600 text-emerald-700"
+                                              : isCurrent
+                                              ? "bg-blue-50 border-blue-500 text-blue-700"
+                                              : "bg-white border-muted-foreground/40 text-muted-foreground";
+                                            const connectorTone = isDone
+                                              ? "bg-green-500"
+                                              : isInProgress || isCurrent
+                                                ? "bg-blue-400"
+                                                : "bg-muted-foreground/30";
                                               return (
                                                 <div key={`${row.key}-${step.stepNo}`} className="flex items-center">
-                                                  <div className={cn("relative rounded-xl border shadow-sm p-3 w-[130px] transition-all", cardCls)}>
-                                                    <div className="flex items-center gap-2 mb-1.5">
-                                                      <span className={cn("h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0", numCls)}>
-                                                        {isDone ? <Check className="h-3 w-3" /> : step.stepNo}
-                                                      </span>
-                                                      <span className="text-xs font-semibold truncate" title={step.process}>{step.process}</span>
+                                                  <div className="flex flex-col items-center">
+                                                    <div
+                                                      className={cn(
+                                                        "h-9 w-9 rounded-full border flex items-center justify-center text-xs font-semibold",
+                                                        tone
+                                                      )}
+                                                    >
+                                                      {isDone ? <Check className="h-4 w-4" /> : step.stepNo}
                                                     </div>
-                                                    <div className="space-y-0.5 text-[10px] text-slate-500 leading-snug">
-                                                      {isDone && (
-                                                        <div className="text-green-600 font-semibold">✓ Completed</div>
-                                                      )}
-                                                      {isIP && (
-                                                        <div className="text-emerald-600 font-semibold flex items-center gap-1">
-                                                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                                          In Progress
-                                                        </div>
-                                                      )}
-                                                      {isCur && !isIP && <div className="text-blue-600 font-semibold">Queued</div>}
-                                                      {isPending && <div className="text-slate-400">Pending</div>}
-                                                      {sp?.machineName && <div className="truncate" title={sp.machineName}>⚙ {sp.machineName}</div>}
-                                                      {sp?.personName && <div className="truncate" title={sp.personName}>👤 {sp.personName}</div>}
-                                                      {displayStart && <div className="tabular-nums">{formatDateTime(displayStart)}</div>}
-                                                      {displayEnd && displayEnd !== displayStart && <div className="tabular-nums text-slate-400">→ {formatDateTime(displayEnd)}</div>}
-                                                      <div className="text-slate-300 tabular-nums">{step.cycleMinutes}m / {step.ops} op{step.ops !== 1 ? "s" : ""}</div>
+                                                    <div className="mt-1 text-[11px] text-muted-foreground max-w-[80px] text-center">
+                                                      {step.process}
+                                                    </div>
+                                                    <div className="mt-1 text-[10px] text-muted-foreground leading-tight text-center">
+                                                      <div className={cn(isDone && "font-semibold text-green-700")}>
+                                                        {isDone ? "Completed" : rawStepStatus || "PENDING"}
+                                                      </div>
+                                                      <div>Start: {stepStart}</div>
+                                                      <div>End: {stepEnd}</div>
+                                                      <div>Person: {stepPerson || "-"}</div>
                                                     </div>
                                                   </div>
-                                                  {idx < row.routingSteps.length - 1 && (
-                                                    <div className={cn("h-[2px] w-6 flex-shrink-0 rounded-full mx-1", connCls)} />
+                                                  {index < row.routingSteps.length - 1 && (
+                                                    <div
+                                                      className={cn(
+                                                        "h-[2px] w-12 mx-2 rounded-full",
+                                                        connectorTone
+                                                      )}
+                                                    />
                                                   )}
                                                 </div>
                                               );
                                             })}
                                           </div>
                                         </div>
-                                      )}
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              )}
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
                             </Fragment>
                           );
                         })
@@ -3171,103 +4589,159 @@ const getGroupedSkills = () => {
 
           {/* ROUTING TAB */}
           <TabsContent value="routing" className="space-y-4">
-            <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
+            <div className="grid gap-6 lg:grid-cols-[400px_1fr]">
+              {/* Product Selector */}
+              <Card className="h-fit">
+                <CardHeader>
+                  <CardTitle>Product Selection</CardTitle>
+                  <CardDescription>Choose a product to configure its routing</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Search */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search products..."
+                      value={productSearch}
+                      onChange={(e) => setProductSearch(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
 
-              {/* ── Left: Product List ──────────────────────────────────── */}
-              <div className="space-y-3">
-                <Card>
-                  <CardContent className="p-4 space-y-3">
-                    {/* Search */}
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                      <Input placeholder="Search products..." value={productSearch}
-                        onChange={(e) => setProductSearch(e.target.value)} className="pl-8 h-8 text-sm" />
-                    </div>
-
-                    {/* Category summary */}
-                    <div className="flex flex-wrap gap-1">
-                      {categories.map((cat) => {
-                        const count = products.filter(p => p.category === cat).length;
-                        return (
-                          <button key={cat}
-                            onClick={() => setProductSearch(cat)}
-                            className="inline-flex items-center gap-1 rounded-full bg-slate-100 hover:bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600 transition-colors">
-                            {cat} <span className="font-bold">{count}</span>
-                          </button>
-                        );
-                      })}
-                      {productSearch && (
-                        <button onClick={() => setProductSearch("")}
-                          className="inline-flex items-center gap-1 rounded-full bg-red-50 hover:bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-600 transition-colors">
-                          <X className="h-2.5 w-2.5" /> Clear
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Product list */}
-                    <ScrollArea className="h-[320px] rounded-lg border">
-                      <div className="p-2 space-y-1">
-                        {filteredProducts.length === 0 && (
-                          <div className="text-xs text-muted-foreground text-center py-8">No products found</div>
-                        )}
-                        {filteredProducts.map((product) => {
-                          const stepCount = routing.filter(r => r.productId === product.id).length;
-                          const isSelected = selectedProductId === product.id;
-                          return (
-                            <div key={product.id}
-                              onClick={() => setSelectedProductId(product.id)}
-                              className={cn(
-                                "flex items-center justify-between rounded-lg px-2.5 py-2 cursor-pointer transition-all border",
-                                isSelected
-                                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                                  : "hover:bg-muted/60 border-transparent hover:border-border"
-                              )}>
-                              <div className="flex-1 min-w-0">
-                                <div className={cn("font-medium text-sm truncate", isSelected ? "text-primary-foreground" : "")}>{product.name}</div>
-                                <div className="flex items-center gap-1.5 mt-0.5">
-                                  <span className={cn("text-[10px] rounded px-1 py-0.5", isSelected ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500")}>{product.category}</span>
-                                  {stepCount > 0 ? (
-                                    <span className={cn("text-[10px] font-medium", isSelected ? "text-white/70" : "text-muted-foreground")}>{stepCount} step{stepCount !== 1 ? "s" : ""}</span>
-                                  ) : (
-                                    <span className={cn("text-[10px]", isSelected ? "text-white/60" : "text-amber-600")}>No steps</span>
-                                  )}
-                                </div>
-                              </div>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button variant="ghost" size="icon" className={cn("h-6 w-6 flex-shrink-0 ml-1", isSelected ? "hover:bg-white/20 text-white" : "hover:text-destructive")}
-                                    onClick={(e) => { e.stopPropagation(); setDeleteDialog({ open: true, type: "product", id: product.id, name: product.name }); }}>
-                                    <Trash2 className="h-3 w-3" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Delete product</TooltipContent>
-                              </Tooltip>
-                            </div>
-                          );
-                        })}
+                  <div className="rounded-lg border bg-amber-50/60 p-3">
+                    <div className="mb-2">
+                      <div className="text-sm font-semibold text-amber-900">Routing Not Entered</div>
+                      <div className="text-xs text-amber-700">
+                        Show here to create a routing for an item whose routing has not been entered.
                       </div>
-                    </ScrollArea>
-                    <div className="text-[10px] text-muted-foreground text-center">{products.length} products · {categories.length} categories</div>
-                  </CardContent>
-                </Card>
+                    </div>
+                    {routingNotEnteredItems.length === 0 ? (
+                      <div className="text-xs text-muted-foreground">
+                        No PMS items are currently waiting for routing creation.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {routingNotEnteredItems.map((item) => (
+                          <div
+                            key={`missing-routing-${item.productId}`}
+                            className="flex items-center justify-between rounded-md border bg-white p-2"
+                          >
+                            <div className="min-w-0 space-y-1">
+                              <div className="truncate text-sm font-medium">{item.productName}</div>
+                              <div className="truncate text-xs text-muted-foreground">
+                                Order: {item.orderNo} | Customer: {item.customer}
+                              </div>
+                              <div className="truncate text-xs text-amber-700">
+                                VAS: {item.vasName}
+                              </div>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="ml-2 shrink-0"
+                              onClick={() => handleStartRoutingCreation(item.productId)}
+                            >
+                              Show Here
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
-                {/* Add Product form */}
-                <Card>
-                  <CardContent className="p-4 space-y-2">
-                    <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Add New Product</div>
-                    <Input placeholder="Product name" value={newProduct.name} className="h-8 text-sm"
-                      onChange={(e) => setNewProduct((prev) => ({ ...prev, name: e.target.value }))} />
-                    <Select value={newProduct.category} onValueChange={(v) => setNewProduct((prev) => ({ ...prev, category: v }))}>
-                      <SelectTrigger className="h-8 text-sm">
+                  {/* Product List */}
+                  <ScrollArea className="h-[300px] rounded-md border">
+                    <div className="p-4 space-y-2">
+                      {filteredProducts.length === 0 && (
+                        <div className="text-sm text-muted-foreground text-center py-8">
+                          No products found
+                        </div>
+                      )}
+                      {filteredProducts.map((product) => (
+                        <div
+                          key={product.id}
+                          onClick={() => setSelectedProductId(product.id)}
+                          className={cn(
+                            "p-3 rounded-lg border cursor-pointer transition-all hover:border-primary",
+                            selectedProductId === product.id && "border-primary bg-primary/5"
+                          )}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-1">
+                              <p className="font-medium text-sm">{product.name}</p>
+                              <Badge variant="secondary" className="text-xs">
+                                {product.category}
+                              </Badge>
+                            </div>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDeleteDialog({
+                                      open: true,
+                                      type: "product",
+                                      id: product.id,
+                                      name: product.name,
+                                    });
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Delete product</TooltipContent>
+                            </Tooltip>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+
+                  <Separator />
+
+                  {/* Add New Product */}
+                  <div className="space-y-3">
+                    <Label className="text-sm font-semibold">Add New Product</Label>
+                    <Input
+                      placeholder="Product name"
+                      value={newProduct.name}
+                      onChange={(e) => setNewProduct((prev) => ({ ...prev, name: e.target.value }))}
+                    />
+                    <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                      <Label className="text-xs font-medium text-muted-foreground">Add New Category</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="New category name"
+                          value={newCategoryName}
+                          onChange={(e) => setNewCategoryName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleAddCategory();
+                            }
+                          }}
+                        />
+                        <Button type="button" variant="outline" onClick={handleAddCategory}>
+                          <Plus className="mr-2 h-4 w-4" />
+                          Add Category
+                        </Button>
+                      </div>
+                    </div>
+                    <Select
+                      value={newProduct.category}
+                      onValueChange={(value) => setNewProduct((prev) => ({ ...prev, category: value }))}
+                    >
+                      <SelectTrigger>
                         <SelectValue placeholder="Select category" />
                       </SelectTrigger>
                       <SelectContent>
-                        {categories.map((cat) => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
-                        <Separator className="my-1" />
-                        <div className="px-2 py-1.5">
-                          <Input placeholder="Create new category…" className="h-7 text-xs"
-                            onKeyDown={(e) => { if (e.key === "Enter") setNewProduct((prev) => ({ ...prev, category: e.currentTarget.value })); }} />
-                        </div>
+                        {categories.map((cat) => (
+                          <SelectItem key={cat} value={cat}>
+                            {cat}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <Button onClick={handleAddProduct} className="w-full h-8 text-sm">
@@ -3277,23 +4751,22 @@ const getGroupedSkills = () => {
                 </Card>
               </div>
 
-              {/* ── Right: Routing Steps Editor ─────────────────────────── */}
-              <Card className="flex flex-col">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      {selectedProductId ? (
-                        <>
-                          <CardTitle className="text-base flex items-center gap-2">
-                            <span className="truncate">{products.find(p => p.id === selectedProductId)?.name}</span>
-                            <Badge variant="secondary" className="text-xs flex-shrink-0">{products.find(p => p.id === selectedProductId)?.category}</Badge>
-                          </CardTitle>
-                          <CardDescription className="text-xs mt-0.5">
-                            {routingRows.length} step{routingRows.length !== 1 ? "s" : ""} · Total cycle: {routingRows.reduce((s, r) => s + r.cycleMinutes, 0)}min
-                          </CardDescription>
-                        </>
-                      ) : (
-                        <CardTitle className="text-base text-muted-foreground">Select a product to configure routing</CardTitle>
+              {/* Routing Configuration */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Routing Steps</CardTitle>
+                      <CardDescription>
+                        {selectedProductId
+                          ? `Configure process steps for ${products.find((p) => p.id === selectedProductId)?.name}`
+                          : "Select a product to configure routing"}
+                      </CardDescription>
+                      {selectedProductId && (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Embelshment work is optional. You can add any other work step, and
+                          Q&amp;Q, Final Complete Kitting, and Packaging will be included in all routings.
+                        </p>
                       )}
                     </div>
                     <div className="flex gap-1.5 flex-shrink-0">
@@ -3336,75 +4809,182 @@ const getGroupedSkills = () => {
                 <CardContent className="flex-1 space-y-3">
                   {selectedProductId ? (
                     <>
-                      {/* Step editor table */}
-                      <div className="rounded-xl border overflow-hidden">
+                      <div className="flex flex-wrap gap-2 rounded-lg border bg-muted/30 p-3">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => handleQuickAddRoutingProcesses(["Embelshment work"])}
+                        >
+                          <Plus className="mr-2 h-4 w-4" />
+                          Add Embelshment Work
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleQuickAddRoutingProcesses(["Q&Q"])}
+                        >
+                          Add Q&amp;Q
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleQuickAddRoutingProcesses(["Final Complete Kitting"])}
+                        >
+                          Add Final Complete Kitting
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleQuickAddRoutingProcesses(["Packaging"])}
+                        >
+                          Add Packaging
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleQuickAddRoutingProcesses(REQUIRED_ROUTING_FINISH_STEPS)}
+                        >
+                          Add Standard Finish Steps
+                        </Button>
+                      </div>
+
+                      <div className="rounded-lg border">
                         <Table>
                           <TableHeader>
-                            <TableRow className="bg-muted/40 hover:bg-muted/40">
-                              <TableHead className="w-8 text-center text-[10px] uppercase tracking-wide"></TableHead>
-                              <TableHead className="w-16 text-[10px] uppercase tracking-wide">Step</TableHead>
-                              <TableHead className="text-[10px] uppercase tracking-wide">Process Name</TableHead>
-                              <TableHead className="w-28 text-[10px] uppercase tracking-wide">Cycle (min)</TableHead>
-                              <TableHead className="w-20 text-[10px] uppercase tracking-wide">OPS</TableHead>
-                              <TableHead className="w-20 text-[10px] uppercase tracking-wide">Time/Piece</TableHead>
-                              <TableHead className="w-10"></TableHead>
+                            <TableRow>
+                              <TableHead className="w-[60px]">
+                                <GripVertical className="h-4 w-4 text-muted-foreground" />
+                              </TableHead>
+                              <TableHead className="w-[100px]">Step</TableHead>
+                              <TableHead>Process</TableHead>
+                              <TableHead className="w-[140px]">Cycle (min)</TableHead>
+                              <TableHead>Machine</TableHead>
+                              <TableHead className="w-[100px]">OPS</TableHead>
+                              <TableHead className="w-[80px]">Action</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {routingRows.length === 0 && (
                               <TableRow>
-                                <TableCell colSpan={7} className="h-28 text-center">
+                                <TableCell colSpan={7} className="h-32 text-center">
                                   <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                                    <Package className="h-7 w-7 opacity-40" />
-                                    <p className="text-sm">No steps yet — click Add Step</p>
+                                    <Package className="h-8 w-8 opacity-50" />
+                                    <p className="text-sm">No routing steps configured</p>
+                                    <p className="text-xs">Click "Add Step" or use the quick-add buttons above.</p>
                                   </div>
                                 </TableCell>
                               </TableRow>
                             )}
-                            {routingRows.map((row, index) => {
-                              const timePerPiece = row.ops > 0 ? (row.cycleMinutes / row.ops).toFixed(1) : "—";
-                              const maxCycle = Math.max(...routingRows.map(r => r.cycleMinutes), 1);
-                              const barPct = Math.round((row.cycleMinutes / maxCycle) * 100);
-
-                              return (
-                                <TableRow key={row.id} className="group hover:bg-muted/10">
-                                  <TableCell className="text-center">
-                                    <GripVertical className="h-3.5 w-3.5 text-muted-foreground cursor-move mx-auto" />
-                                  </TableCell>
-                                  <TableCell>
-                                    <div className="flex items-center justify-center h-7 w-7 rounded-full bg-primary/10 text-primary text-xs font-bold mx-auto">
-                                      {row.stepNo}
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Input value={row.process} placeholder="e.g., Assembly" className="h-7 text-sm border-0 bg-transparent hover:bg-muted/40 focus:bg-background focus:border px-2"
-                                      onChange={(e) => { const process = e.target.value; setRoutingRows(prev => { const next = [...prev]; next[index] = { ...next[index], process }; return next; }); }} />
-                                  </TableCell>
-                                  <TableCell>
-                                    <div className="space-y-1">
-                                      <Input type="number" min={0} step={0.1} value={row.cycleMinutes} className="h-7 text-sm w-full"
-                                        onChange={(e) => { const cycleMinutes = toNumber(e.target.value); setRoutingRows(prev => { const next = [...prev]; next[index] = { ...next[index], cycleMinutes }; return next; }); }} />
-                                      <div className="h-1 rounded-full bg-slate-100 overflow-hidden">
-                                        <div className="h-full bg-primary/40 rounded-full" style={{ width: `${barPct}%` }} />
-                                      </div>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Input type="number" min={1} value={row.ops} className="h-7 text-sm w-full"
-                                      onChange={(e) => { const ops = toNumber(e.target.value); setRoutingRows(prev => { const next = [...prev]; next[index] = { ...next[index], ops }; return next; }); }} />
-                                  </TableCell>
-                                  <TableCell>
-                                    <span className="text-xs text-muted-foreground tabular-nums">{timePerPiece}m</span>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 hover:text-destructive"
-                                      onClick={() => setRoutingRows(prev => prev.filter((_, i) => i !== index))}>
-                                      <Trash2 className="h-3 w-3" />
-                                    </Button>
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
+                            {routingRows.map((row, index) => (
+                              <TableRow key={row.id}>
+                                <TableCell>
+                                  <div className="flex items-center justify-center">
+                                    <GripVertical className="h-4 w-4 text-muted-foreground cursor-move" />
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    value={row.stepNo}
+                                    type="number"
+                                    min={1}
+                                    className="w-20"
+                                    onChange={(e) => {
+                                      const stepNo = toNumber(e.target.value);
+                                      setRoutingRows((prev) => {
+                                        const next = [...prev];
+                                        next[index] = { ...next[index], stepNo };
+                                        return next;
+                                      });
+                                    }}
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    value={row.process}
+                                    placeholder="e.g., Assembly"
+                                    onChange={(e) => {
+                                      const process = e.target.value;
+                                      setRoutingRows((prev) => {
+                                        const next = [...prev];
+                                        next[index] = { ...next[index], process };
+                                        return next;
+                                      });
+                                    }}
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    step={0.1}
+                                    value={row.cycleMinutes}
+                                    onChange={(e) => {
+                                      const cycleMinutes = toNumber(e.target.value);
+                                      setRoutingRows((prev) => {
+                                        const next = [...prev];
+                                        next[index] = { ...next[index], cycleMinutes };
+                                        return next;
+                                      });
+                                    }}
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex max-w-[220px] flex-wrap gap-1">
+                                    {machines
+                                      .filter(
+                                        (machine) =>
+                                          machine.active !== false &&
+                                          normalizeText(machine.process) === normalizeText(row.process)
+                                      )
+                                      .map((machine) => (
+                                        <Badge key={`${row.id}-${machine.id}`} variant="outline" className="text-[10px]">
+                                          {machine.name}
+                                        </Badge>
+                                      ))}
+                                    {machines.filter(
+                                      (machine) =>
+                                        machine.active !== false &&
+                                        normalizeText(machine.process) === normalizeText(row.process)
+                                    ).length === 0 && (
+                                      <span className="text-xs text-muted-foreground">
+                                        {row.process ? "No machine match" : "Enter process"}
+                                      </span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    value={row.ops}
+                                    onChange={(e) => {
+                                      const ops = toNumber(e.target.value);
+                                      setRoutingRows((prev) => {
+                                        const next = [...prev];
+                                        next[index] = { ...next[index], ops };
+                                        return next;
+                                      });
+                                    }}
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() =>
+                                          setRoutingRows((prev) => prev.filter((_, i) => i !== index))
+                                        }
+                                      >
+                                        <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Delete step</TooltipContent>
+                                  </Tooltip>
+                                </TableCell>
+                              </TableRow>
+                            ))}
                           </TableBody>
                         </Table>
                       </div>
@@ -4150,16 +5730,19 @@ const getGroupedSkills = () => {
                                   )}
                                 </TableCell>
                                 <TableCell>
-                                  {person.role ? (
-                                    <Badge variant="outline" className="text-xs">{person.role}</Badge>
-                                  ) : (
-                                    <span className="text-xs text-muted-foreground">—</span>
-                                  )}
+                                  <div className="text-sm">
+                                    <p>{formatDateInZone(fromDate, { timeZone: IST_TIME_ZONE })}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {formatTimeInZone(fromDate, { timeZone: IST_TIME_ZONE })}
+                                    </p>
+                                  </div>
                                 </TableCell>
                                 <TableCell>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-sm font-bold tabular-nums">{personSkills.length}</span>
-                                    <span className="text-xs text-muted-foreground">on {uniqueMachines.length} machine{uniqueMachines.length !== 1 ? "s" : ""}</span>
+                                  <div className="text-sm">
+                                    <p>{formatDateInZone(toDate, { timeZone: IST_TIME_ZONE })}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {formatTimeInZone(toDate, { timeZone: IST_TIME_ZONE })}
+                                    </p>
                                   </div>
                                 </TableCell>
                                 <TableCell>
@@ -4537,6 +6120,220 @@ const getGroupedSkills = () => {
         </Dialog>
 
         <Dialog
+          open={createJobDialog.open}
+          onOpenChange={(open) => {
+            if (!open) {
+              handleCloseCreateJobDialog();
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Create PMS Jobs</DialogTitle>
+              <DialogDescription>
+                Review the VAS item and enable the Embelshment work condition when hand work is required.
+              </DialogDescription>
+            </DialogHeader>
+
+            {createJobDialog.row && (
+              <div className="space-y-5">
+                <div className="grid gap-3 rounded-lg border p-4 text-sm md:grid-cols-2">
+                  <div>
+                    <span className="text-muted-foreground">Order:</span>{" "}
+                    <span className="font-medium">{createJobDialog.row.orderNo}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Customer:</span>{" "}
+                    <span className="font-medium">{createJobDialog.row.customer}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">VAS:</span>{" "}
+                    <span className="font-medium">{createJobDialog.row.vasName}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Qty:</span>{" "}
+                    <span className="font-medium">{createJobDialog.row.qty}</span>
+                  </div>
+                  <div className="md:col-span-2">
+                    <span className="text-muted-foreground">PMS Product:</span>{" "}
+                    <span className="font-medium">
+                      {createJobDialog.row.matchedProductName || createJobDialog.row.matchedProductId}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-1">
+                    <div className="font-medium">Embelshment work</div>
+                    <p className="text-sm text-muted-foreground">
+                      Turn this on to capture embellishment details and override PMS time.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={createJobDialog.embellishmentEnabled}
+                    onCheckedChange={(checked) =>
+                      setCreateJobDialog((prev) => ({
+                        ...prev,
+                        embellishmentEnabled: checked,
+                        form:
+                          checked && prev.row
+                            ? buildEmbellishmentForm(prev.row, prev.row.embellishment)
+                            : prev.form,
+                      }))
+                    }
+                  />
+                </div>
+
+                {createJobDialog.row.matchedProductId && !createJobDialog.row.hasRouting && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                    Routing is not created for this PMS product yet.
+                    {role === "admin" ? " Create routing first, then create jobs." : " Ask admin to create routing first."}
+                  </div>
+                )}
+
+                {createJobDialog.embellishmentEnabled && (
+                  <div className="space-y-4 rounded-lg border p-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Customer&apos;s Name</Label>
+                        <Input
+                          value={createJobDialog.form.customerName}
+                          onChange={(e) =>
+                            handleCreateJobDialogFieldChange("customerName", e.target.value)
+                          }
+                          placeholder="Enter customer name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Customer Phone Number</Label>
+                        <Input
+                          value={createJobDialog.form.customerPhone}
+                          onChange={(e) =>
+                            handleCreateJobDialogFieldChange("customerPhone", e.target.value)
+                          }
+                          placeholder="Enter phone number"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Number of Windows</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={createJobDialog.form.numberOfWindows}
+                          onChange={(e) =>
+                            handleCreateJobDialogFieldChange("numberOfWindows", e.target.value)
+                          }
+                          placeholder="Enter number of windows"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Number of Panel</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={createJobDialog.form.numberOfPanels}
+                          onChange={(e) =>
+                            handleCreateJobDialogFieldChange("numberOfPanels", e.target.value)
+                          }
+                          placeholder="Enter number of panel"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Embelshment Barcode</Label>
+                        <Input
+                          value={createJobDialog.form.embellishmentBarcode}
+                          onChange={(e) =>
+                            handleCreateJobDialogFieldChange(
+                              "embellishmentBarcode",
+                              e.target.value
+                            )
+                          }
+                          placeholder="Enter embellishment barcode"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Steaching Per Panel (min)</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={createJobDialog.form.stitchingPerPanel}
+                          onChange={(e) =>
+                            handleCreateJobDialogFieldChange("stitchingPerPanel", e.target.value)
+                          }
+                          placeholder="Enter steaching per panel in min"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Hand Work Time (min)</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={createJobDialog.form.handWorkTime}
+                          onChange={(e) =>
+                            handleCreateJobDialogFieldChange("handWorkTime", e.target.value)
+                          }
+                          placeholder="Enter hand work time in min"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 rounded-lg bg-muted/40 p-4 text-sm md:grid-cols-4">
+                      <div>
+                        <div className="text-muted-foreground">Total Time (min)</div>
+                        <div className="text-lg font-semibold">{createJobTotals.totalMinutes} min</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">Total Hours</div>
+                        <div className="text-lg font-semibold">{createJobTotals.totalHours} hr</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">1 Hour Charge</div>
+                        <div className="text-lg font-semibold">{createJobTotals.hourlyCharge}</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">Charge Amount</div>
+                        <div className="text-lg font-semibold">
+                          {createJobTotals.chargeAmount}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {createJobTotals.totalHours} hr x {createJobTotals.hourlyCharge}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={handleCloseCreateJobDialog}
+                disabled={Boolean(createJobDialog.row && creatingJobKey === createJobDialog.row.key)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSubmitCreateJobs}
+                disabled={Boolean(
+                  createJobDialog.row &&
+                    (creatingJobKey === createJobDialog.row.key ||
+                      createJobDialog.row.hasJobsForProduct ||
+                      !createJobDialog.row.hasRouting)
+                )}
+              >
+                {createJobDialog.row && creatingJobKey === createJobDialog.row.key && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Save & Create Jobs
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
           open={manualDoneDialog.open}
           onOpenChange={(open) => {
             if (!open) {
@@ -4550,7 +6347,7 @@ const getGroupedSkills = () => {
             <DialogHeader>
               <DialogTitle>Manual Final Step Completion</DialogTitle>
               <DialogDescription>
-                Confirm final-step completion and capture remaining qty details for future tracking.
+                Confirm final-step completion after Q&amp;Q, Final Complete Kitting, and Packaging are ready.
               </DialogDescription>
             </DialogHeader>
 
@@ -4581,8 +6378,17 @@ const getGroupedSkills = () => {
                   </div>
                 </div>
 
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="text-sm font-medium">Ready Checklist</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Badge variant="outline">Q&amp;Q Ready</Badge>
+                    <Badge variant="outline">Final Complete Kitting Ready</Badge>
+                    <Badge variant="outline">Packaging Ready</Badge>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
-                  <Label>Is all qty ready?</Label>
+                  <Label>Are all your steps ready?</Label>
                   <Select
                     value={manualDoneAllQtyReady}
                     onValueChange={(value) =>
@@ -4593,8 +6399,8 @@ const getGroupedSkills = () => {
                       <SelectValue placeholder="Select readiness" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="yes">Yes, all qty is ready</SelectItem>
-                      <SelectItem value="no">No, qty is remaining</SelectItem>
+                      <SelectItem value="yes">Yes, all steps are ready</SelectItem>
+                      <SelectItem value="no">No, some step or qty is pending</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -4613,11 +6419,11 @@ const getGroupedSkills = () => {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>Reason for Remaining Qty</Label>
+                      <Label>Reason for Pending Step / Remaining Qty</Label>
                       <Textarea
                         value={manualDoneReason}
                         onChange={(e) => setManualDoneReason(e.target.value)}
-                        placeholder="Enter reason"
+                        placeholder="Enter which step is pending or why qty is remaining"
                         className="min-h-[90px]"
                       />
                     </div>

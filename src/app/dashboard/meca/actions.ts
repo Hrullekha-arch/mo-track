@@ -184,35 +184,21 @@ const resolveOrderAmount = (order: RawDoc): number => {
   return fromItems > 0 ? fromItems : 0;
 };
 
-const isMeetingType = (visit: RawDoc): boolean => {
-  const type = normalizeText(visit.visitType ?? visit.typeOfVisit ?? visit.purpose);
-  if (!type) return true;
-  if (type.includes("delivery")) return false;
-  if (type.includes("install")) return false;
-  return true;
-};
-
-const isVisitAttended = (visit: RawDoc): boolean => {
-  if (asNonEmptyString(visit.visitStartTime) || asNonEmptyString(visit.visitEndTime)) {
-    return true;
-  }
-
-  const status = normalizeText(visit.status ?? visit.visitStatus);
+const isWalkinMeetingAttended = (walkin: RawDoc): boolean => {
+  const status = normalizeText(walkin.status);
   if (!status) return false;
-
-  if (status.includes("attended")) return true;
-  if (status.includes("completed")) return true;
-  if (status.includes("handed over")) return true;
+  if (status === "pending") return false;
+  if (status === "handed over") return false;
   if (status.includes("deal created")) return true;
+  if (status.includes("completed")) return true;
+  if (status.includes("went-back")) return true;
   if (status.includes("closed")) return true;
-  if (status.includes("working")) return true;
-  if (status.includes("out for delivery")) return true;
-
+  if (status.includes("attended")) return true;
   return false;
 };
 
-const shouldSkipVisit = (visit: RawDoc): boolean => {
-  const status = normalizeText(visit.status ?? visit.visitStatus);
+const shouldSkipWalkinMeeting = (walkin: RawDoc): boolean => {
+  const status = normalizeText(walkin.status);
   if (status.includes("cancel")) return true;
   if (status === "cwc") return true;
   if (status.includes("reject")) return true;
@@ -303,15 +289,12 @@ const getOrdersSnapshot = async (from?: string, to?: string) => {
   }
 };
 
-// collectionGroup queries require a Firestore composite index when filtered by field.
-// Since we already apply isWithinRange() in-memory, we skip the Firestore-level
-// date filter entirely to avoid FAILED_PRECONDITION errors on missing indexes.
-const getVisitsSnapshot = async () => {
-  const base = adminDb.collectionGroup("visits") as FirebaseFirestore.Query<FirebaseFirestore.DocumentData>;
+const getWalkinsSnapshot = async () => {
+  const base = adminDb.collection("Walkin_Customer") as FirebaseFirestore.Query<FirebaseFirestore.DocumentData>;
   try {
     return await base.get();
   } catch (error) {
-    console.warn("MeCA: Could not fetch visits (collection group index may be missing).", error);
+    console.warn("MeCA: Could not fetch walk-ins for meetings.", error);
     return null;
   }
 };
@@ -334,9 +317,9 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
     const fromMs = from ? toMillis(from) : null;
     const toMs = to ? toMillis(to) : null;
 
-    const [salesmenSnap, visitsSnap, ordersSnap, o2dSnap] = await Promise.all([
+    const [salesmenSnap, walkinsSnap, ordersSnap, o2dSnap] = await Promise.all([
       adminDb.collection("users").where("role", "==", "salesman").get(),
-      getVisitsSnapshot(),
+      getWalkinsSnapshot(),
       getOrdersSnapshot(from, to),
       getO2DSnapshot(),
     ]);
@@ -426,21 +409,23 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
       upsertO2DByKey(dealId, milestones);
     });
 
-    (visitsSnap?.docs ?? []).forEach((doc) => {
-      const visit = doc.data() as RawDoc;
-      if (!isWithinRange(visit.createdAt, fromMs, toMs)) return;
-      if (!isMeetingType(visit)) return;
-      if (shouldSkipVisit(visit)) return;
+    (walkinsSnap?.docs ?? []).forEach((doc) => {
+      const walkin = doc.data() as RawDoc;
+      const meetingDate =
+        walkin.assignedAt ??
+        walkin.createdAt ??
+        walkin.lastUpdatedAt;
+      if (!isWithinRange(meetingDate, fromMs, toMs)) return;
+      if (shouldSkipWalkinMeeting(walkin)) return;
 
-      const assignedSalesPerson = asRecord(visit.assignedSalesPerson);
       const salesman = registerSalesman(
-        assignedSalesPerson.id ?? visit.representativeId,
-        assignedSalesPerson.name ?? visit.representative
+        walkin.salesmanId ?? walkin.assignedOwnerId,
+        walkin.salesmanName ?? walkin.handoverToName
       );
       if (!salesman) return;
       if (selectedSalesmanId && salesman.id !== selectedSalesmanId) return;
 
-      const attended = isVisitAttended(visit);
+      const attended = isWalkinMeetingAttended(walkin);
       const metric = ensureMetric(salesman);
       metric.meetings += 1;
       if (attended) {
@@ -448,25 +433,26 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
       }
 
       const scheduledDate =
-        toDateSafe(visit.scheduledDate ?? visit.visitDate ?? visit.date ?? visit.createdAt)?.toISOString() ??
+        toDateSafe(meetingDate)?.toISOString() ??
         new Date(0).toISOString();
       const customerName =
-        asNonEmptyString(visit.customerName) ??
-        asNonEmptyString(asRecord(visit.customer).name) ??
-        asNonEmptyString(visit.clientName) ??
+        asNonEmptyString(`${asNonEmptyString(walkin.firstName) ?? ""} ${asNonEmptyString(walkin.familyName) ?? ""}`.trim()) ??
+        asNonEmptyString(walkin.customerName) ??
+        asNonEmptyString(walkin.fullName) ??
+        asNonEmptyString(walkin.name) ??
+        asNonEmptyString(asRecord(walkin.customer).name) ??
         "Customer";
       const visitType =
-        asNonEmptyString(visit.visitType) ??
-        asNonEmptyString(visit.typeOfVisit) ??
-        asNonEmptyString(visit.purpose) ??
-        "Meeting";
+        asNonEmptyString(walkin.leadType) ??
+        asNonEmptyString(walkin.customerType) ??
+        "Walk-in";
       const visitStatus =
-        asNonEmptyString(visit.status) ??
-        asNonEmptyString(visit.visitStatus) ??
-        (attended ? "Attended" : "Scheduled");
+        asNonEmptyString(walkin.status) ??
+        (attended ? "Attended" : "Pending");
+      const walkinId = asNonEmptyString(walkin.walkinId) ?? doc.id;
 
       metric.visitRows.push({
-        visitId: doc.id,
+        visitId: walkinId,
         customerName,
         scheduledDate,
         status: visitStatus,

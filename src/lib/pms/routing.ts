@@ -7,6 +7,39 @@ export type RoutingStep = {
   ops: number;
 };
 
+export type EmbellishmentWorkPayload = {
+  enabled?: boolean;
+  customerName?: string;
+  customerPhone?: string;
+  numberOfWindows?: number;
+  numberOfPanels?: number;
+  embellishmentBarcode?: string;
+  stitchingPerPanel?: number;
+  handWorkTime?: number;
+  totalHours?: number;
+  totalTime?: number;
+  hourlyCharge?: number;
+  chargeAmount?: number;
+};
+
+type BuildJobsOptions = {
+  priority?: number;
+  embellishment?: EmbellishmentWorkPayload;
+};
+
+const EMBELLISHMENT_PROCESS_KEYS = new Set([
+  "embelshment work",
+  "embelishment work",
+  "embellishment work",
+]);
+
+const isEmbellishmentProcess = (process?: string) =>
+  EMBELLISHMENT_PROCESS_KEYS.has(
+    String(process || "")
+      .trim()
+      .toLowerCase()
+  );
+
 export const computeRequiredMinutes = (
   cycleMinutes: number,
   qty: number,
@@ -28,11 +61,27 @@ export const buildJobsFromRouting = (
   productId: string,
   qty: number,
   routingSteps: RoutingStep[],
-  priority?: number
+  priorityOrOptions?: number | BuildJobsOptions
 ) => {
-  const safePriority = Number.isFinite(priority as number) ? (priority as number) : undefined;
+  const options: BuildJobsOptions =
+    typeof priorityOrOptions === "number"
+      ? { priority: priorityOrOptions }
+      : priorityOrOptions || {};
+  const safePriority = Number.isFinite(options.priority as number)
+    ? (options.priority as number)
+    : undefined;
+  const embellishment = options.embellishment?.enabled ? options.embellishment : undefined;
   const jobGroupId = `${orderId}_${productId}`;
   return normalizeRoutingSteps(routingSteps).map((step) => {
+    const computedMinutes = computeRequiredMinutes(step.cycleMinutes, qty, step.ops);
+    const embellishmentMinutes = Number(embellishment?.totalTime || 0);
+    const requiredMinutes =
+      embellishment &&
+      isEmbellishmentProcess(step.process) &&
+      Number.isFinite(embellishmentMinutes) &&
+      embellishmentMinutes > 0
+        ? embellishmentMinutes
+        : computedMinutes;
     const baseJob = {
       id: `${orderId}_${productId}_${step.stepNo}`,
       orderId,
@@ -40,8 +89,11 @@ export const buildJobsFromRouting = (
       productId,
       stepNo: step.stepNo,
       process: step.process,
-      requiredMinutes: computeRequiredMinutes(step.cycleMinutes, qty, step.ops),
+      requiredMinutes,
       status: "WAITING" as const,
+      ...(embellishment && isEmbellishmentProcess(step.process)
+        ? { embellishment }
+        : {}),
     };
     return safePriority === undefined ? baseJob : { ...baseJob, priority: safePriority };
   });

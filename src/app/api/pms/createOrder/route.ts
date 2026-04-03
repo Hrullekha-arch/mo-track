@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
-import { buildJobsFromRouting } from "@/lib/pms/routing";
+import { buildJobsFromRouting, EmbellishmentWorkPayload } from "@/lib/pms/routing";
 import { simulateScheduleForOrder } from "@/lib/pms/simulator";
 
 const IST_TIMEZONE_OFFSET_MINUTES = 330;
@@ -23,6 +23,24 @@ export async function POST(request: Request) {
     const priority =
       rawPriority !== undefined && Number.isFinite(Number(rawPriority))
         ? Number(rawPriority)
+        : undefined;
+    const rawEmbellishment = body?.embellishment;
+    const embellishment: EmbellishmentWorkPayload | undefined =
+      rawEmbellishment && typeof rawEmbellishment === "object"
+        ? {
+            enabled: Boolean(rawEmbellishment.enabled),
+            customerName: String(rawEmbellishment.customerName || "").trim(),
+            customerPhone: String(rawEmbellishment.customerPhone || "").trim(),
+            numberOfWindows: Number(rawEmbellishment.numberOfWindows || 0),
+            numberOfPanels: Number(rawEmbellishment.numberOfPanels || 0),
+            embellishmentBarcode: String(rawEmbellishment.embellishmentBarcode || "").trim(),
+            stitchingPerPanel: Number(rawEmbellishment.stitchingPerPanel || 0),
+            handWorkTime: Number(rawEmbellishment.handWorkTime || 0),
+            totalHours: Number(rawEmbellishment.totalHours || 0),
+            totalTime: Number(rawEmbellishment.totalTime || 0),
+            hourlyCharge: Number(rawEmbellishment.hourlyCharge || 0),
+            chargeAmount: Number(rawEmbellishment.chargeAmount || 0),
+          }
         : undefined;
 
     if (!orderId || !productId || !Number.isFinite(qty) || qty <= 0) {
@@ -50,7 +68,10 @@ export async function POST(request: Request) {
       );
     }
 
+<<<<<<< HEAD
     const invoiceRequired = orderDataSnapshot?.invoicing?.invoiceRequired !== false;
+=======
+>>>>>>> 920249b (Add PMS embellishment workflow and routing admin tools)
     const invoicingStatus = orderDataSnapshot?.invoicing?.status;
     const invoiceCount = Array.isArray(orderDataSnapshot?.invoicing?.invoices)
       ? orderDataSnapshot.invoicing.invoices.length
@@ -61,6 +82,18 @@ export async function POST(request: Request) {
     if (!hasInvoice) {
       return NextResponse.json(
         { success: false, message: "Invoice not generated for this order yet." },
+        { status: 400 }
+      );
+    }
+
+    const routingSnap = await adminDb
+      .collection("routing")
+      .where("productId", "==", productId)
+      .get();
+
+    if (routingSnap.empty) {
+      return NextResponse.json(
+        { success: false, message: "Routing is not created for this PMS product yet." },
         { status: 400 }
       );
     }
@@ -76,24 +109,15 @@ export async function POST(request: Request) {
 
     await orderRef.set(orderData, { merge: true });
 
-    const routingSnap = await adminDb
-      .collection("routing")
-      .where("productId", "==", productId)
-      .get();
-
-    if (routingSnap.empty) {
-      return NextResponse.json(
-        { success: false, message: "No routing found for product." },
-        { status: 400 }
-      );
-    }
-
     const routingSteps = routingSnap.docs.map((doc) => ({
       id: doc.id,
       ...(doc.data() as any),
     }));
 
-    const jobs = buildJobsFromRouting(orderId, productId, qty, routingSteps, priority);
+    const jobs = buildJobsFromRouting(orderId, productId, qty, routingSteps, {
+      priority,
+      embellishment,
+    });
     const batch = adminDb.batch();
 
     jobs.forEach((job) => {

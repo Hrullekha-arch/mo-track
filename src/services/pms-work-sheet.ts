@@ -27,6 +27,24 @@ const normalizeText = (value?: string) =>
     .trim()
     .toLowerCase();
 
+const normalizePmsItemKey = (value?: string) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+const PMS_EXCLUDED_ITEM_KEYS = new Set([
+  "wallpaper-laying-charges",
+  "installation",
+  "installatation-charges",
+  "sofa-stitching-charges",
+  "loose-material",
+]);
+
+const isPmsExcludedItem = (...values: Array<unknown>) =>
+  values.some((value) => PMS_EXCLUDED_ITEM_KEYS.has(normalizePmsItemKey(String(value ?? ""))));
+
 const isOrderInvoiced = (order?: any) => {
   if (!order) return false;
   const status = order.invoicing?.status;
@@ -44,7 +62,10 @@ const isOrderClosedForPms = (order?: any) => {
 };
 
 const resolveVasInfo = (order?: any, productName?: string) => {
-  const items = (order?.sections as any)?.VAS?.items || [];
+  const items = ((order?.sections as any)?.VAS?.items || []).filter(
+    (item: any) =>
+      !isPmsExcludedItem(item?.description, item?.group, item?.roomName, item?.type)
+  );
   if (!items.length) {
     return { vasName: productName || "VAS", vasGroup: "-", qty: 0 };
   }
@@ -194,6 +215,7 @@ export async function buildPmsWorkSheetRowsFromDb() {
         : undefined;
       const plan = planByJob.get(job.id);
       const vasInfo = resolveVasInfo(order, product?.name);
+      if (isPmsExcludedItem(product?.name, vasInfo.vasName, vasInfo.vasGroup)) return null;
       const processName = job.process || currentStep?.process || "Not scheduled";
       const processLabel = job.stepNo ? `${processName} (Step ${job.stepNo})` : processName;
       const nextLabel = nextStep?.process ? `${nextStep.process} (Step ${nextStep.stepNo})` : "-";

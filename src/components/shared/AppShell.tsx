@@ -59,7 +59,9 @@ import {
 export const navItems = [
     { href: "/dashboard", icon: Home, label: "Home", roles: ['admin', 'employee', 'Accounts'] },
     { href: "/dashboard/fms", icon: Factory, label: "FMS", roles: ['admin', 'employee'] },
+    { href: "/dashboard/pms", icon: ClipboardList, label: "PMS", roles: ['admin'] },
     { href: "/dashboard/approvals", icon: FileSignature, label: "Approvals", roles: ['admin', 'Accounts'] },
+    { href: "/dashboard/purchase-entry", icon: ClipboardList, label: "Purchase Entry", roles: ['admin', 'Accounts'] },
     { href: "/dashboard/stock-verification", icon: PackageSearch, label: "Stock Verification", roles: ['admin', 'employee'] },
     { href: "/dashboard/visits", icon: CalendarCheck, label: "Visits", roles: ['admin', 'employee'] },
     { href: "/dashboard/complain-approval", icon: ShieldCheck, label: "Complain Approval", roles: ['admin', 'employee'] },
@@ -277,7 +279,16 @@ function MobileUserMenu() {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  
+  const pathname = usePathname();
+  const { user, role } = useAuth();
+  const mobileNavItems = React.useMemo(() => {
+    return navItems.filter((item) => {
+      if (!user) return false;
+      if (role === "admin") return true;
+      return user.permissions?.includes(item.href);
+    });
+  }, [user, role]);
+
   return (
     <div className="flex h-screen bg-background">
       <aside className="group fixed inset-y-0 left-0 z-50 w-16 hover:w-64 transition-all duration-300 ease-in-out flex-col border-r bg-card/70 backdrop-blur-lg text-card-foreground hidden md:flex dark">
@@ -310,10 +321,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <div className="flex flex-col h-full">
                         <div className="flex-1 overflow-y-auto">
                              <nav className={cn("space-y-1 p-2")}>
-                                {navItems.map((item) => {
+                                {mobileNavItems.map((item) => {
                                     const isActive = item.href === "/dashboard"
-                                        ? usePathname() === item.href
-                                        : usePathname().startsWith(item.href);
+                                        ? pathname === item.href
+                                        : pathname.startsWith(item.href);
                                     return (
                                         <Link key={item.href} href={item.href} passHref>
                                         <Button
