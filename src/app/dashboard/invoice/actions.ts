@@ -257,10 +257,12 @@ export async function buildAndFetchInvoicePayload(
       seller: {
         companyName:
           quotation.company ||
-          (isVas ? "MO SPACES PVT.LTD." : "MO Designs Private Limited - (2024-2025)"),
+          (isVas ? "SP SERVICES" : "MO Designs Private Limited - (2024-2025)"),
         address:
-          "A-6, Sushant Lok-1, M G Road, Gurgaon- 122022, B-50, Sushant Lok-2, Sec- 56, Gurgaon - 122011 GURGAON. (HARYANA) INDIA",
-        gstin: "06AAMCM5012B1ZY",
+          isVas
+            ? "2nd Floor, B-50 (MO), Sushant Lok Phase 2, Block B, Sector 56, Gurugram - 122011, Haryana, India"
+            : "A-6, Sushant Lok-1, M G Road, Gurgaon- 122022, B-50, Sushant Lok-2, Sec- 56, Gurgaon - 122011 GURGAON. (HARYANA) INDIA",
+        gstin: isVas ? "06CDOPP2805B1ZR" : "06AAMCM5012B1ZY",
       },
       items: allItems,
       totals: {

@@ -5,6 +5,14 @@ import { POST as syncVisits } from "@/app/api/visits/syncVisitSheet/route";
 import { POST as syncPms } from "@/app/api/pms/syncWorkSheet/route";
 import { POST as syncWalkin } from "@/app/api/walkin/syncWalkinSheet/route";
 
+type SyncTaskResult = {
+  ok: boolean;
+  status: number;
+  durationMs: number;
+  data: any;
+  error?: string;
+};
+
 const isAuthorized = (request: Request) => {
   if (process.env.NODE_ENV !== "production") return true;
   const url = new URL(request.url);
@@ -22,33 +30,50 @@ const isAuthorized = (request: Request) => {
   return provided === secret || isVercelCron;
 };
 
+const runTask = async (task: () => Promise<Response>): Promise<SyncTaskResult> => {
+  const startedAt = Date.now();
+  try {
+    const response = await task();
+    const data = await response.json().catch(() => ({}));
+    return {
+      ok: response.ok,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+      data,
+      error: response.ok ? undefined : (data as any)?.message || `HTTP ${response.status}`,
+    };
+  } catch (error: any) {
+    return {
+      ok: false,
+      status: 500,
+      durationMs: Date.now() - startedAt,
+      data: {},
+      error: error?.message || "Unknown sync error",
+    };
+  }
+};
+
 const runSync = async () => {
-  const orderResponse = await syncOrders();
-  const orderJson = await orderResponse.json().catch(() => ({}));
-
-  const visitResponse = await syncVisits();
-  const visitJson = await visitResponse.json().catch(() => ({}));
-
-  const walkinResponse = await syncWalkin();
-  const walkinJson = await walkinResponse.json().catch(() => ({}));
-
-  const customerRevenueResponse = await syncCustomerRevenue();
-  const customerRevenueJson = await customerRevenueResponse.json().catch(() => ({}));
-
   const pmsRequest = new Request("http://localhost/api/pms/syncWorkSheet", { method: "POST" });
-  const pmsResponse = await syncPms(pmsRequest);
-  const pmsJson = await pmsResponse.json().catch(() => ({}));
+  const [orders, visits, walkin, customerRevenue, pms] = await Promise.all([
+    runTask(() => syncOrders()),
+    runTask(() => syncVisits()),
+    runTask(() => syncWalkin()),
+    runTask(() => syncCustomerRevenue()),
+    runTask(() => syncPms(pmsRequest)),
+  ]);
 
   return {
-    orders: orderJson,
-    visits: visitJson,
-    walkin: walkinJson,
-    customerRevenue: customerRevenueJson,
-    pms: pmsJson,
+    orders,
+    visits,
+    walkin,
+    customerRevenue,
+    pms,
   };
 };
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 export async function GET(request: Request) {
   if (!isAuthorized(request)) {
@@ -58,7 +83,21 @@ export async function GET(request: Request) {
   const startedAt = new Date().toISOString();
   try {
     const results = await runSync();
-    return NextResponse.json({ success: true, startedAt, results });
+    const failed = Object.entries(results)
+      .filter(([, value]) => !(value as SyncTaskResult).ok)
+      .map(([name, value]) => ({
+        name,
+        error: (value as SyncTaskResult).error || "Unknown error",
+      }));
+
+    return NextResponse.json({
+      success: failed.length === 0,
+      partial: failed.length > 0,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      failed,
+      results,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { success: false, message: error?.message || "Sync failed." },

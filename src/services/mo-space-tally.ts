@@ -24,7 +24,7 @@ export async function buildMoSpaceSalesVoucherXML(invoice: Invoice): Promise<{xm
     
     const date = format(new Date(), 'yyyyMMdd');
     const partyLedgerName = escapeXml(`${invoice.customer.name}-${invoice.customer.phone}`);
-    const companyName = "MO SPACES PVT.LTD.";
+    const companyName = "SP SERVICES";
     const voucherType = "Installation / Stitching";
     
     let salesmanRefText = invoice.salesPerson;

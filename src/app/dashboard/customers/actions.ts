@@ -552,3 +552,124 @@ export async function addDealAction(data: AddDealInput): Promise<{ success: bool
     return { success: false, message: `Server error: ${error.message}` };
   }
 }
+
+export async function updateDealSalesmanAction(
+  customerId: string,
+  dealDocId: string,
+  salesmanId: string
+): Promise<{ success: boolean; message: string; deal?: Deal }> {
+  try {
+    const normalizedCustomerId = String(customerId || "").trim();
+    const normalizedDealDocId = String(dealDocId || "").trim();
+    const normalizedSalesmanId = String(salesmanId || "").trim();
+
+    if (!normalizedCustomerId || !normalizedDealDocId || !normalizedSalesmanId) {
+      return { success: false, message: "Missing customer, deal, or salesman." };
+    }
+
+    const salesmanRef = adminDb.collection("users").doc(normalizedSalesmanId);
+    const salesmanSnap = await salesmanRef.get();
+    if (!salesmanSnap.exists) {
+      return { success: false, message: "Selected salesman not found." };
+    }
+
+    const salesmanData = salesmanSnap.data() as User;
+    const salesmanName = String(salesmanData?.name || "").trim();
+    if (!salesmanName) {
+      return { success: false, message: "Selected salesman has no valid name." };
+    }
+
+    const dealRef = adminDb
+      .collection("customers")
+      .doc(normalizedCustomerId)
+      .collection("deals")
+      .doc(normalizedDealDocId);
+
+    const dealSnap = await dealRef.get();
+    if (!dealSnap.exists) {
+      return { success: false, message: "Deal not found." };
+    }
+
+    const dealData = dealSnap.data() as Deal;
+    const now = new Date().toISOString();
+
+    let handleByCmrPayload: { id?: string; name?: string } | undefined = undefined;
+    const assignmentSnap = await adminDb
+      .collection("salesmanCrmAssignments")
+      .doc(salesmanName)
+      .get();
+    const crmUserId = String(assignmentSnap.data()?.crmUserId || "").trim();
+    if (crmUserId) {
+      const crmUserSnap = await adminDb.collection("users").doc(crmUserId).get();
+      const crmUserName = crmUserSnap.exists
+        ? String((crmUserSnap.data() as User)?.name || "").trim()
+        : "";
+      handleByCmrPayload = stripUndefined({
+        id: crmUserId,
+        name: crmUserName || undefined,
+      });
+    }
+
+    const assignedSalesPersonPayload = stripUndefined({
+      id: normalizedSalesmanId,
+      name: salesmanName,
+    });
+
+    const dealUpdatePayload: Record<string, any> = {
+      assignedSalesPerson: assignedSalesPersonPayload,
+      representativeId: normalizedSalesmanId,
+      lastUpdatedAt: now,
+    };
+    if (handleByCmrPayload && Object.keys(handleByCmrPayload).length > 0) {
+      dealUpdatePayload.handleByCmr = handleByCmrPayload;
+    }
+
+    await dealRef.set(dealUpdatePayload, { merge: true });
+
+    const dealPublicId = String(dealData?.dealId || normalizedDealDocId).trim();
+    if (dealPublicId) {
+      const o2dRef = adminDb.collection("o2d").doc(dealPublicId);
+      const o2dSnap = await o2dRef.get();
+      if (o2dSnap.exists) {
+        await o2dRef.set(
+          {
+            salesPerson: salesmanName,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+      }
+
+      const ordersSnap = await adminDb.collection("orders").where("dealId", "==", dealPublicId).get();
+      if (!ordersSnap.empty) {
+        const batch = adminDb.batch();
+        ordersSnap.docs.forEach((orderDoc) => {
+          batch.set(
+            orderDoc.ref,
+            {
+              salesPerson: salesmanName,
+              updatedAt: now,
+            },
+            { merge: true }
+          );
+        });
+        await batch.commit();
+      }
+    }
+
+    const updatedSnap = await dealRef.get();
+    const updatedDeal = { id: updatedSnap.id, ...updatedSnap.data() } as Deal;
+
+    revalidatePath(`/dashboard/customers/${normalizedCustomerId}`);
+    revalidatePath(`/dashboard/customers/${normalizedCustomerId}/${normalizedDealDocId}`);
+
+    return {
+      success: true,
+      message: "Salesman updated successfully.",
+      deal: JSON.parse(JSON.stringify(updatedDeal)),
+    };
+  } catch (error: any) {
+    console.error("Error updating deal salesman:", error);
+    return { success: false, message: `Server error: ${error.message}` };
+  }
+}

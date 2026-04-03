@@ -305,9 +305,7 @@ const handleDownloadPdf = async () => {
           >
             {/* HEADER */}
             <div className="text-center border-b-2 border-gray-800 pb-6 mb-8">
-              <h1 className="text-3xl font-bold text-gray-800">
-                MO SPACES PVT LTD
-              </h1>
+              <h1 className="text-3xl font-bold text-gray-800">SP SERVICES</h1>
               <p className="text-sm text-gray-600 mt-2 uppercase tracking-wide">
                 Measurement Sheet
               </p>
@@ -881,7 +879,7 @@ const handleDownloadPdf = async () => {
               <div className="text-center">
                 <div className="border-t border-gray-400 pt-2 mt-12">
                   <p className="font-semibold">Authorized Signatory</p>
-                  <p className="text-xs text-gray-500 mt-1">MO Spaces Pvt Ltd</p>
+                  <p className="text-xs text-gray-500 mt-1">SP SERVICES</p>
                 </div>
               </div>
             </div>

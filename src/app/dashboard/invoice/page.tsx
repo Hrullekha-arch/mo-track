@@ -625,10 +625,16 @@ const buildPrintablePayload = (candidate: InvoiceCandidate, invoiceNo?: string) 
     seller: {
       companyName:
         normalItems.length === 0 && vasItems.length > 0
-          ? "MO SPACES PVT.LTD."
+          ? "SP SERVICES"
           : "MO Designs Private Limited - (2024-2025)",
-      address: "A-6, Sushant Lok-1, Gurgaon",
-      gstin: "06AAMCM5012B1ZY",
+      address:
+        normalItems.length === 0 && vasItems.length > 0
+          ? "2nd Floor, B-50 (MO), Sushant Lok Phase 2, Block B, Sector 56, Gurugram - 122011, Haryana, India"
+          : "A-6, Sushant Lok-1, Gurgaon",
+      gstin:
+        normalItems.length === 0 && vasItems.length > 0
+          ? "06CDOPP2805B1ZR"
+          : "06AAMCM5012B1ZY",
     },
     items: mergedItems,
     totals: {

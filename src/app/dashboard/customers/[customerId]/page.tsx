@@ -3,16 +3,23 @@
 import { useEffect, useState, use } from "react";
 import { Customer, Deal, User, Quotation } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, PlusCircle, Settings, Edit, Trash2 } from "lucide-react";
+import { ArrowLeft, PlusCircle, Settings, Edit, Trash2, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { NewDealDialog } from "@/components/features/customer/NewDealDialog";
 import { EditCustomerDialog } from "@/components/features/customer/NewContactDialog";
 import { useToast } from "@/hooks/use-toast";
-import { getCustomerById, getDealsForCustomer, getSalesmen, getQuotationsForDeal as getQuotationsForDealAction } from '../actions';
+import {
+  getCustomerById,
+  getDealsForCustomer,
+  getSalesmen,
+  getQuotationsForDeal as getQuotationsForDealAction,
+  updateDealSalesmanAction,
+} from '../actions';
 
 
 
@@ -27,6 +34,8 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
     const [isNewDealOpen, setIsNewDealOpen] = useState(false);
     const { toast } = useToast();
     const [editOpen, setEditOpen] = useState(false);
+    const [salesmanDraftByDeal, setSalesmanDraftByDeal] = useState<Record<string, string>>({});
+    const [updatingDealSalesmanId, setUpdatingDealSalesmanId] = useState<string | null>(null);
 
 
     useEffect(() => {
@@ -47,6 +56,12 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
                     setCustomer(customerData);
                     setDeals(dealsData);
                     setSalesmen(salesmenData);
+                    setSalesmanDraftByDeal(
+                      dealsData.reduce((acc, deal) => {
+                        acc[deal.id] = deal.assignedSalesPerson?.id || deal.representativeId || "";
+                        return acc;
+                      }, {} as Record<string, string>)
+                    );
                     // Also fetch all quotations for all deals of this customer
                     const allQuotations: Quotation[] = [];
                     for (const deal of dealsData) {
@@ -89,6 +104,10 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
 
     const handleNewDealSuccess = (newDeal: Deal) => {
         setDeals(prevDeals => [newDeal, ...prevDeals]);
+        setSalesmanDraftByDeal((prev) => ({
+          ...prev,
+          [newDeal.id]: newDeal.assignedSalesPerson?.id || newDeal.representativeId || "",
+        }));
         toast({ title: "Deal Created!", description: "The new deal has been successfully added."});
         setIsNewDealOpen(false);
     }
@@ -122,11 +141,78 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
 
     const getSalesmanName = (id?: string) => salesmen.find(s => s.id === id)?.name || "N/A";
     const getDealTitle = (deal: Deal) => deal.title || deal.dealName || "Untitled Deal";
+    const getDealSalesmanId = (deal: Deal) => deal.assignedSalesPerson?.id || deal.representativeId || "";
+    const getDraftSalesmanId = (deal: Deal) => salesmanDraftByDeal[deal.id] || getDealSalesmanId(deal);
+    const isDealSalesmanDirty = (deal: Deal) => {
+      const draftSalesmanId = getDraftSalesmanId(deal);
+      return Boolean(draftSalesmanId) && draftSalesmanId !== getDealSalesmanId(deal);
+    };
     
     const calculateTotalApprovedQuotationAmount = (dealId: string) => {
         return quotations
             .filter(q => q.dealName === deals.find(d => d.id === dealId)?.dealName && (q.status === 'Approved' || q.status === 'Converted to Order'))
             .reduce((total, q) => total + q.totalAmount, 0);
+    };
+
+    const handleSalesmanChangeForDeal = async (deal: Deal) => {
+      const selectedSalesmanId = getDraftSalesmanId(deal);
+      const currentSalesmanId = getDealSalesmanId(deal);
+
+      if (!selectedSalesmanId) {
+        toast({
+          variant: "destructive",
+          title: "Select salesman",
+          description: "Please select a salesman first.",
+        });
+        return;
+      }
+
+      if (selectedSalesmanId === currentSalesmanId) {
+        toast({
+          title: "No changes",
+          description: "Selected salesman is already assigned to this deal.",
+        });
+        return;
+      }
+
+      setUpdatingDealSalesmanId(deal.id);
+      try {
+        const result = await updateDealSalesmanAction(customerId, deal.id, selectedSalesmanId);
+        if (!result.success || !result.deal) {
+          toast({
+            variant: "destructive",
+            title: "Update failed",
+            description: result.message || "Could not update salesman.",
+          });
+          return;
+        }
+
+        setDeals((prevDeals) =>
+          prevDeals.map((existingDeal) =>
+            existingDeal.id === deal.id ? { ...existingDeal, ...result.deal } : existingDeal
+          )
+        );
+        setSalesmanDraftByDeal((prev) => ({
+          ...prev,
+          [deal.id]:
+            result.deal?.assignedSalesPerson?.id || result.deal?.representativeId || selectedSalesmanId,
+        }));
+        toast({
+          title: "Salesman updated",
+          description: `Deal ${deal.dealId} assigned to ${
+            result.deal.assignedSalesPerson?.name || getSalesmanName(selectedSalesmanId)
+          }.`,
+        });
+      } catch (error) {
+        console.error("Failed to update deal salesman:", error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to update deal salesman.",
+        });
+      } finally {
+        setUpdatingDealSalesmanId(null);
+      }
     };
 
     return (
@@ -189,6 +275,55 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
                                         <CardContent>
                                             <p className="text-2xl font-bold text-primary">₹{calculateTotalApprovedQuotationAmount(deal.id).toLocaleString('en-IN')}</p>
                                             <p className="text-sm text-muted-foreground">{deal.description}</p>
+                                            <div
+                                              className="mt-3 border-t pt-3 space-y-2"
+                                              onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                              }}
+                                            >
+                                              <p className="text-xs font-medium text-muted-foreground">Change Salesman</p>
+                                              <div className="flex items-center gap-2">
+                                                <Select
+                                                  value={getDraftSalesmanId(deal) || undefined}
+                                                  onValueChange={(value) =>
+                                                    setSalesmanDraftByDeal((prev) => ({
+                                                      ...prev,
+                                                      [deal.id]: value,
+                                                    }))
+                                                  }
+                                                  disabled={updatingDealSalesmanId === deal.id}
+                                                >
+                                                  <SelectTrigger className="h-8">
+                                                    <SelectValue placeholder="Select salesman" />
+                                                  </SelectTrigger>
+                                                  <SelectContent>
+                                                    {salesmen.map((salesman) => (
+                                                      <SelectItem key={salesman.id} value={salesman.id}>
+                                                        {salesman.name}
+                                                      </SelectItem>
+                                                    ))}
+                                                  </SelectContent>
+                                                </Select>
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  className="h-8"
+                                                  disabled={!isDealSalesmanDirty(deal) || updatingDealSalesmanId === deal.id}
+                                                  onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    void handleSalesmanChangeForDeal(deal);
+                                                  }}
+                                                >
+                                                  {updatingDealSalesmanId === deal.id ? (
+                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                  ) : (
+                                                    "Save"
+                                                  )}
+                                                </Button>
+                                              </div>
+                                            </div>
                                         </CardContent>
                                     </Card>
                                     </Link>

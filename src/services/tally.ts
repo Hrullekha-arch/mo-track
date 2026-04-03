@@ -111,7 +111,7 @@ async function buildLedgerCreateXML(customerName: string, customerPhone: string,
 
 async function buildStockItemCreateXML(bcn: string, isVas: boolean): Promise<string> {
     const escapedItemName = escapeXml(bcn);
-    const companyName = isVas ? "MO SPACES PVT.LTD." : "MO Designs Private Limited - (2024-2025)";
+    const companyName = isVas ? "SP SERVICES" : "MO Designs Private Limited - (2024-2025)";
     const unit = isVas ? 'Pcs' : 'mtr';
 
     return `
@@ -319,7 +319,7 @@ async function createIfNeeded(xml: string): Promise<{ success: boolean; message:
 }
 
 async function fetchAndSaveVoucherNumber(invoice: PrintableInvoicePayload, ledgerName: string, amount: number, date: string, isVas: boolean): Promise<string | undefined> {
-  const companyName = isVas ? "MO SPACES PVT.LTD." : "MO Designs Private Limited - (2024-2025)";
+  const companyName = isVas ? "SP SERVICES" : "MO Designs Private Limited - (2024-2025)";
   const filterXml = await buildVoucherFilterXML(ledgerName, amount, date, companyName);
 
   let voucherNo: string | undefined;

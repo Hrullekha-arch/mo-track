@@ -1632,26 +1632,47 @@ const AdminDashboard = () => {
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval> | null = null;
 
-    const syncOrderSheet = async () => {
+    const syncSheets = async () => {
       if (syncOrderSheetRef.current) return;
       syncOrderSheetRef.current = true;
       setIsSheetSyncing(true);
       try {
-        await fetch("/api/orders/syncOrderSheet", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        });
-        setLastSheetSyncAt(new Date());
+        const [orderResult, walkinResult] = await Promise.allSettled([
+          fetch("/api/orders/syncOrderSheet", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          }),
+          fetch("/api/walkin/syncWalkinSheet", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          }),
+        ]);
+
+        const orderOk =
+          orderResult.status === "fulfilled" && orderResult.value.ok;
+        const walkinOk =
+          walkinResult.status === "fulfilled" && walkinResult.value.ok;
+
+        if (orderOk || walkinOk) {
+          setLastSheetSyncAt(new Date());
+        }
+
+        if (!orderOk) {
+          console.error("Order sheet auto-sync failed:", orderResult);
+        }
+        if (!walkinOk) {
+          console.error("Walkin sheet auto-sync failed:", walkinResult);
+        }
       } catch (error) {
-        console.error("Order sheet sync failed:", error);
+        console.error("Sheet sync failed:", error);
       } finally {
         syncOrderSheetRef.current = false;
         setIsSheetSyncing(false);
       }
     };
 
-    void syncOrderSheet();
-    intervalId = setInterval(syncOrderSheet, 60_000);
+    void syncSheets();
+    intervalId = setInterval(syncSheets, 60_000);
 
     return () => {
       if (intervalId) clearInterval(intervalId);

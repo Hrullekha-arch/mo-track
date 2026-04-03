@@ -6,6 +6,9 @@ const DEFAULT_SHEET_ID = "1wrA0GcLf9Kdqj2mbfJD_WR5NbjEuIYhdh_PuAc2T138";
 const DEFAULT_SHEET_NAME = "First_details";
 const SYNC_WALKIN_ROUTE_VERSION = "2026-03-20-walkin-sheet-v3";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
 const canonicalHeader = [
   "Timestamp",
   "Full Name",
@@ -246,9 +249,6 @@ const computeCashsaleYesNo = (walkin: Record<string, unknown>) => {
   return toBoolean(cashsale.created) || hasCashsaleLinks ? "Yes" : "No";
 };
 
-const isRowBlank = (row: unknown[]) =>
-  row.length === 0 || row.every((cell) => String(cell ?? "").trim() === "");
-
 const chunkArray = <T>(values: T[], size: number): T[][] => {
   if (!values.length) return [];
   const chunks: T[][] = [];
@@ -269,27 +269,37 @@ const getColumnLetter = (columnNumber: number) => {
   return columnName;
 };
 
-const getRowKeyCandidates = (row: string[]) => {
-  const keys: string[] = [];
-  const walkinId = normalize(row[5]);
-  if (walkinId) keys.push(`id:${walkinId}`);
+const WALKIN_ID_HEADER = "Walkin id";
 
-  const mobile = normalize(row[2]);
-  const fullName = normalize(row[1]);
-  if (mobile && fullName) keys.push(`mobile:${mobile}|name:${fullName}`);
+const getWalkinIdSortValue = (value: unknown) => {
+  const text = String(value ?? "").trim();
+  if (!text) return Number.MAX_SAFE_INTEGER;
+  const match = text.match(/(\d+)/);
+  if (!match) return Number.MAX_SAFE_INTEGER;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+};
 
-  return Array.from(new Set(keys));
+const sortRowsByWalkinId = (rows: string[][]) => {
+  const walkinIdIndex = canonicalHeader.findIndex(
+    (label) => normalize(label) === normalize(WALKIN_ID_HEADER)
+  );
+  if (walkinIdIndex < 0) return [...rows];
+
+  return [...rows].sort((a, b) => {
+    const aId = String(a[walkinIdIndex] ?? "").trim();
+    const bId = String(b[walkinIdIndex] ?? "").trim();
+    const aSort = getWalkinIdSortValue(aId);
+    const bSort = getWalkinIdSortValue(bId);
+
+    if (aSort !== bSort) return aSort - bSort;
+    return aId.localeCompare(bId);
+  });
 };
 
 const SHEET_LAST_COLUMN = getColumnLetter(canonicalHeader.length);
 const MAX_BATCH_UPDATE_ROWS = 500;
 const MAX_APPEND_ROWS = 1000;
-
-type ExistingRowRef = {
-  rowIndex: number;
-  canonicalRow: string[];
-  consumed: boolean;
-};
 
 type FirestoreDocSnap = FirebaseFirestore.DocumentSnapshot<FirebaseFirestore.DocumentData>;
 
@@ -408,7 +418,7 @@ export async function POST() {
           "Walk-in"
         ),
         Store: pickFirst(walkin.store, fallbackStore, walkin.branch, walkin.location),
-        "Walkin id": pickFirst(walkin.walkinId, docSnap.id),
+        "Walkin id": pickFirst(walkin.walkinId),
         "Email Address": pickFirst(walkin.email),
         "Attend By": pickFirst(attendedBy.name, walkin.attendedByName, walkin.createdByName, createdBy.name),
         "Looking for": formatLookingFor(walkin.lookingFor),
@@ -441,7 +451,7 @@ export async function POST() {
         "Advance Received (Lead)": pickFirst(walkin.advanceReceived),
         "Measurement Required (Lead)": pickFirst(walkin.measurementRequired),
         Remarks: pickFirst(walkin.remarks),
-        Action: pickFirst(walkin.action),
+        Action: [pickFirst(walkin.action), pickFirst(walkin.leadType)].filter(Boolean).join(" | "),
         "Created By Name": pickFirst(walkin.createdByName, createdBy.name),
         "Created By Email": pickFirst(walkin.createdByEmail, createdBy.email),
         "Created By ID": pickFirst(walkin.createdById, createdBy.id),
@@ -487,6 +497,8 @@ export async function POST() {
       return canonicalHeader.map((headerLabel) => rowByHeader[headerLabel] ?? "");
     });
 
+    const sortedPreparedRows = sortRowsByWalkinId(preparedRows);
+
     const existingResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
       range: `${sheetName}!A1:${SHEET_LAST_COLUMN}`,
@@ -516,65 +528,65 @@ export async function POST() {
       return String(row?.[idx] ?? "");
     };
 
-    const existingRowKeyMap = new Map<string, ExistingRowRef[]>();
-    const addExistingRowRef = (key: string, rowRef: ExistingRowRef) => {
-      if (!key) return;
-      const list = existingRowKeyMap.get(key) || [];
-      list.push(rowRef);
-      existingRowKeyMap.set(key, list);
-    };
+    const existingCanonicalRows = (hasHeader ? dataRows : []).map((row) =>
+      canonicalHeader.map((label) => getCell(row, label))
+    );
 
-    dataRows.forEach((row, idx) => {
-      if (isRowBlank(row)) return;
-      const canonicalRow = canonicalHeader.map((label) => getCell(row, label));
-      const rowRef: ExistingRowRef = {
-        rowIndex: idx + 2,
-        canonicalRow,
-        consumed: false,
-      };
-
-      getRowKeyCandidates(canonicalRow).forEach((key) => addExistingRowRef(key, rowRef));
-    });
-
-    const findMatchingExistingRow = (row: string[]) => {
-      const candidates = getRowKeyCandidates(row);
-      for (const candidate of candidates) {
-        const list = existingRowKeyMap.get(candidate);
-        if (!list || !list.length) continue;
-        const match = list.find((entry) => !entry.consumed);
-        if (match) return match;
-      }
-      return undefined;
-    };
-
+    const rowsToClear: string[] = [];
     const rowsToAppend: string[][] = [];
     const rowsToUpdate: { range: string; values: string[][] }[] = [];
 
-    preparedRows.forEach((row: string[]) => {
-      if (isRowBlank(row)) return;
-      const canonicalRow = canonicalHeader.map((_, index) => String(row[index] ?? ""));
-      const existing = findMatchingExistingRow(canonicalRow);
+    const comparableCount = Math.min(existingCanonicalRows.length, sortedPreparedRows.length);
+    for (let index = 0; index < comparableCount; index += 1) {
+      const canonicalRow = canonicalHeader.map((_, colIndex) =>
+        String(sortedPreparedRows[index]?.[colIndex] ?? "")
+      );
+      const existingCanonicalRow = existingCanonicalRows[index] || [];
+      const same =
+        existingCanonicalRow.length === canonicalRow.length &&
+        existingCanonicalRow.every(
+          (cell, cellIndex) =>
+            String(cell ?? "").trim() === String(canonicalRow[cellIndex] ?? "").trim()
+        );
 
-      if (existing) {
-        existing.consumed = true;
-        const same =
-          existing.canonicalRow.length === canonicalRow.length &&
-          existing.canonicalRow.every(
-            (cell, idx) => String(cell ?? "").trim() === String(canonicalRow[idx] ?? "").trim()
-          );
-        if (!same) {
-          rowsToUpdate.push({
-            range: `${sheetName}!A${existing.rowIndex}:${SHEET_LAST_COLUMN}${existing.rowIndex}`,
-            values: [canonicalRow],
-          });
-        }
-      } else {
-        rowsToAppend.push(canonicalRow);
+      if (!same) {
+        const rowNumber = index + 2;
+        rowsToUpdate.push({
+          range: `${sheetName}!A${rowNumber}:${SHEET_LAST_COLUMN}${rowNumber}`,
+          values: [canonicalRow],
+        });
       }
-    });
+    }
+
+    if (sortedPreparedRows.length > existingCanonicalRows.length) {
+      rowsToAppend.push(
+        ...sortedPreparedRows
+          .slice(existingCanonicalRows.length)
+          .map((row) => canonicalHeader.map((_, colIndex) => String(row[colIndex] ?? "")))
+      );
+    }
+
+    if (existingCanonicalRows.length > sortedPreparedRows.length) {
+      const clearStart = sortedPreparedRows.length + 2;
+      const clearEnd = existingCanonicalRows.length + 1;
+      rowsToClear.push(`${sheetName}!A${clearStart}:${SHEET_LAST_COLUMN}${clearEnd}`);
+    }
+
+    if (!hasHeader && existingValues.length > 0) {
+      rowsToClear.push(`${sheetName}!A1:${SHEET_LAST_COLUMN}${existingValues.length}`);
+    }
 
     if (!hasHeader) {
       rowsToAppend.unshift(canonicalHeader);
+    }
+
+    if (rowsToClear.length > 0) {
+      await sheets.spreadsheets.values.batchClear({
+        spreadsheetId: sheetId,
+        requestBody: {
+          ranges: rowsToClear,
+        },
+      });
     }
 
     if (hasHeader && !isHeaderExact) {
@@ -617,7 +629,7 @@ export async function POST() {
     const cashsaleColIndex = canonicalHeader.findIndex(
       (label) => normalize(label) === normalize("Cashsale yes/no")
     );
-    const cashsaleYesCount = preparedRows.reduce((count: number, row: string[]) => {
+    const cashsaleYesCount = sortedPreparedRows.reduce((count: number, row: string[]) => {
       if (cashsaleColIndex < 0) return count;
       return count + (normalize(row[cashsaleColIndex]) === "yes" ? 1 : 0);
     }, 0);
@@ -625,7 +637,7 @@ export async function POST() {
     return NextResponse.json({
       success: true,
       syncVersion: SYNC_WALKIN_ROUTE_VERSION,
-      rowsPrepared: preparedRows.length,
+      rowsPrepared: sortedPreparedRows.length,
       appended: rowsToAppend.length,
       updated: rowsToUpdate.length,
       cashsaleYes: cashsaleYesCount,

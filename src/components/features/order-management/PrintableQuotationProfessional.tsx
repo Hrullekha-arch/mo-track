@@ -126,12 +126,12 @@ export function PrintableQuotationProfessional({ type, values, creatorName, sale
         pan: "AAMCM5012B",
       }
     : {
-        name: "MO SPACES PRIVATE LIMITED",
-        address: `B-50, 2nd Floor`,
-        address1:`Sushant Lok-2, Sec- 56`,
-        address2:`Gurgaon - 122011 (HARYANA) INDIA`,
-        gst: "06AAMCM7223J1Z8",
-        pan: "AAMCM7223J",
+        name: "SP SERVICES",
+        address: `2nd Floor, B-50 (MO)`,
+        address1:`Sushant Lok Phase 2, Block B, Sector 56`,
+        address2:`Gurugram - 122011 (HARYANA) INDIA`,
+        gst: "06CDOPP2805B1ZR",
+        pan: "CDOPP2805B",
       }
 
     return (

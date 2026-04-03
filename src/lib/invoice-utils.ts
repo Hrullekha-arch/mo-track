@@ -121,9 +121,11 @@ export const buildPrintablePayloadFromInvoice = (invoice: Invoice): PrintableInv
 
   const isVasInvoice = invoice.invoiceType === "VAS" || invoice.isVas === true;
   const fallbackSeller = {
-    companyName: isVasInvoice ? "MO SPACES PVT.LTD." : "MO Designs Private Limited - (2024-2025)",
-    address: "A-6, Sushant Lok-1, Gurgaon",
-    gstin: "06AAMCM5012B1ZY",
+    companyName: isVasInvoice ? "SP SERVICES" : "MO Designs Private Limited - (2024-2025)",
+    address: isVasInvoice
+      ? "2nd Floor, B-50 (MO), Sushant Lok Phase 2, Block B, Sector 56, Gurugram - 122011, Haryana, India"
+      : "A-6, Sushant Lok-1, Gurgaon",
+    gstin: isVasInvoice ? "06CDOPP2805B1ZR" : "06AAMCM5012B1ZY",
   };
 
   const customerSnapshot = invoice.customerSnapshot || invoice.customer;
