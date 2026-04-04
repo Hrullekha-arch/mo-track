@@ -1,494 +1,841 @@
-
-
 "use client";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { useState, useEffect } from 'react';
-import { collection, collectionGroup, query, where, onSnapshot, doc, updateDoc, getDoc, getDocs, setDoc, writeBatch, arrayUnion } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { Quotation, Deal, Customer, User, Order, PurchaseRequest, Stock, FabricDetail, O2DStatus } from '@/lib/types';
-import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
-import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
-import { format } from 'date-fns';
-import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
-import { Loader2 } from 'lucide-react';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { PrintableQuotationProfessional } from '@/components/features/order-management/PrintableQuotationProfessional';
-import Link from "next/link";
+import { Card, CardContent } from "@/components/ui/card";
+import { useState, useEffect } from "react";
+import {
+  collection,
+  collectionGroup,
+  query,
+  where,
+  onSnapshot,
+  doc,
+  getDoc,
+  getDocs,
+} from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import {
+  Quotation,
+  Deal,
+  Customer,
+  User,
+  Order,
+} from "@/lib/types";
+import {
+  Table,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { format } from "date-fns";
+import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Loader2,
+  CheckCircle2,
+  Clock,
+  CreditCard,
+  FileText,
+  ShoppingCart,
+  ChevronRight,
+  Package,
+  User as UserIcon,
+  Phone,
+  Calendar,
+  IndianRupee,
+  AlertCircle,
+  Inbox,
+} from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { PrintableQuotationProfessional } from "@/components/features/order-management/PrintableQuotationProfessional";
 import { useAuth } from "@/context/AuthContext";
-import { getStockById } from "../inventory/actions";
-import { approveOrderAndCreatePurchaseRequest, confirmPaymentReceived, approveQuotationAction } from "./actions";
+import {
+  approveOrderAndCreatePurchaseRequest,
+  confirmPaymentReceived,
+  approveQuotationAction,
+} from "./actions";
 import { useSearchParams } from "next/navigation";
 
+/* ─── Types ─────────────────────────────────────────── */
+
 interface EnrichedQuotation extends Quotation {
-    dealId: string; // Corrected from dealDocId
-    customerId: string;
-    dealName: string;
-    customerName: string;
+  dealId: string;
+  customerId: string;
+  dealName: string;
+  customerName: string;
 }
 
 interface EnrichedOrder extends Order {
-    totalAmount?: number;
+  totalAmount?: number;
 }
 
+/* ─── Shared skeleton ────────────────────────────────── */
 
-function ApproveQuotationTab() {
-    const [quotations, setQuotations] = useState<EnrichedQuotation[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [updatingId, setUpdatingId] = useState<string | null>(null);
-    const [selectedQuotation, setSelectedQuotation] = useState<EnrichedQuotation | null>(null);
-    const [allUsers, setAllUsers] = useState<User[]>([]);
+function TableSkeleton() {
+  return (
+    <div className="space-y-3 p-6">
+      {[...Array(4)].map((_, i) => (
+        <Skeleton key={i} className="h-12 w-full rounded-xl" />
+      ))}
+    </div>
+  );
+}
 
-    const { toast } = useToast();
-    const { user } = useAuth();
+/* ─── Empty state ────────────────────────────────────── */
 
-    useEffect(() => {
-        setLoading(true);
-        // Fetch all users first for enrichment later
-        const fetchUsers = async () => {
-            try {
-                const usersQuery = collection(db, 'users');
-                const usersSnapshot = await getDocs(usersQuery);
-                const usersData = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-                setAllUsers(usersData);
-            } catch (error) {
-                 console.error("Error fetching users for approvals:", error);
-                 toast({
-                    variant: 'destructive',
-                    title: "Error loading user data",
-                    description: "Could not fetch user information."
-                });
-            }
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 gap-3">
+      <div className="rounded-full bg-[#F5EDD6] p-4">
+        <Inbox className="h-6 w-6 text-[#C4963A]" />
+      </div>
+      <p className="text-sm text-muted-foreground">{message}</p>
+    </div>
+  );
+}
+
+/* ─── Approve Quotations Tab ─────────────────────────── */
+
+function ApproveQuotationTab({ onCountChange }: { onCountChange?: (n: number) => void }) {
+  const [quotations, setQuotations] = useState<EnrichedQuotation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [selectedQuotation, setSelectedQuotation] =
+    useState<EnrichedQuotation | null>(null);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const { toast } = useToast();
+  const { user } = useAuth();
+
+  useEffect(() => {
+    setLoading(true);
+    const fetchUsers = async () => {
+      try {
+        const snap = await getDocs(collection(db, "users"));
+        setAllUsers(snap.docs.map((d) => ({ id: d.id, ...d.data() } as User)));
+      } catch {
+        toast({ variant: "destructive", title: "Error loading user data" });
+      }
+    };
+    fetchUsers();
+
+    const q = query(
+      collectionGroup(db, "quotations"),
+      where("status", "==", "Pending Approval")
+    );
+
+    const unsub = onSnapshot(
+      q,
+      async (snapshot) => {
+        const list: EnrichedQuotation[] = [];
+        for (const docSnap of snapshot.docs) {
+          const data = docSnap.data() as Quotation;
+          const parts = docSnap.ref.path.split("/");
+          const customerId = parts[1];
+          const dealId = parts[3];
+          try {
+            const [custSnap, dealSnap] = await Promise.all([
+              getDoc(doc(db, "customers", customerId)),
+              getDoc(doc(db, "customers", customerId, "deals", dealId)),
+            ]);
+            list.push({
+              ...data,
+              id: docSnap.id,
+              customerId,
+              dealId,
+              customerName: custSnap.exists()
+                ? custSnap.data().name
+                : "Unknown Customer",
+              customerPhone: custSnap.exists()
+                ? custSnap.data().phone
+                : "—",
+              dealName: dealSnap.exists()
+                ? dealSnap.data().title || dealSnap.data().dealName
+                : "Unknown Deal",
+            });
+          } catch {
+            /* skip enrichment failure */
+          }
         }
-        
-        fetchUsers();
-        
-        const q = query(
-            collectionGroup(db, 'quotations'),
-            where('status', '==', 'Pending Approval')
-        );
+        setQuotations(list);
+        onCountChange?.(list.length);
+        setLoading(false);
+      },
+      () => {
+        toast({ variant: "destructive", title: "Error loading quotations" });
+        setLoading(false);
+      }
+    );
+    return () => unsub();
+  }, [toast]);
 
-        const unsubscribe = onSnapshot(q, async (snapshot) => {
-            const pendingQuotations: EnrichedQuotation[] = [];
-            
-            for (const docSnap of snapshot.docs) {
-                const quotationData = docSnap.data() as Quotation;
-                const pathParts = docSnap.ref.path.split('/');
-                const customerId = pathParts[1];
-                const dealId = pathParts[3]; // This is the deal's document ID
+  const handleApprove = async () => {
+    if (!selectedQuotation || !user) return;
+    setUpdatingId(selectedQuotation.id);
+    try {
+      const plain = JSON.parse(JSON.stringify(selectedQuotation));
+      const result = await approveQuotationAction(plain, {
+        id: user.id,
+        name: user.name,
+      });
+      toast({
+        title: result.success ? "Quotation Approved" : "Error",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+      });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to approve quotation" });
+    } finally {
+      setUpdatingId(null);
+      setSelectedQuotation(null);
+    }
+  };
 
-                try {
-                    const customerSnap = await getDoc(doc(db, 'customers', customerId));
-                    const dealSnap = await getDoc(doc(db, 'customers', customerId, 'deals', dealId));
+  if (loading) return <TableSkeleton />;
 
-                    pendingQuotations.push({
-                        ...quotationData,
-                        id: docSnap.id,
-                        customerId,
-                        dealId, // Correctly assign dealId
-                        customerName: customerSnap.exists() ? customerSnap.data().name : 'Unknown Customer',
-                        dealName: dealSnap.exists() ? (dealSnap.data().title || dealSnap.data().dealName) : 'Unknown Deal',
-                    });
-                } catch (error) {
-                     console.error(`Failed to enrich quotation ${docSnap.id}:`, error);
+  return (
+    <>
+      <Table>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent border-b border-[#E2DDD5]">
+            <TableHead className="text-[10.5px] uppercase tracking-widest text-muted-foreground font-medium">
+              Quotation No.
+            </TableHead>
+            <TableHead className="text-[10.5px] uppercase tracking-widest text-muted-foreground font-medium">
+              Customer
+            </TableHead>
+            <TableHead className="text-[10.5px] uppercase tracking-widest text-muted-foreground font-medium">
+              Mobile
+            </TableHead>
+            <TableHead className="text-[10.5px] uppercase tracking-widest text-muted-foreground font-medium">
+              Deal
+            </TableHead>
+            <TableHead className="text-[10.5px] uppercase tracking-widest text-muted-foreground font-medium">
+              Date
+            </TableHead>
+            <TableHead className="text-[10.5px] uppercase tracking-widest text-muted-foreground font-medium text-right">
+              Amount
+            </TableHead>
+            <TableHead className="text-[10.5px] uppercase tracking-widest text-muted-foreground font-medium">
+              Status
+            </TableHead>
+            <TableHead className="text-[10.5px] uppercase tracking-widest text-muted-foreground font-medium text-right">
+              Action
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {quotations.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={8} className="p-0">
+                <EmptyState message="No quotations pending for approval." />
+              </TableCell>
+            </TableRow>
+          ) : (
+            quotations.map((q) => (
+              <TableRow
+                key={q.id}
+                className="border-b border-[#F0EDE6] hover:bg-[#FDFBF8] transition-colors"
+              >
+                <TableCell>
+                  <span className="font-mono text-xs text-[#4A4A46] font-medium">
+                    {q.quotationNo}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <div className="h-7 w-7 rounded-full bg-[#F5EDD6] flex items-center justify-center">
+                      <UserIcon className="h-3.5 w-3.5 text-[#C4963A]" />
+                    </div>
+                    <span className="text-sm font-medium">{q.customerName}</span>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Phone className="h-3 w-3" />
+                    {q.customerPhone}
+                  </div>
+                </TableCell>
+                <TableCell className="text-sm text-[#4A4A46]">
+                  {q.dealName}
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Calendar className="h-3 w-3" />
+                    {format(new Date(q.createdAt), "dd/MM/yyyy")}
+                  </div>
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex items-center justify-end gap-0.5 font-semibold text-sm text-[#1C1C1A]">
+                    <IndianRupee className="h-3.5 w-3.5" />
+                    {q.totalAmount.toFixed(2)}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Badge className="bg-[#F5EDD6] text-[#9A6E1A] border-0 text-xs font-medium rounded-full px-2.5">
+                    <Clock className="h-3 w-3 mr-1" />
+                    Pending
+                  </Badge>
+                </TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    size="sm"
+                    onClick={() => setSelectedQuotation(q)}
+                    disabled={updatingId === q.id}
+                    className="bg-[#1C1C1A] hover:bg-[#2C2C28] text-white text-xs rounded-lg h-8 px-3 gap-1.5"
+                  >
+                    {updatingId === q.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    )}
+                    Approve
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
+
+      {selectedQuotation && (
+        <Dialog
+          open={!!selectedQuotation}
+          onOpenChange={() => setSelectedQuotation(null)}
+        >
+          <DialogContent className="max-w-[80vw] w-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-[#C4963A]" />
+                Confirm Quotation Approval
+              </DialogTitle>
+              <DialogDescription>
+                Review the quotation details below before approving. This action
+                cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="max-h-[70vh] overflow-y-auto my-4 border border-[#E2DDD5] rounded-xl">
+              <PrintableQuotationProfessional
+                values={selectedQuotation}
+                creatorName={
+                  allUsers.find((u) => u.id === selectedQuotation.createdBy)
+                    ?.name
                 }
-            }
-            
-            setQuotations(pendingQuotations);
-            setLoading(false);
-        }, (error) => {
-             console.error("Error fetching pending quotations:", error);
-             toast({
-                variant: 'destructive',
-                title: "Error loading data",
-                description: "Could not fetch quotations for approval. Please check Firestore permissions and indexes."
-            });
-            setLoading(false);
-        });
-        
-        return () => unsubscribe();
-
-    }, [toast]);
-
-
-    const handleApprove = async () => {
-        if (!selectedQuotation || !user) return;
-        setUpdatingId(selectedQuotation.id);
-        try {
-            // Serialize the quotation object before passing it to the server action
-            const plainQuotationObject = JSON.parse(JSON.stringify(selectedQuotation));
-
-            const result = await approveQuotationAction(plainQuotationObject, { id: user.id, name: user.name });
-            if (result.success) {
-                toast({
-                    title: 'Quotation Approved',
-                    description: result.message
-                });
-                // The onSnapshot listener will automatically remove the quotation from the list
-            } else {
-                 toast({
-                    variant: 'destructive',
-                    title: 'Error',
-                    description: result.message
-                });
-            }
-        } catch (error) {
-            console.error('Error approving quotation:', error);
-            toast({
-                variant: 'destructive',
-                title: 'Error',
-                description: 'Failed to approve quotation.'
-            });
-        } finally {
-            setUpdatingId(null);
-            setSelectedQuotation(null);
-        }
-    };
-
-    if (loading) {
-        return (
-            <div className="p-8">
-                <Skeleton className="h-8 w-1/2 mb-4" />
-                <Skeleton className="h-4 w-3/4 mb-8" />
-                <Skeleton className="h-64 w-full" />
+                salesmanName={
+                  allUsers.find(
+                    (u) => u.id === selectedQuotation.representativeId
+                  )?.name
+                }
+              />
             </div>
-        );
-    }
-
-    return (
-        <Card className="mt-4">
-            <CardContent className="pt-6">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Quotation No</TableHead>
-                            <TableHead>Customer</TableHead>
-                            <TableHead>Deal Name</TableHead>
-                            <TableHead>Date</TableHead>
-                            <TableHead className="text-right">Amount</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead className="text-right">Action</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {quotations.length > 0 ? quotations.map(q => (
-                            <TableRow key={q.id}>
-                                <TableCell className="font-medium">{q.quotationNo}</TableCell>
-                                <TableCell>{q.customerName}</TableCell>
-                                <TableCell>{q.dealName}</TableCell>
-                                <TableCell>{format(new Date(q.createdAt), 'dd/MM/yyyy')}</TableCell>
-                                <TableCell className="text-right">{q.totalAmount.toFixed(2)}</TableCell>
-                                <TableCell><Badge variant="outline">{q.status}</Badge></TableCell>
-                                <TableCell className="text-right">
-                                    <Button
-                                        size="sm"
-                                        onClick={() => setSelectedQuotation(q)}
-                                        disabled={updatingId === q.id}
-                                    >
-                                        {updatingId === q.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                        Approve
-                                    </Button>
-                                </TableCell>
-                            </TableRow>
-                        )) : (
-                            <TableRow>
-                                <TableCell colSpan={7} className="h-24 text-center">No quotations pending for approval.</TableCell>
-                            </TableRow>
-                        )}
-                    </TableBody>
-                </Table>
-                 {selectedQuotation && (
-                    <Dialog open={!!selectedQuotation} onOpenChange={() => setSelectedQuotation(null)}>
-                        <DialogContent className="max-w-[80vw] w-auto">
-                            <DialogHeader>
-                                <DialogTitle>Confirm Quotation Approval</DialogTitle>
-                                <DialogDescription>
-                                    Please review the quotation details below before approving. This action cannot be undone.
-                                </DialogDescription>
-                            </DialogHeader>
-                            <div className="max-h-[70vh] overflow-y-auto my-4 border rounded-md">
-                               <PrintableQuotationProfessional
-                                    values={selectedQuotation}
-                                    creatorName={allUsers.find(u => u.id === selectedQuotation.createdBy)?.name}
-                                    salesmanName={allUsers.find(s => s.id === selectedQuotation.representativeId)?.name}
-                                />
-                            </div>
-                            <DialogFooter>
-                                <Button variant="ghost" onClick={() => setSelectedQuotation(null)}>Cancel</Button>
-                                <Button onClick={handleApprove} disabled={updatingId === selectedQuotation.id}>
-                                    {updatingId === selectedQuotation.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                    Confirm & Approve
-                                </Button>
-                            </DialogFooter>
-                        </DialogContent>
-                    </Dialog>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setSelectedQuotation(null)}
+                className="rounded-lg border-[#E2DDD5]"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleApprove}
+                disabled={updatingId === selectedQuotation.id}
+                className="bg-[#1C1C1A] hover:bg-[#2C2C28] text-white rounded-lg gap-2"
+              >
+                {updatingId === selectedQuotation.id ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4" />
                 )}
-            </CardContent>
-        </Card>
-    );
+                Confirm & Approve
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
+  );
 }
 
-function ApproveOrdersTab() {
-    const [orders, setOrders] = useState<EnrichedOrder[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [updatingId, setUpdatingId] = useState<string | null>(null);
-    const { toast } = useToast();
-    const { user, role } = useAuth();
-    
-    useEffect(() => {
-        const q = query(
-            collection(db, 'orders'), 
-            where('status', '==', 'Pending Approval')
-        );
+/* ─── Approve Orders Tab ─────────────────────────────── */
 
-        const unsubscribe = onSnapshot(q, async (snapshot) => {
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-            setOrders(data);
-            setLoading(false);
-        });
+function ApproveOrdersTab({ onCountChange }: { onCountChange?: (n: number) => void }) {
+  const [orders, setOrders] = useState<EnrichedOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const { toast } = useToast();
+  const { user, role } = useAuth();
 
-        return () => unsubscribe();
-    }, []);
+  useEffect(() => {
+    const q = query(
+      collection(db, "orders"),
+      where("status", "==", "Pending Approval")
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const data = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Order));
+      setOrders(data);
+      onCountChange?.(data.length);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
 
-    const handleApprove = async (order: Order) => {
-        if (!user || (role !== 'Accounts' && role !== 'admin')) {
-            toast({ variant: 'destructive', title: 'Permission Denied', description: 'Only Accounts can approve orders.' });
-            return;
-        }
-        setUpdatingId(order.id);
-        try {
-            const result = await approveOrderAndCreatePurchaseRequest(order.id, { id: user.id, name: user.name });
-            if (result.success) {
-                toast({ title: 'Order Approved', description: result.message });
-            } else {
-                 toast({ variant: 'destructive', title: 'Approval Failed', description: result.message });
-            }
-        } catch (error) {
-            console.error('Error approving order:', error);
-            toast({ variant: 'destructive', title: 'Error', description: 'Failed to approve order.' });
-        } finally {
-            setUpdatingId(null);
-        }
-    };
-    
-    if (loading) {
-        return (
-            <div className="p-8">
-                <Skeleton className="h-8 w-1/2 mb-4" />
-                <Skeleton className="h-4 w-3/4 mb-8" />
-                <Skeleton className="h-64 w-full" />
-            </div>
-        );
+  const handleApprove = async (order: Order) => {
+    if (!user || (role !== "Accounts" && role !== "admin")) {
+      toast({
+        variant: "destructive",
+        title: "Permission Denied",
+        description: "Only Accounts can approve orders.",
+      });
+      return;
     }
-    
-    return (
-        <Card className="mt-4">
-            <CardContent className="pt-6">
-                 <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Order ID</TableHead>
-                            <TableHead>Customer</TableHead>
-                            <TableHead>Items (BCN & Qty)</TableHead>
-                            <TableHead>Sales Person</TableHead>
-                             <TableHead className="text-right">Total Amount</TableHead>
-                            <TableHead>Date</TableHead>
-                            <TableHead className="text-right">Action</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {orders.length > 0 ? orders.map(order => {
-                            const items = (order.fabricDetails && order.fabricDetails.length > 0)
-                                ? order.fabricDetails
-                                : (order.sections?.NORMAL?.items || []).map(item => ({
-                                    fabricName: item.bcn || item.description || "N/A",
-                                    quantity: String(item.qty ?? 0),
-                                }));
-                            return (
-                                <TableRow key={order.id}>
-                                    <TableCell className="font-medium">{order.crmOrderNo}</TableCell>
-                                    <TableCell>{order.customerName}</TableCell>
-                                    <TableCell>
-                                        <div className="flex flex-col gap-1">
-                                            {items.map((item, index) => (
-                                                <div key={index} className="text-xs">
-                                                    <span className="font-semibold">{item.fabricName}:</span>
-                                                    <span className="text-muted-foreground ml-2">{item.quantity} Mtr</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </TableCell>
-                                    <TableCell>{order.salesPerson}</TableCell>
-                                    <TableCell className="text-right">₹{order.totalAmount?.toFixed(2)}</TableCell>
-                                    <TableCell>{format(new Date(order.createdAt), 'dd/MM/yyyy')}</TableCell>
-                                    <TableCell className="text-right">
-                                        <Button
-                                            size="sm"
-                                            onClick={() => handleApprove(order)}
-                                            disabled={updatingId === order.id || (role !== 'Accounts' && role !== 'admin')}
-                                        >
-                                            {updatingId === order.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                            Approve
-                                        </Button>
-                                    </TableCell>
-                                </TableRow>
-                            )
-                        }) : (
-                            <TableRow>
-                                <TableCell colSpan={7} className="h-24 text-center">No orders pending for approval.</TableCell>
-                            </TableRow>
-                        )}
-                    </TableBody>
-                </Table>
-            </CardContent>
-        </Card>
-    );
-}
-
-function PaymentConfirmationTab() {
-    const [orders, setOrders] = useState<Order[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [updatingId, setUpdatingId] = useState<string | null>(null);
-    const { toast } = useToast();
-    const { user, role } = useAuth();
-    
-    useEffect(() => {
-        const q = query(
-            collection(db, 'orders'), 
-            where('balanceFollowUp', '==', true),
-            where('paymentConfirmed', '!=', true)
-        );
-
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-            setOrders(data);
-            setLoading(false);
-        }, (error) => {
-            console.error("Error fetching payment confirmation orders:", error);
-            setLoading(false);
-        });
-
-        return () => unsubscribe();
-    }, []);
-
-    const handleConfirm = async (orderId: string) => {
-        if (!user || (role !== 'Accounts' && role !== 'admin')) {
-            toast({ variant: 'destructive', title: 'Permission Denied', description: 'Only Accounts can confirm payments.' });
-            return;
-        }
-        setUpdatingId(orderId);
-        try {
-            const result = await confirmPaymentReceived(orderId, { id: user.id, name: user.name });
-            if (result.success) {
-                toast({ title: 'Payment Confirmed', description: result.message });
-            } else {
-                toast({ variant: 'destructive', title: 'Confirmation Failed', description: result.message });
-            }
-        } catch (error) {
-            console.error('Error confirming payment:', error);
-            toast({ variant: 'destructive', title: 'Error', description: 'Failed to confirm payment.' });
-        } finally {
-            setUpdatingId(null);
-        }
-    };
-    
-    if (loading) {
-        return (
-            <div className="p-8">
-                <Skeleton className="h-8 w-1/2 mb-4" />
-                <Skeleton className="h-4 w-3/4 mb-8" />
-                <Skeleton className="h-64 w-full" />
-            </div>
-        );
+    setUpdatingId(order.id);
+    try {
+      const result = await approveOrderAndCreatePurchaseRequest(order.id, {
+        id: user.id,
+        name: user.name,
+      });
+      toast({
+        title: result.success ? "Order Approved" : "Approval Failed",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+      });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to approve order" });
+    } finally {
+      setUpdatingId(null);
     }
-    
-    return (
-        <Card className="mt-4">
-            <CardContent className="pt-6">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Order ID</TableHead>
-                            <TableHead>Customer</TableHead>
-                            <TableHead>Sales Person</TableHead>
-                            <TableHead className="text-right">Total Amount</TableHead>
-                            <TableHead className="text-right">Action</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {orders.length > 0 ? orders.map(order => (
-                            <TableRow key={order.id}>
-                                <TableCell className="font-medium">{order.crmOrderNo}</TableCell>
-                                <TableCell>{order.customerName}</TableCell>
-                                <TableCell>{order.salesPerson}</TableCell>
-                                <TableCell className="text-right">₹{order.totalAmount?.toFixed(2)}</TableCell>
-                                <TableCell className="text-right">
-                                    <Button
-                                        size="sm"
-                                        onClick={() => handleConfirm(order.id)}
-                                        disabled={updatingId === order.id || (role !== 'Accounts' && role !== 'admin')}
-                                    >
-                                        {updatingId === order.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                        Confirm Payment
-                                    </Button>
-                                </TableCell>
-                            </TableRow>
-                        )) : (
-                            <TableRow>
-                                <TableCell colSpan={5} className="h-24 text-center">No orders awaiting payment confirmation.</TableCell>
-                            </TableRow>
-                        )}
-                    </TableBody>
-                </Table>
-            </CardContent>
-        </Card>
-    );
+  };
+
+  if (loading) return <TableSkeleton />;
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow className="hover:bg-transparent border-b border-[#E2DDD5]">
+          {["Order ID", "Customer", "Mobile", "Items (BCN & Qty)", "Sales Person", "Total Amount", "Date", "Action"].map(
+            (h) => (
+              <TableHead
+                key={h}
+                className={`text-[10.5px] uppercase tracking-widest text-muted-foreground font-medium ${
+                  h === "Total Amount" || h === "Action" ? "text-right" : ""
+                }`}
+              >
+                {h}
+              </TableHead>
+            )
+          )}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {orders.length === 0 ? (
+          <TableRow>
+            <TableCell colSpan={8} className="p-0">
+              <EmptyState message="No orders pending for approval." />
+            </TableCell>
+          </TableRow>
+        ) : (
+          orders.map((order) => {
+            const items =
+              order.fabricDetails?.length > 0
+                ? order.fabricDetails
+                : (order.sections?.NORMAL?.items || []).map((item: any) => ({
+                    fabricName: item.bcn || item.description || "N/A",
+                    quantity: String(item.qty ?? 0),
+                  }));
+            return (
+              <TableRow
+                key={order.id}
+                className="border-b border-[#F0EDE6] hover:bg-[#FDFBF8] transition-colors"
+              >
+                <TableCell>
+                  <span className="font-mono text-xs text-[#4A4A46] font-medium">
+                    {order.crmOrderNo}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <div className="h-7 w-7 rounded-full bg-[#F5EDD6] flex items-center justify-center">
+                      <UserIcon className="h-3.5 w-3.5 text-[#C4963A]" />
+                    </div>
+                    <span className="text-sm font-medium">
+                      {order.customerName}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Phone className="h-3 w-3" />
+                    {order.customerPhone}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-1">
+                    {items.map((item: any, i: number) => (
+                      <span
+                        key={i}
+                        className="inline-flex items-center gap-1 text-[11px] bg-[#F0EDE6] border border-[#E2DDD5] text-[#4A4A46] px-2 py-0.5 rounded-md"
+                      >
+                        <Package className="h-2.5 w-2.5 text-[#C4963A]" />
+                        <span className="font-medium">{item.fabricName}</span>
+                        <span className="text-muted-foreground">
+                          · {item.quantity} Mtr
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </TableCell>
+                <TableCell className="text-sm text-[#4A4A46]">
+                  {order.salesPerson}
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex items-center justify-end gap-0.5 font-semibold text-sm text-[#1C1C1A]">
+                    <IndianRupee className="h-3.5 w-3.5" />
+                    {order.totalAmount?.toFixed(2)}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Calendar className="h-3 w-3" />
+                    {format(new Date(order.createdAt), "dd/MM/yyyy")}
+                  </div>
+                </TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    size="sm"
+                    onClick={() => handleApprove(order)}
+                    disabled={
+                      updatingId === order.id ||
+                      (role !== "Accounts" && role !== "admin")
+                    }
+                    className="bg-[#1C1C1A] hover:bg-[#2C2C28] text-white text-xs rounded-lg h-8 px-3 gap-1.5"
+                  >
+                    {updatingId === order.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    )}
+                    Approve
+                  </Button>
+                </TableCell>
+              </TableRow>
+            );
+          })
+        )}
+      </TableBody>
+    </Table>
+  );
 }
+
+/* ─── Payment Confirmation Tab ───────────────────────── */
+
+function PaymentConfirmationTab({ onCountChange }: { onCountChange?: (n: number) => void }) {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const { toast } = useToast();
+  const { user, role } = useAuth();
+
+  useEffect(() => {
+    const q = query(
+      collection(db, "orders"),
+      where("balanceFollowUp", "==", true),
+      where("paymentConfirmed", "!=", true)
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const data = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Order));
+        setOrders(data);
+        onCountChange?.(data.length);
+        setLoading(false);
+      },
+      () => setLoading(false)
+    );
+    return () => unsub();
+  }, []);
+
+  const handleConfirm = async (orderId: string) => {
+    if (!user || (role !== "Accounts" && role !== "admin")) {
+      toast({
+        variant: "destructive",
+        title: "Permission Denied",
+        description: "Only Accounts can confirm payments.",
+      });
+      return;
+    }
+    setUpdatingId(orderId);
+    try {
+      const result = await confirmPaymentReceived(orderId, {
+        id: user.id,
+        name: user.name,
+      });
+      toast({
+        title: result.success ? "Payment Confirmed" : "Confirmation Failed",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+      });
+    } catch {
+      toast({ variant: "destructive", title: "Failed to confirm payment" });
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  if (loading) return <TableSkeleton />;
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow className="hover:bg-transparent border-b border-[#E2DDD5]">
+          {["Order ID", "Customer", "Sales Person", "Total Amount", "Action"].map(
+            (h) => (
+              <TableHead
+                key={h}
+                className={`text-[10.5px] uppercase tracking-widest text-muted-foreground font-medium ${
+                  h === "Total Amount" || h === "Action" ? "text-right" : ""
+                }`}
+              >
+                {h}
+              </TableHead>
+            )
+          )}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {orders.length === 0 ? (
+          <TableRow>
+            <TableCell colSpan={5} className="p-0">
+              <EmptyState message="No orders awaiting payment confirmation." />
+            </TableCell>
+          </TableRow>
+        ) : (
+          orders.map((order) => (
+            <TableRow
+              key={order.id}
+              className="border-b border-[#F0EDE6] hover:bg-[#FDFBF8] transition-colors"
+            >
+              <TableCell>
+                <span className="font-mono text-xs text-[#4A4A46] font-medium">
+                  {order.crmOrderNo}
+                </span>
+              </TableCell>
+              <TableCell>
+                <div className="flex items-center gap-2">
+                  <div className="h-7 w-7 rounded-full bg-[#E0F5F0] flex items-center justify-center">
+                    <UserIcon className="h-3.5 w-3.5 text-[#1A7A6A]" />
+                  </div>
+                  <span className="text-sm font-medium">
+                    {order.customerName}
+                  </span>
+                </div>
+              </TableCell>
+              <TableCell className="text-sm text-[#4A4A46]">
+                {order.salesPerson}
+              </TableCell>
+              <TableCell className="text-right">
+                <div className="flex items-center justify-end gap-0.5 font-semibold text-sm text-[#1C1C1A]">
+                  <IndianRupee className="h-3.5 w-3.5" />
+                  {order.totalAmount?.toFixed(2)}
+                </div>
+              </TableCell>
+              <TableCell className="text-right">
+                <Button
+                  size="sm"
+                  onClick={() => handleConfirm(order.id)}
+                  disabled={
+                    updatingId === order.id ||
+                    (role !== "Accounts" && role !== "admin")
+                  }
+                  className="bg-[#1A7A6A] hover:bg-[#135E50] text-white text-xs rounded-lg h-8 px-3 gap-1.5"
+                >
+                  {updatingId === order.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <CreditCard className="h-3.5 w-3.5" />
+                  )}
+                  Confirm Payment
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))
+        )}
+      </TableBody>
+    </Table>
+  );
+}
+
+/* ─── Tab count badge ────────────────────────────────── */
+
+function TabCount({
+  count,
+  variant = "gold",
+}: {
+  count?: number;
+  variant?: "gold" | "teal";
+}) {
+  if (!count) return null;
+  return (
+    <span
+      className={`ml-1.5 inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none ${
+        variant === "teal"
+          ? "bg-[#E0F5F0] text-[#1A7A6A]"
+          : "bg-[#F5EDD6] text-[#9A6E1A]"
+      }`}
+    >
+      {count}
+    </span>
+  );
+}
+
+/* ─── Page ───────────────────────────────────────────── */
+
+type TabValue = "quotations" | "orders" | "payment-confirmation";
 
 export default function ApprovalsPage() {
-    const searchParams = useSearchParams();
-    const tabParam = searchParams.get("tab");
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab") as TabValue | null;
 
-    const resolveInitialTab = (tab: string | null): "quotations" | "orders" | "payment-confirmation" => {
-        if (tab === "quotations" || tab === "orders" || tab === "payment-confirmation") {
-            return tab;
-        }
-        return "orders";
-    };
+  const resolve = (t: TabValue | null): TabValue => {
+    if (t === "quotations" || t === "orders" || t === "payment-confirmation")
+      return t;
+    return "orders";
+  };
 
-    const [activeTab, setActiveTab] = useState<"quotations" | "orders" | "payment-confirmation">(
-        resolveInitialTab(tabParam)
-    );
+  const [activeTab, setActiveTab] = useState<TabValue>(resolve(tabParam));
+  const [quotationCount, setQuotationCount] = useState(0);
+  const [orderCount, setOrderCount] = useState(0);
+  const [paymentCount, setPaymentCount] = useState(0);
 
-    useEffect(() => {
-        setActiveTab(resolveInitialTab(tabParam));
-    }, [tabParam]);
+  useEffect(() => {
+    setActiveTab(resolve(tabParam));
+  }, [tabParam]);
 
-    return (
-        <div className="p-4 md:p-6 lg:p-8">
-            <header className="mb-8">
-                <h1 className="text-3xl font-bold tracking-tight">Approvals</h1>
-                <p className="text-muted-foreground">Review and approve quotations, orders, and payments.</p>
-            </header>
-            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "quotations" | "orders" | "payment-confirmation")} className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger value="quotations">Approve Quotations</TabsTrigger>
-                    <TabsTrigger value="orders">Approve Orders</TabsTrigger>
-                    <TabsTrigger value="payment-confirmation">Payment Confirmation</TabsTrigger>
-                </TabsList>
-                <TabsContent value="quotations" className="mt-0">
-                    <ApproveQuotationTab />
-                </TabsContent>
-                <TabsContent value="orders" className="mt-0">
-                    <ApproveOrdersTab />
-                </TabsContent>
-                <TabsContent value="payment-confirmation" className="mt-0">
-                    <PaymentConfirmationTab />
-                </TabsContent>
-            </Tabs>
+  return (
+    <div className="min-h-screen bg-[#FAFAF7] p-6 md:p-8 lg:p-10">
+      {/* ── Header ── */}
+      <header className="mb-8 pb-6 border-b border-[#E2DDD5]">
+        <div className="flex items-start justify-between flex-wrap gap-4">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.18em] font-medium text-[#C4963A] mb-1">
+              Operations Center
+            </p>
+            <h1 className="text-3xl font-semibold tracking-tight text-[#1C1C1A]">
+              Approvals
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Review and authorize pending actions across the pipeline
+            </p>
+          </div>
+
+          {/* summary pills */}
+          <div className="flex flex-wrap gap-2">
+            <div className="flex items-center gap-2 rounded-full border border-[#E2DDD5] bg-[#F0EDE6] px-4 py-1.5">
+              <FileText className="h-3.5 w-3.5 text-[#C4963A]" />
+              <span className="text-sm font-semibold text-[#1C1C1A]">{quotationCount}</span>
+              <span className="text-xs text-muted-foreground">Quotations</span>
+            </div>
+            <div className="flex items-center gap-2 rounded-full border border-[#E2DDD5] bg-[#F0EDE6] px-4 py-1.5">
+              <ShoppingCart className="h-3.5 w-3.5 text-[#C4963A]" />
+              <span className="text-sm font-semibold text-[#1C1C1A]">{orderCount}</span>
+              <span className="text-xs text-muted-foreground">Orders</span>
+            </div>
+            <div className="flex items-center gap-2 rounded-full border border-[#E2DDD5] bg-[#E0F5F0] px-4 py-1.5">
+              <CreditCard className="h-3.5 w-3.5 text-[#1A7A6A]" />
+              <span className="text-sm font-semibold text-[#1C1C1A]">{paymentCount}</span>
+              <span className="text-xs text-muted-foreground">Payments</span>
+            </div>
+          </div>
         </div>
-    );
+      </header>
+
+      {/* ── Tabs ── */}
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as TabValue)}
+        className="w-full"
+      >
+        <TabsList className="bg-[#F0EDE6] border border-[#E2DDD5] rounded-xl p-1 h-auto mb-6 w-full max-w-xl">
+          <TabsTrigger
+            value="quotations"
+            className="flex-1 rounded-lg text-xs font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-[#1C1C1A] text-muted-foreground transition-all"
+          >
+            <FileText className="h-3.5 w-3.5 mr-1.5" />
+            Quotations
+            <TabCount count={quotationCount} />
+          </TabsTrigger>
+          <TabsTrigger
+            value="orders"
+            className="flex-1 rounded-lg text-xs font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-[#1C1C1A] text-muted-foreground transition-all"
+          >
+            <ShoppingCart className="h-3.5 w-3.5 mr-1.5" />
+            Orders
+            <TabCount count={orderCount} />
+          </TabsTrigger>
+          <TabsTrigger
+            value="payment-confirmation"
+            className="flex-1 rounded-lg text-xs font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-[#1C1C1A] text-muted-foreground transition-all"
+          >
+            <CreditCard className="h-3.5 w-3.5 mr-1.5" />
+            Payments
+            <TabCount count={paymentCount} variant="teal" />
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ── Quotations panel ── */}
+        <TabsContent value="quotations" className="mt-0 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="inline-block h-0.5 w-6 bg-[#C4963A] rounded-full" />
+            <p className="text-[11px] uppercase tracking-widest font-medium text-[#8A8A84]">
+              Pending Quotation Approvals
+            </p>
+          </div>
+          <Card className="border border-[#E2DDD5] rounded-2xl shadow-none overflow-hidden bg-white">
+            <CardContent className="p-0">
+              <ApproveQuotationTab onCountChange={setQuotationCount} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Orders panel ── */}
+        <TabsContent value="orders" className="mt-0 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="inline-block h-0.5 w-6 bg-[#C4963A] rounded-full" />
+            <p className="text-[11px] uppercase tracking-widest font-medium text-[#8A8A84]">
+              Pending Order Approvals
+            </p>
+          </div>
+          <Card className="border border-[#E2DDD5] rounded-2xl shadow-none overflow-hidden bg-white">
+            <CardContent className="p-0">
+              <ApproveOrdersTab onCountChange={setOrderCount} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Payment panel ── */}
+        <TabsContent value="payment-confirmation" className="mt-0 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="inline-block h-0.5 w-6 bg-[#1A7A6A] rounded-full" />
+            <p className="text-[11px] uppercase tracking-widest font-medium text-[#8A8A84]">
+              Awaiting Payment Confirmation
+            </p>
+          </div>
+          <Card className="border border-[#E2DDD5] rounded-2xl shadow-none overflow-hidden bg-white">
+            <CardContent className="p-0">
+              <PaymentConfirmationTab onCountChange={setPaymentCount} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
 }
