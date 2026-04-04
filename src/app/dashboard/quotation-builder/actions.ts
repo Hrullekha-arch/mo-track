@@ -3,7 +3,11 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase-admin';
 import { getNextSequenceValue } from '@/lib/id-sequence';
-import { OrderType, User } from '@/lib/types';
+import { Order, OrderType, User } from '@/lib/types';
+import {
+  buildWorkflowFromLegacyMilestones,
+  getNormalizedOrderMilestones,
+} from '@/lib/order-workflow';
 import { addCustomerAction } from '@/app/dashboard/customers/actions';
 import {
   createDealOrderAction,
@@ -84,6 +88,41 @@ const formatInstantDealId = (seq: number) => `INQ-${String(seq).padStart(3, '0')
 const toNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeOrderType = (value?: string): OrderType => {
+  if (value === 'delivery' || value === 'stitching' || value === 'stitching+installation') {
+    return value;
+  }
+  return 'delivery';
+};
+
+const buildFullyCompletedOrderState = (
+  order: Pick<Order, 'orderType' | 'milestones' | 'workflow' | 'completedAt'>,
+  actorName: string,
+  nowIso: string
+) => {
+  const normalizedMilestones = getNormalizedOrderMilestones(order);
+  const completedMilestones = normalizedMilestones.map((milestone) => ({
+    ...milestone,
+    completed: true,
+    completedAt: milestone.completedAt || nowIso,
+    completedBy: milestone.completedBy || actorName,
+    location: milestone.location ?? null,
+  }));
+
+  const workflow = buildWorkflowFromLegacyMilestones(
+    normalizeOrderType(order.orderType),
+    completedMilestones,
+    order.workflow,
+    'COMPLETED'
+  );
+
+  return {
+    milestones: completedMilestones,
+    workflow,
+    completedAt: order.completedAt || nowIso,
+  };
 };
 
 const normalizeUnit = (value: unknown, fallback = 'Mtr') => {
@@ -552,7 +591,7 @@ export async function createInstantQuotationOrderAction(
       company: 'MO DESIGNS PRIVATE LIMITED',
       store: payload.store,
       date: new Date(),
-      invoiceNo: normalizedInvoiceNo || undefined,
+      invoiceNo: normalizedInvoiceNo || null,
       customerName,
       billingName: customerName,
       billingAddress: customerAddressLine1 || '',
@@ -595,13 +634,30 @@ export async function createInstantQuotationOrderAction(
     const createdOrder = orderResult.order;
 
     const invoiceRequired = payload.dealName !== 'Cashsale';
+    const isWalkinSale = payload.dealName === 'Walkin-sale';
+    const shouldAutoCompleteMilestones =
+      isCashsale || isWalkinSale || resolvedOrderType === 'stitching+installation';
+    const autoCompletedOrderState = shouldAutoCompleteMilestones
+      ? buildFullyCompletedOrderState(
+          createdOrder as Pick<Order, 'orderType' | 'milestones' | 'workflow' | 'completedAt'>,
+          payload.creator.name,
+          nowIso
+        )
+      : null;
     const orderRef = adminDb.collection('orders').doc(createdOrder.id);
     await orderRef.set(
       {
-        invoiceNo: normalizedInvoiceNo || undefined,
-        status: 'Approved',
+        invoiceNo: normalizedInvoiceNo || null,
+        status: autoCompletedOrderState ? 'INSTALLATION DONE' : 'Approved',
         approvedAt: nowIso,
         orderType: resolvedOrderType,
+        ...(autoCompletedOrderState
+          ? {
+              milestones: autoCompletedOrderState.milestones,
+              workflow: autoCompletedOrderState.workflow,
+              completedAt: autoCompletedOrderState.completedAt,
+            }
+          : {}),
         invoicing: {
           ...(createdOrder.invoicing || {}),
           invoiceRequired,
@@ -615,7 +671,7 @@ export async function createInstantQuotationOrderAction(
         instantQuotationMeta: {
           source: 'quotation-builder',
           dealName: payload.dealName,
-          invoiceNo: normalizedInvoiceNo || undefined,
+          invoiceNo: normalizedInvoiceNo || null,
           createdAt: nowIso,
           createdBy: {
             id: payload.creator.id,
@@ -629,9 +685,11 @@ export async function createInstantQuotationOrderAction(
             name: payload.creator.name,
           },
           action: 'INSTANT_QUOTATION_CREATED',
-          message: invoiceRequired
-            ? 'Instant quotation order created.'
-            : 'Cash sale order created (invoice bypass).',
+          message: shouldAutoCompleteMilestones
+            ? 'Instant order created and all milestones auto-completed.'
+            : invoiceRequired
+              ? 'Instant quotation order created.'
+              : 'Cash sale order created (invoice bypass).',
         }),
       },
       { merge: true }
@@ -737,7 +795,7 @@ export async function createInstantQuotationOrderAction(
       orderId: createdOrder.id,
       orderType: resolvedOrderType,
       invoiceRequired,
-      invoiceNo: normalizedInvoiceNo || undefined,
+      invoiceNo: normalizedInvoiceNo || null,
       quotationId: quotationResult.quotation.id,
       quotationNo: quotationResult.quotation.quotationNo,
       items: cleanItems,
@@ -765,6 +823,7 @@ export async function createInstantQuotationOrderAction(
       );
       const instantSaleKind = isCashsale ? 'cashsale' : 'walkin-sale';
       const instantSaleDealType = isCashsale ? 'CASHSALE' : 'WALKIN-SALE';
+      const instantSaleLeadType = instantSaleKind;
 
       let walkinRef = normalizedLeadId
         ? adminDb.collection('Walkin_Customer').doc(normalizedLeadId)
@@ -830,6 +889,7 @@ export async function createInstantQuotationOrderAction(
           status: resolvedInvoiceNo ? 'INVOICED' : 'PURCHASED',
           type: 'INSTANT',
           saleChannel: instantSaleKind,
+          leadType: instantSaleLeadType,
           updatedAt: nowIso,
           createdAt: cashsaleCreatedAt,
         };
@@ -848,6 +908,7 @@ export async function createInstantQuotationOrderAction(
             latestOrderId: createdOrder.id,
             invoiceNo: resolvedInvoiceNo,
             action: `instant-sale:${instantSaleKind}`,
+            leadType: instantSaleLeadType,
             saleFlowType: instantSaleKind,
             saleFlowSource: 'walkin',
             lastUpdatedAt: nowIso,
@@ -865,9 +926,11 @@ export async function createInstantQuotationOrderAction(
 
     return {
       success: true,
-      message: invoiceRequired
-        ? `Instant quotation created. Order ${createdOrder.id} is ready for stock/purchase flow.`
-        : `Cash sale order ${createdOrder.id} created with invoice bypass.`,
+      message: shouldAutoCompleteMilestones
+        ? `Order ${createdOrder.id} created and all milestones marked completed.`
+        : invoiceRequired
+          ? `Instant quotation created. Order ${createdOrder.id} is ready for stock/purchase flow.`
+          : `Cash sale order ${createdOrder.id} created with invoice bypass.`,
       customerId,
       dealId: dealDocId,
       quotationId: quotationResult.quotation.id,
