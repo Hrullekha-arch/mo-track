@@ -35,6 +35,7 @@ export async function POST(request: Request) {
             numberOfPanels: Number(rawEmbellishment.numberOfPanels || 0),
             embellishmentBarcode: String(rawEmbellishment.embellishmentBarcode || "").trim(),
             stitchingPerPanel: Number(rawEmbellishment.stitchingPerPanel || 0),
+            designTime: Number(rawEmbellishment.designTime || 0),
             handWorkTime: Number(rawEmbellishment.handWorkTime || 0),
             totalHours: Number(rawEmbellishment.totalHours || 0),
             totalTime: Number(rawEmbellishment.totalTime || 0),

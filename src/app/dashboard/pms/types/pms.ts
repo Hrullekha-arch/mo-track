@@ -48,6 +48,13 @@ export type PmsDowntime = {
   reason?: string;
 };
 
+export type PmsCategory = {
+  id: string;
+  name: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type PmsJobStatus = "WAITING" | "PLANNED" | "IN_PROGRESS" | "DONE";
 
 export type PmsJob = {
@@ -75,6 +82,76 @@ export type PmsPlan = {
   plannedEnd?: string;
 };
 
+export type EmbellishmentFormValues = {
+  customerName: string;
+  customerPhone: string;
+  numberOfWindows: string;
+  numberOfPanels: string;
+  embellishmentBarcode: string;
+  stitchingPerPanel: string;
+  designTime: string;
+  handWorkTime: string;
+  hourlyCharge: string;
+};
+
+export type StoredEmbellishment = {
+  enabled?: boolean;
+  customerName?: string;
+  customerPhone?: string;
+  numberOfWindows?: number;
+  numberOfPanels?: number;
+  embellishmentBarcode?: string;
+  stitchingPerPanel?: number;
+  designTime?: number;
+  handWorkTime?: number;
+  totalHours?: number;
+  totalTime?: number;
+  hourlyCharge?: number;
+  chargeAmount?: number;
+};
+
+export type PmsEmbellishmentRecord = StoredEmbellishment & {
+  id: string;
+  orderId?: string;
+  orderNo?: string;
+  customer?: string;
+  customerPhone?: string;
+  vasName?: string;
+  vasIndex?: number;
+  productId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  updatedBy?: {
+    id?: string | null;
+    name?: string | null;
+    role?: string | null;
+  };
+};
+
+export type CreateJobDialogRow = {
+  key: string;
+  orderId: string;
+  orderNo: string;
+  customer: string;
+  customerPhone?: string;
+  vasName: string;
+  qty: number;
+  matchedProductId?: string;
+  matchedProductName?: string;
+  hasRouting?: boolean;
+  invoiceReady: boolean;
+  hasJobsForProduct: boolean;
+  vasIndex: number;
+  embellishment?: StoredEmbellishment;
+};
+
+export type CreateJobDialogState = {
+  open: boolean;
+  row: CreateJobDialogRow | null;
+  embellishmentEnabled: boolean;
+  form: EmbellishmentFormValues;
+};
+
 export type PmsWorkingHours = {
   startTime: string;
   endTime: string;
@@ -90,6 +167,7 @@ export type LiveVasRow = {
   orderId: string;
   orderNo: string;
   customer: string;
+  customerPhone?: string;
   vasName: string;
   qty: number;
   group: string;
@@ -110,6 +188,9 @@ export type LiveVasRow = {
   orderPriority: number;
   priorityLabel: string;
   isEmergency: boolean;
+  hasRouting?: boolean;
+  embellishment?: PmsEmbellishmentRecord;
+  vasIndex?: number;
 };
 
 export type StepPlanInfo = {
@@ -151,6 +232,7 @@ export type WorkDetailRow = {
   resetJobIds: string[];
   resetPlanDocIds: string[];
   blockedByLabel?: string;
+  embellishment?: PmsEmbellishmentRecord;
 };
 
 export type WorkSheetStepRow = {
@@ -168,6 +250,7 @@ export type WorkSheetStepRow = {
   plannedStart?: string;
   plannedEnd?: string;
   stepNo?: number;
+  embellishment?: PmsEmbellishmentRecord;
 };
 
 export type LiveVasStats = {
@@ -224,6 +307,14 @@ export type ManualDoneDialogRow = {
 export type ManualDoneDialogState = {
   open: boolean;
   row: ManualDoneDialogRow | null;
+};
+
+export type SkillSelectionState = {
+  selectedSkillMachine: string;
+  selectedSkillPerson: string;
+  copyToMachine: string;
+  skillSearch: string;
+  viewFilter: string;
 };
 
 // ---------------------------------------------------------------------------

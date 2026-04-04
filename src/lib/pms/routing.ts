@@ -15,6 +15,7 @@ export type EmbellishmentWorkPayload = {
   numberOfPanels?: number;
   embellishmentBarcode?: string;
   stitchingPerPanel?: number;
+  designTime?: number;
   handWorkTime?: number;
   totalHours?: number;
   totalTime?: number;

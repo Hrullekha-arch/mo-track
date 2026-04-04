@@ -4,6 +4,8 @@
 // =============================================================================
 
 import type {
+  CreateJobDialogRow,
+  EmbellishmentFormValues,
   PmsJob,
   PmsLookups,
   PmsMachine,
@@ -12,10 +14,12 @@ import type {
   PmsProduct,
   PmsRouting,
   PmsSkill,
+  StoredEmbellishment,
   PmsStats,
   LiveVasStats,
   LiveVasRow,
 } from "../types/pms";
+import { isPmsExcludedItem } from "@/lib/pms/filters";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -26,6 +30,23 @@ export const AUTO_ADVANCE_POLL_MS = 15_000;
 export const WORKSHEET_SYNC_MS = 60_000;
 export const SKILL_DEBOUNCE_MS = 350;
 export const FIRESTORE_BATCH_LIMIT = 450;
+export const EMBELLISHMENT_HOURLY_CHARGE = 300;
+export const EMBELLISHMENT_PROCESS_KEYS = new Set([
+  "embelshment work",
+  "embelishment work",
+  "embellishment work",
+]);
+export const REQUIRED_ROUTING_FINISH_STEPS = [
+  "Q&Q",
+  "Final Complete Kitting",
+  "Packaging",
+] as const;
+export const ROUTING_QUICK_ADD_STEPS = [
+  "Embelshment work",
+  "Q&Q",
+  "Final Complete Kitting",
+  "Packaging",
+] as const;
 
 export const JOB_STATUS_RANK: Record<string, number> = {
   IN_PROGRESS: 0,
@@ -44,6 +65,9 @@ export const toNumber = (value: string | number | undefined): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+export const roundToTwoDecimals = (value: number): number =>
+  Math.round(value * 100) / 100;
+
 /**
  * Clamp qty: ensure it's at least 1 and an integer.
  * Prevents jobs being created with 0 or negative qty.
@@ -58,6 +82,22 @@ export const normalizeText = (value?: string): string =>
   String(value || "")
     .trim()
     .toLowerCase();
+
+export const getOptionalDisplayText = (value?: string): string => {
+  const text = String(value || "").trim();
+  return text && text !== "-" ? text : "";
+};
+
+export const formatInr = (value: number | string | undefined): string => {
+  const amount = Number(value ?? 0);
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(safeAmount);
+};
 
 /** Deterministic skill document ID. */
 export const buildSkillId = (
@@ -86,6 +126,71 @@ export const getQueueDelayLabel = (startIso?: string): string => {
   const minutes = totalMinutes % 60;
   if (hours <= 0) return `Queue starts in ${minutes}m`;
   return `Queue starts in ${hours}h ${minutes}m`;
+};
+
+export const emptyEmbellishmentForm: EmbellishmentFormValues = {
+  customerName: "",
+  customerPhone: "",
+  numberOfWindows: "",
+  numberOfPanels: "",
+  embellishmentBarcode: "",
+  stitchingPerPanel: "",
+  designTime: "",
+  handWorkTime: "",
+  hourlyCharge: String(EMBELLISHMENT_HOURLY_CHARGE),
+};
+
+export const toFormString = (value: unknown): string => {
+  if (value === null || value === undefined) return "";
+  return String(value);
+};
+
+export const buildEmbellishmentForm = (
+  row?: Partial<CreateJobDialogRow> | null,
+  existing?: StoredEmbellishment
+): EmbellishmentFormValues => ({
+  customerName: toFormString(existing?.customerName ?? row?.customer ?? ""),
+  customerPhone: toFormString(existing?.customerPhone ?? row?.customerPhone ?? ""),
+  numberOfWindows: toFormString(existing?.numberOfWindows),
+  numberOfPanels: toFormString(existing?.numberOfPanels),
+  embellishmentBarcode: toFormString(existing?.embellishmentBarcode),
+  stitchingPerPanel: toFormString(existing?.stitchingPerPanel),
+  designTime: toFormString(existing?.designTime),
+  handWorkTime: toFormString(existing?.handWorkTime),
+  hourlyCharge: toFormString(existing?.hourlyCharge ?? EMBELLISHMENT_HOURLY_CHARGE),
+});
+
+export const isEmbellishmentProcess = (process?: string): boolean =>
+  EMBELLISHMENT_PROCESS_KEYS.has(
+    String(process || "")
+      .trim()
+      .toLowerCase()
+  );
+
+export const appendRoutingProcesses = (
+  rows: PmsRouting[],
+  productId: string,
+  processes: readonly string[]
+): PmsRouting[] => {
+  const existingProcesses = new Set(rows.map((row) => normalizeText(row.process)));
+  let nextStep = rows.length ? Math.max(...rows.map((row) => row.stepNo)) + 1 : 1;
+  const additions: PmsRouting[] = [];
+
+  processes.forEach((process) => {
+    if (existingProcesses.has(normalizeText(process))) return;
+    additions.push({
+      id: `local-${process.replace(/[^a-zA-Z0-9]/g, "_")}-${Date.now()}-${nextStep}`,
+      productId,
+      stepNo: nextStep,
+      process,
+      cycleMinutes: 10,
+      ops: 1,
+    });
+    existingProcesses.add(normalizeText(process));
+    nextStep += 1;
+  });
+
+  return [...rows, ...additions];
 };
 
 // ---------------------------------------------------------------------------
@@ -206,15 +311,18 @@ export const resolveVasInfo = (
   order: any | undefined,
   productName: string | undefined
 ): { vasName: string; vasGroup: string; qty: number } => {
-  const items = order?.sections?.VAS?.items || [];
+  const items = (order?.sections?.VAS?.items || []).filter(
+    (item: any) =>
+      !isPmsExcludedItem(item?.description, item?.group, item?.roomName, item?.type)
+  );
   if (!items.length) {
-    return { vasName: productName || "VAS", vasGroup: "-", qty: 0 };
+    return { vasName: productName || "VAS", vasGroup: "", qty: 0 };
   }
   if (!productName) {
     const fallback = items[0] || {};
     return {
       vasName: fallback.description || fallback.group || "VAS",
-      vasGroup: fallback.group || "-",
+      vasGroup: fallback.group || "",
       qty: fallback.qty ?? fallback.quantity ?? 0,
     };
   }
@@ -225,7 +333,7 @@ export const resolveVasInfo = (
   if (exactMatch) {
     return {
       vasName: exactMatch.description || exactMatch.group || productName,
-      vasGroup: exactMatch.group || "-",
+      vasGroup: exactMatch.group || "",
       qty: exactMatch.qty ?? exactMatch.quantity ?? 0,
     };
   }
@@ -243,7 +351,7 @@ export const resolveVasInfo = (
   const matched = fuzzyMatch || items[0] || {};
   return {
     vasName: matched.description || matched.group || productName,
-    vasGroup: matched.group || "-",
+    vasGroup: matched.group || "",
     qty: matched.qty ?? matched.quantity ?? 0,
   };
 };

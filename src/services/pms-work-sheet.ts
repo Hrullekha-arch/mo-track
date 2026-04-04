@@ -1,6 +1,7 @@
 import "server-only";
 
 import { adminDb } from "@/lib/firebase-admin";
+import { isPmsExcludedItem } from "@/lib/pms/filters";
 import { formatDateTimeInZone, IST_TIME_ZONE } from "@/lib/pms/time";
 
 const canonicalHeader = [
@@ -26,24 +27,6 @@ const normalizeText = (value?: string) =>
   String(value || "")
     .trim()
     .toLowerCase();
-
-const normalizePmsItemKey = (value?: string) =>
-  String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-const PMS_EXCLUDED_ITEM_KEYS = new Set([
-  "wallpaper-laying-charges",
-  "installation",
-  "installatation-charges",
-  "sofa-stitching-charges",
-  "loose-material",
-]);
-
-const isPmsExcludedItem = (...values: Array<unknown>) =>
-  values.some((value) => PMS_EXCLUDED_ITEM_KEYS.has(normalizePmsItemKey(String(value ?? ""))));
 
 const isOrderInvoiced = (order?: any) => {
   if (!order) return false;
