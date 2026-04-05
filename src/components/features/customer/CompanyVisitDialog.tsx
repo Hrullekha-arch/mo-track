@@ -85,7 +85,7 @@ type TeamMember = { id: string; name: string; kind: TeamMemberKind };
 
 export type VisitCategory = "company_visit" | "tailor_work" | "complaint_visit";
 
-export type VisitStatus = "planned" | "in_progress" | "Completed" | "on_hold";
+export type VisitStatus = "planned" | "in_progress" | "completed" | "on_hold";
 
 export type WorkMode = "customer_home" | "factory_visit" | "office_visit" | string;
 
@@ -286,7 +286,7 @@ const statusConfig: Record<VisitStatus, { label: string; icon: React.ElementType
     dot: "bg-sky-500",
     ring: "ring-sky-300",
   },
-  Completed: {
+  completed: {
     label: "Completed",
     icon: CheckCircle2,
     chip: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -301,6 +301,8 @@ const statusConfig: Record<VisitStatus, { label: string; icon: React.ElementType
     ring: "ring-amber-300",
   },
 };
+
+const statusOrder: VisitStatus[] = ["planned", "in_progress", "completed", "on_hold"];
 
 const makeId = () =>
   typeof crypto !== "undefined" && crypto.randomUUID
@@ -317,8 +319,8 @@ const normalizeVisitCategory = (value: unknown): VisitCategory => {
 };
 
 const normalizeVisitStatus = (value: unknown): VisitStatus => {
-  const n = String(value || "").trim();
-  if (n === "planned" || n === "in_progress" || n === "Completed" || n === "on_hold") return n;
+  const n = String(value || "").trim().toLowerCase();
+  if (n === "planned" || n === "in_progress" || n === "completed" || n === "on_hold") return n;
   return "planned";
 };
 
@@ -787,8 +789,8 @@ const toYYYYMMDD = (value: Date): string => {
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">Update Status</p>
             <div className="grid grid-cols-2 gap-2">
-              {(["planned", "in_progress", "completed", "on_hold"] as VisitStatus[]).map((s) => {
-                const cfg = statusConfig[s];
+              {statusOrder.map((s) => {
+                const cfg = getStatusConfig(s);
                 const Icon = cfg.icon;
                 const isActive = entry.status === s;
                 return (
@@ -976,7 +978,7 @@ export default function CompanyVisitDialog({ open, onOpenChange, installers }: P
           const data = d.data() as any;
           const fullDoc = { ...(data || {}) } as Record<string, any>;
           const cat = normalizeVisitCategory(data?.category);
-          const status = normalizeVisitStatus(data?.trackerStatus || data?.status);
+          const status = normalizeVisitStatus(data?.status || data?.trackerStatus);
           const pendingApproval =
             typeof data?.pendingApproval === "boolean"
               ? data.pendingApproval
@@ -1683,7 +1685,7 @@ export default function CompanyVisitDialog({ open, onOpenChange, installers }: P
                       // Work mode label
                       const displayWorkMode =
                         workModeLabel[entry.workMode] || toTitle(String(entry.workMode || ""));
-
+                        console.log("entery",entry);
                       return (
                         <button
                           key={entry.id}
