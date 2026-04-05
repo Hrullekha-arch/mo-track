@@ -32,6 +32,7 @@ import {
   PackageSearch,
   TrendingUp,
   ShieldCheck,
+  Sofa,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -77,6 +78,7 @@ export const navItems = [
     { href: "/dashboard/user-report", icon: Users, label: "User Report", roles: ['admin'] },
     { href: "/dashboard/reports", icon: BarChartHorizontalBig, label: "Reports", roles: ['admin'] },
     { href: "/dashboard/meca", icon: TrendingUp, label: "MeCA", roles: ['admin', 'employee', 'Accounts'] },
+    { href: "/dashboard/furniture-details", icon: Sofa, label: "Furniture Details", roles: ['admin', 'employee'] },
 ];
 
 function SidebarNav({ className }: { className?: string }) {

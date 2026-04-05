@@ -258,7 +258,7 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
               const amount = baseAmount - discountAmount + item.cgst + item.sgst + item.igst;
               const gstRate = item.cgst > 0 ? (item.cgst / item.taxableAmount) * 100 * 2 : 0;
               return (
-                <tr key={item.bcn || index}>
+                <tr key={`${item.bcn || item.name || "line"}-${index}`}>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "center" }}>{index + 1}</td>
                   <td style={{ padding: "4px", border: "1px solid #ddd" }}>
                     {item.name}

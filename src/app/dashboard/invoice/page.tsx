@@ -127,6 +127,19 @@ const resolveExclusiveRateForInvoice = (item: any) => {
   return rawExclusive ?? rawRate;
 };
 
+const toFixedKey = (value: unknown, decimals = 4) => num(value).toFixed(decimals);
+
+const buildNormalInvoiceGroupingKey = (item: any, discountPercent: number) => {
+  const bcnKey = normalizeKey(item?.bcn || item?.description || item?.itemName);
+  const descriptionKey = normalizeKey(item?.description || item?.itemName || "");
+  const hsnKey = normalizeKey(item?.hsn);
+  const unitKey = normalizeKey(item?.unit || "MTR");
+  const rateKey = toFixedKey(item?.exclusiveRate ?? resolveExclusiveRateForInvoice(item));
+  const gstKey = toFixedKey(item?.gst ?? item?.gstPercent);
+  const discountKey = toFixedKey(discountPercent);
+  return [bcnKey, descriptionKey, hsnKey, unitKey, rateKey, gstKey, discountKey].join("|");
+};
+
 type InvoiceLineItem = {
   roomName?: string;
   type?: string;
@@ -353,16 +366,18 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
     .map((order) => {
       if (order.invoicing?.invoiceRequired === false) return null;
       const orderInvoices = invoicesByOrder[order.id] || [];
-      const invoicedQtyByBcn = new Map<string, number>();
+      const invoicedQtyByGroup = new Map<string, number>();
       const invoicedQtyByLength = new Map<string, number>();
       let vasAlreadyInvoiced = false;
 
       orderInvoices.forEach((invoice) => {
         const normalItems = invoice.sections?.NORMAL?.items || invoice.items || [];
         normalItems.forEach((item: any) => {
-          const key = normalizeKey(item.bcn || item.description);
+          const discountPercent = num(item?.discountPercent ?? item?.discount);
+          const groupKey = buildNormalInvoiceGroupingKey(item, discountPercent);
           const qty = num(item.qty ?? item.quantity);
-          if (key) invoicedQtyByBcn.set(key, num(invoicedQtyByBcn.get(key)) + qty);
+          if (groupKey)
+            invoicedQtyByGroup.set(groupKey, num(invoicedQtyByGroup.get(groupKey)) + qty);
           const lengthId = item.allocationRef?.lengthId;
           if (lengthId)
             invoicedQtyByLength.set(lengthId, num(invoicedQtyByLength.get(lengthId)) + qty);
@@ -377,6 +392,7 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
         string,
         {
           representative: any;
+          groupKey: string;
           requiredQty: number;
           lotsAllocatedQty: number;
           lengths: Map<string, { qty: number; stockItemId?: string }>;
@@ -384,14 +400,17 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
       >();
 
       normalItemsRaw.forEach((item: any) => {
+        const discountPercent = resolveDiscountPercent(order, item);
         const bcnKey = normalizeKey(item?.bcn || item?.description || item?.itemName);
+        const groupKey = buildNormalInvoiceGroupingKey(item, discountPercent);
         if (!bcnKey) return;
 
-        const existingGroup = groupedNormalItems.get(bcnKey);
+        const existingGroup = groupedNormalItems.get(groupKey);
         const group =
           existingGroup ||
           {
             representative: item,
+            groupKey,
             requiredQty: 0,
             lotsAllocatedQty: 0,
             lengths: new Map<string, { qty: number; stockItemId?: string }>(),
@@ -419,10 +438,10 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
           group.lengths.set(lengthId, current);
         });
 
-        if (!existingGroup) groupedNormalItems.set(bcnKey, group);
+        if (!existingGroup) groupedNormalItems.set(groupKey, group);
       });
 
-      groupedNormalItems.forEach((group, bcnKey) => {
+      groupedNormalItems.forEach((group) => {
         const item = group.representative || {};
         const allocatedFromLengths = Array.from(group.lengths.values()).reduce(
           (sum, entry) => sum + num(entry.qty),
@@ -430,7 +449,7 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
         );
         const allocatedTotalRaw = allocatedFromLengths + num(group.lotsAllocatedQty);
         const allocatedTotal = Math.min(allocatedTotalRaw, num(group.requiredQty));
-        const alreadyInvoiced = num(invoicedQtyByBcn.get(bcnKey));
+        const alreadyInvoiced = num(invoicedQtyByGroup.get(group.groupKey));
         let remaining = Math.max(0, allocatedTotal - alreadyInvoiced);
         if (remaining <= 0) return;
 
