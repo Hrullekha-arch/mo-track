@@ -85,7 +85,7 @@ type TeamMember = { id: string; name: string; kind: TeamMemberKind };
 
 export type VisitCategory = "company_visit" | "tailor_work" | "complaint_visit";
 
-export type VisitStatus = "planned" | "in_progress" | "completed" | "on_hold";
+export type VisitStatus = "planned" | "in_progress" | "Completed" | "on_hold";
 
 export type WorkMode = "customer_home" | "factory_visit" | "office_visit" | string;
 
@@ -286,7 +286,7 @@ const statusConfig: Record<VisitStatus, { label: string; icon: React.ElementType
     dot: "bg-sky-500",
     ring: "ring-sky-300",
   },
-  completed: {
+  Completed: {
     label: "Completed",
     icon: CheckCircle2,
     chip: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -318,7 +318,7 @@ const normalizeVisitCategory = (value: unknown): VisitCategory => {
 
 const normalizeVisitStatus = (value: unknown): VisitStatus => {
   const n = String(value || "").trim();
-  if (n === "planned" || n === "in_progress" || n === "completed" || n === "on_hold") return n;
+  if (n === "planned" || n === "in_progress" || n === "Completed" || n === "on_hold") return n;
   return "planned";
 };
 
@@ -701,11 +701,9 @@ const toYYYYMMDD = (value: Date): string => {
                                   <PenLine className="h-3.5 w-3.5" />
                                 </Button>
                                 }
-                  
               </div>
               
               <div className="flex items-center gap-1.5">
-                
                 {scheduleEdit?<Input
                   type="date"
                   size="sm"

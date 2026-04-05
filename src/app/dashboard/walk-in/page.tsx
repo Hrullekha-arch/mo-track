@@ -971,7 +971,7 @@ export default function WalkinDataPage() {
         )}
 
         {/* Admin edit — available for ALL leads, no leadType condition */}
-        {isAdmin && (
+        {(isAdmin || isSalesmanager || isPC) && (
           <Button size="sm" variant="outline"
             className="h-7 gap-1 text-xs border-indigo-200 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg"
             onClick={() => setEditCustomer(c)}>

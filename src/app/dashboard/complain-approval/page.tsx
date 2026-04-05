@@ -369,6 +369,7 @@ export default function ComplainApprovalPage() {
     const unsub = onSnapshot(q, (snap) => {
       const rows: ComplaintVisitRow[] = snap.docs.map((docSnap) => {
         const data = docSnap.data() as any;
+        
         const photoList = [
           ...(Array.isArray(data?.photoUrls) ? data.photoUrls : []),
           ...(Array.isArray(data?.photos) ? data.photos : []),
@@ -395,6 +396,7 @@ export default function ComplainApprovalPage() {
           chargeAmount: parseNumber(data?.chargeAmount),
           serviceCharge: parseNumber(data?.serviceCharge),
           isChargeable: typeof data?.isChargeable === "boolean" ? data.isChargeable : undefined,
+          createdBy: String(data?.createdBy?.name || "").trim() || undefined,
           approvalNote: String(data?.approvalNote || "").trim() || undefined,
           approvedAt: toIsoString(data?.approvedAt),
           approvedBy: data?.approvedBy || undefined,
@@ -478,6 +480,8 @@ export default function ComplainApprovalPage() {
       setSaving(false);
     }
   };
+
+  console.log("Selected Complaint:", selectedComplaint);
 
   if (!hasAccess) {
     return (
@@ -576,6 +580,7 @@ export default function ComplainApprovalPage() {
                       const active = row.id === selectedId;
                       const pending = isPending(row);
                       const ct = getChargeType(row);
+                      console.log("row",row)
                       return (
                         <button
                           type="button"
@@ -607,6 +612,7 @@ export default function ComplainApprovalPage() {
                           </p>
                           <div className="mt-2 flex items-center justify-between">
                             <p className="text-[11px] text-slate-400">{formatDateSafe(row.createdAt, "dd MMM yyyy")}</p>
+                            <p className="text-[11px] text-slate-400">{row.createdBy || "Unknown User"}</p>
                             <p className="text-[11px] font-semibold" style={{ color: ct === "chargeable" ? "#3b82f6" : "#10b981" }}>
                               {ct === "chargeable" ? formatCurrency(getChargeAmount(row)) : "Free"}
                             </p>
@@ -675,6 +681,7 @@ export default function ComplainApprovalPage() {
                       <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Visit</p>
                       <InfoRow icon={CalendarDays} label="Visit date" value={formatDateSafe(selectedComplaint.visitDate, "dd MMM yyyy")} />
                       <InfoRow icon={Clock3} label="Created" value={formatDateSafe(selectedComplaint.createdAt)} />
+                      <InfoRow icon={User2} label="Created by" value={selectedComplaint.createdBy || "Unknown User"} />
                     </div>
                   </div>
 
