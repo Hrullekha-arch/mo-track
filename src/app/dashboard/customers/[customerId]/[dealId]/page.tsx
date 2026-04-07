@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { ArrowLeft, Calendar, Contact, FileText, GanttChartSquare, Home, MessageSquare, Package, Plane, Receipt as ReceiptIcon, ShoppingCart, User as UserIcon, Contact2, Eye, Loader2, RefreshCw, AlertTriangle, Pencil, Download, Menu, X, Phone, MapPin, MoreHorizontal, PlusCircleIcon, SquareCheckBig } from "lucide-react";
+import { ArrowLeft, Calendar, Contact, FileText, GanttChartSquare, Home, MessageSquare, Package, Plane, Receipt as ReceiptIcon, ShoppingCart, User as UserIcon, Contact2, Eye, Loader2, RefreshCw, AlertTriangle, Pencil, Download, Menu, X, Phone, MapPin, MoreHorizontal, PlusCircleIcon, SquareCheckBig, Map, ReceiptIndianRupeeIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
@@ -125,7 +125,7 @@ const mapDealProductsDocToUi = (doc?: DealProductsDoc | null): DealProduct[] => 
   ];
 };
 
-function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onCloneQuotation }: { customerId: string, dealId: string, deal: Deal, salesmen: User[], cpds: Cpd[], onCloneQuotation: (quotation: Quotation) => void }) {
+function QuotationsTab({ customerId, dealId, customer, deal, salesmen, cpds, onCloneQuotation }: { customerId: string, dealId: string, customer: Customer, deal: Deal, salesmen: User[], cpds: Cpd[], onCloneQuotation: (quotation: Quotation) => void }) {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingQuotationId, setDeletingQuotationId] = useState<string | null>(null);
@@ -251,7 +251,7 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onCloneQuotat
               {/* Desktop Table */}
               <div className="hidden md:block overflow-x-auto">
                 <Table>
-                  <TableHeader>
+                  <TableHeader>;
                     <TableRow>
                       <TableHead >Action</TableHead>
                       <TableHead className="w-12">#</TableHead>
@@ -452,6 +452,7 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onCloneQuotat
           onClose={() => setSelectedQuotation(null)}
           quotation={selectedQuotation}
           deal={deal}
+          customer={customer}
           salesmen={salesmen}
           cpds={cpds}
         />
@@ -1798,8 +1799,12 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
     { value: 'reminder', label: 'Reminder/Notes', icon: MessageSquare },
   ];
 
-  
-
+  console.log("🚀 CRM Activity Data:", {
+    customer,
+    deal,
+    salesmen,
+    representative
+  });
 
   return (
     <>
@@ -1898,7 +1903,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
               {/* Main Content Section */}
               <div className="p-6 space-y-6">
                 {/* Deal Details Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                   {/* Store Info */}
                   <div className="flex items-start gap-3">
                     <div className="p-2 bg-primary/10 rounded-lg">
@@ -1958,6 +1963,70 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                           <Phone className="h-3 w-3" />
                           {customer.phone || customer.mobileNo || "—"}
                         </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Billing Info */}
+                  <div className="bg-white/60 backdrop-blur-md border rounded-2xl p-4 shadow-sm hover:shadow-md transition-all">
+                    <div className="flex gap-4">
+                      
+                      {/* Icon Section */}
+                      <div className="flex-shrink-0 h-10 w-10 flex items-center justify-center rounded-xl bg-green-500/10">
+                        <Contact2 className="h-5 w-5 text-green-600" />
+                      </div>
+
+                      {/* Content */}
+                      <div className="flex-1 space-y-2">
+
+                        {/* Header */}
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-semibold text-muted-foreground tracking-widest uppercase">
+                            Billing Details
+                          </p>
+
+                          {customer.billingDetails[0]?.gstin && (
+                            <span className="text-[10px] px-2 py-1 bg-green-100 text-green-700 rounded-full font-medium">
+                              GST Registered
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Name */}
+                        <p className="text-sm font-semibold text-foreground">
+                          {customer.billingDetails[0]?.billingName || customer.name}
+                        </p>
+
+                        {/* Address */}
+                        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                          <MapPin className="h-4 w-4 mt-[2px] text-gray-400" />
+                          <p className="leading-relaxed">
+                            {customer.billingDetails[0]?.billingAddress || "Same as Customer Address"}
+                          </p>
+                        </div>
+
+                        {/* Phone + GST Row */}
+                        <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+
+                          {/* Phone */}
+                          <div className="flex items-center gap-1">
+                            <Phone className="h-3.5 w-3.5 text-gray-400" />
+                            <span>
+                              {customer.phone || customer.mobileNo || "No Phone"}
+                            </span>
+                          </div>
+
+                          {/* GST */}
+                          {customer.billingDetails[0]?.gstin && (
+                            <div className="flex items-center gap-1">
+                              <ReceiptIndianRupeeIcon className="h-3.5 w-3.5 text-gray-400" />
+                              <span className="font-medium text-foreground">
+                                {customer.billingDetails[0]?.gstin}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
                       </div>
                     </div>
                   </div>
@@ -2116,6 +2185,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
               <QuotationsTab
                 customerId={customerId}
                 dealId={dealId}
+                customer={customer}
                 deal={deal}
                 salesmen={salesmen}
                 cpds={cpds}
@@ -2223,6 +2293,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
               <QuotationsTab
                 customerId={customerId}
                 dealId={dealId}
+                customer={customer}
                 deal={deal}
                 salesmen={salesmen}
                 cpds={cpds}

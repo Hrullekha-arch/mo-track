@@ -85,6 +85,43 @@ const toUpper = (value: unknown) => {
   return text ? text.toUpperCase() : undefined;
 };
 
+type BillingDetailsSnapshot = {
+  billingName?: string;
+  billingPhone?: string;
+  billingAddress?: string;
+  gstin?: string;
+  isDefault?: boolean;
+};
+
+const normalizeBillingDetailsSnapshot = (value: unknown): BillingDetailsSnapshot | undefined => {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const normalized = stripUndefined({
+    billingName: toTrimmedString(record.billingName),
+    billingPhone: toTrimmedString(record.billingPhone),
+    billingAddress: toTrimmedString(record.billingAddress),
+    gstin: toUpper(record.gstin),
+    isDefault: record.isDefault === true ? true : undefined,
+  });
+  const hasValues =
+    Boolean(normalized.billingName) ||
+    Boolean(normalized.billingPhone) ||
+    Boolean(normalized.billingAddress) ||
+    Boolean(normalized.gstin);
+  if (!hasValues) return undefined;
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+};
+
+const resolvePreferredBillingDetails = (customerData: Record<string, any>): BillingDetailsSnapshot | undefined => {
+  const entries = Array.isArray(customerData?.billingDetails)
+    ? customerData.billingDetails
+        .map((entry: unknown) => normalizeBillingDetailsSnapshot(entry))
+        .filter((entry): entry is BillingDetailsSnapshot => Boolean(entry))
+    : [];
+  if (entries.length === 0) return undefined;
+  return entries.find((entry) => entry.isDefault) || entries[0];
+};
+
 const resolveDealProductType = (product: DealProduct) => {
   const raw = toTrimmedString(product.productType || product.productSource || product.category);
   if (!raw) return "FABRIC";
@@ -643,7 +680,8 @@ export async function createDealOrderAction(
 
     const workflowMilestones = buildWorkflowMilestones(orderType, creator);
 
-    const billingAddress = stripUndefinedDeep(
+    const preferredBillingDetails = resolvePreferredBillingDetails(customerData as Record<string, any>);
+    const baseBillingAddress = stripUndefinedDeep(
       customerData.billingAddress || {
         line1: customerData.addressPinCode || undefined,
         city: customerData.city || undefined,
@@ -651,13 +689,18 @@ export async function createDealOrderAction(
         pincode: customerData.pinCode || customerData.addressPinCode || undefined,
       }
     );
+    const billingAddress = stripUndefinedDeep({
+      ...(baseBillingAddress || {}),
+      line1: preferredBillingDetails?.billingAddress || baseBillingAddress?.line1,
+    });
 
     const customerSnapshot = stripUndefinedDeep({
-      name: customerData.name || quotation.customerName,
-      phone: customerData.phone || customerData.mobileNo || '',
-      gstin: customerData.gstin,
+      name: preferredBillingDetails?.billingName || customerData.name || quotation.customerName,
+      phone: preferredBillingDetails?.billingPhone || customerData.phone || customerData.mobileNo || '',
+      gstin: preferredBillingDetails?.gstin || customerData.gstin,
       billingAddress,
       shippingAddress: customerData.shippingAddress,
+      billingDetails: preferredBillingDetails,
     });
 
     const dealSnapshot = stripUndefinedDeep({
@@ -739,8 +782,16 @@ export async function createDealOrderAction(
       // Legacy fields (kept to avoid breaking existing dashboards)
       crmOrderNo: quotation.quotationNo,
       customerName: quotation.customerName,
-      customerPhone: customerData.phone || customerData.mobileNo || '',
-      customerAddress: customerData.billingAddress?.line1 || customerData.addressPinCode || `${customerData.city || ""}${customerData.state ? `, ${customerData.state}` : ""}`,
+      customerPhone:
+        preferredBillingDetails?.billingPhone ||
+        customerData.phone ||
+        customerData.mobileNo ||
+        '',
+      customerAddress:
+        preferredBillingDetails?.billingAddress ||
+        customerData.billingAddress?.line1 ||
+        customerData.addressPinCode ||
+        `${customerData.city || ""}${customerData.state ? `, ${customerData.state}` : ""}`,
       salesPerson: salesmanName,
       orderType: orderType,
       milestones: initialMilestones,

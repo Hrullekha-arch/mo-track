@@ -2,7 +2,7 @@
 "use client";
 
 import * as React from "react";
-import { Quotation, QuotationItem, VasDetail } from "@/lib/types";
+import { Customer, Quotation, QuotationItem, VasDetail } from "@/lib/types";
 import { format } from "date-fns";
 import Image from 'next/image';
 
@@ -11,6 +11,7 @@ interface PrintableQuotationProps {
     values: Quotation;
     creatorName?: string;
     salesmanName?: string;
+    customer?: Customer;
 }
 
 const parseDate = (date: any): Date => {
@@ -35,6 +36,53 @@ const formatToINR = (amount: number) => {
     }).format(amount);
 };
 
+type BillingDetailSnapshot = {
+  billingName?: string;
+  billingPhone?: string;
+  billingAddress?: string;
+  gstin?: string;
+  isDefault?: boolean;
+};
+
+const toText = (value: unknown) => {
+  const text = String(value ?? "").trim();
+  return text || undefined;
+};
+
+const normalizeBillingDetail = (value: unknown): BillingDetailSnapshot | undefined => {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const detail: BillingDetailSnapshot = {
+    billingName: toText(record.billingName),
+    billingPhone: toText(record.billingPhone),
+    billingAddress: toText(record.billingAddress),
+    gstin: toText(record.gstin)?.toUpperCase(),
+    isDefault: record.isDefault === true,
+  };
+  if (!detail.billingName && !detail.billingPhone && !detail.billingAddress && !detail.gstin) {
+    return undefined;
+  }
+  return detail;
+};
+
+const resolvePreferredCustomerBillingDetail = (customer?: Customer): BillingDetailSnapshot | undefined => {
+  const details = Array.isArray(customer?.billingDetails)
+    ? customer.billingDetails
+        .map((detail) => normalizeBillingDetail(detail))
+        .filter((detail): detail is BillingDetailSnapshot => Boolean(detail))
+    : [];
+  if (details.length === 0) return undefined;
+  return details.find((detail) => detail.isDefault) || details[0];
+};
+
+const pickFirstText = (...values: unknown[]) => {
+  for (const value of values) {
+    const text = toText(value);
+    if (text) return text;
+  }
+  return undefined;
+};
+
 interface CalculatedItem extends QuotationItem {
     amount: number;
     discountAmount: number;
@@ -52,7 +100,64 @@ interface CalculatedVas extends VasDetail {
     taxRate: number;
 }
 
-export function PrintableQuotationProfessional({ type, values, creatorName, salesmanName }: PrintableQuotationProps) {
+export function PrintableQuotationProfessional({ type, values, creatorName, salesmanName, customer }: PrintableQuotationProps) {
+    const quotationRecord = values as Quotation & {
+      billingAddress?: string;
+      customerPhone?: string;
+      gstin?: string;
+      billingDetails?: unknown;
+      customerSnapshot?: {
+        name?: string;
+        phone?: string;
+        gstin?: string;
+        address?: string;
+        billingAddress?: {
+          line1?: string;
+        };
+        billingDetails?: unknown;
+      };
+    };
+    const quotationBillingDetails = normalizeBillingDetail(quotationRecord.billingDetails);
+    const snapshotBillingDetails = normalizeBillingDetail(quotationRecord.customerSnapshot?.billingDetails);
+    const customerBillingDetails = resolvePreferredCustomerBillingDetail(customer);
+    const recipientName =
+      pickFirstText(
+        customerBillingDetails?.billingName,
+        quotationBillingDetails?.billingName,
+        snapshotBillingDetails?.billingName,
+        values.billingName,
+        quotationRecord.customerSnapshot?.name,
+        values.customerName,
+        customer?.name
+      ) || "N/A";
+    const recipientAddress =
+      pickFirstText(
+        customerBillingDetails?.billingAddress,
+        quotationBillingDetails?.billingAddress,
+        snapshotBillingDetails?.billingAddress,
+        quotationRecord.billingAddress,
+        quotationRecord.customerSnapshot?.billingAddress?.line1,
+        quotationRecord.customerSnapshot?.address,
+        customer?.billingAddress?.line1,
+        customer?.addressPinCode
+      ) || "N/A";
+    const recipientPhone = pickFirstText(
+      customerBillingDetails?.billingPhone,
+      quotationBillingDetails?.billingPhone,
+      snapshotBillingDetails?.billingPhone,
+      quotationRecord.customerSnapshot?.phone,
+      quotationRecord.customerPhone,
+      customer?.phone,
+      customer?.mobileNo
+    );
+    const recipientGstin = pickFirstText(
+      customerBillingDetails?.gstin,
+      quotationBillingDetails?.gstin,
+      snapshotBillingDetails?.gstin,
+      quotationRecord.gstin,
+      quotationRecord.customerSnapshot?.gstin,
+      customer?.gstin
+    );
     
     const validDate = parseDate(values.date);
     const shouldApplyTax = values.applyTax !== false;
@@ -166,10 +271,10 @@ export function PrintableQuotationProfessional({ type, values, creatorName, sale
             <section style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem', fontSize: '11px' }}>
                 <div>
                     <h3 style={{ margin: '0 0 0.25rem', fontWeight: 'bold' }}>To,</h3>
-                    <p style={{ margin: 0, fontWeight: 'bold' }}>{values.customerName}</p>
-                    <p style={{ margin: '0.25rem 0' }}>{values.billingAddress || 'N/A'}</p>
-                    <p style={{ margin: 0 }}><strong>Contact No:</strong> {/* Placeholder */}</p>
-                    <p style={{ margin: '0.25rem 0' }}><strong>GSTIN:</strong> {/* Placeholder */}</p>
+                    <p style={{ margin: 0, fontWeight: 'bold' }}>{recipientName}</p>
+                    <p style={{ margin: '0.25rem 0' }}>{recipientAddress}</p>
+                    <p style={{ margin: 0 }}><strong>Contact No:</strong> {recipientPhone || "-"}</p>
+                    <p style={{ margin: '0.25rem 0' }}><strong>GSTIN:</strong> {recipientGstin || "-"}</p>
                 </div>
             </section>
             

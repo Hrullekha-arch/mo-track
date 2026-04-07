@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  collection, deleteDoc, doc, getDocs,
+  collection, deleteDoc, doc, getDoc, getDocs,
   onSnapshot, query, updateDoc, where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -24,6 +24,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 
 import {
   AlertCircle, ArrowRightLeft, BadgeCheck, CalendarDays,
@@ -281,6 +282,11 @@ function EditCustomerDialog({
   const [instantOrderId,      setInstantOrderId]      = useState("");
   const [instantOrderAmount,  setInstantOrderAmount]  = useState("");
   const [instantInvoiceNo,    setInstantInvoiceNo]    = useState("");
+  const [useDifferentBillingDetails, setUseDifferentBillingDetails] = useState(false);
+  const [billingName,         setBillingName]         = useState("");
+  const [billingPhone,        setBillingPhone]        = useState("");
+  const [billingAddress,      setBillingAddress]      = useState("");
+  const [billingGstin,        setBillingGstin]        = useState("");
   const [validationError,     setValidationError]     = useState("");
 
   // Return visit fields
@@ -321,6 +327,14 @@ function EditCustomerDialog({
     setInstantOrderId(String(cashsale?.OrderId || ""));
     setInstantOrderAmount(cashsale?.totalOrderAmount != null ? String(cashsale.totalOrderAmount) : "");
     setInstantInvoiceNo(String(cashsale?.invoiceNo || c.invoiceNo || ""));
+    const dsBilling = (ds.billingDetails || {}) as Record<string, any>;
+    setUseDifferentBillingDetails(false);
+    setBillingName(
+      String(dsBilling.billingName || `${c.firstName || ""} ${c.familyName || ""}`.trim()).trim()
+    );
+    setBillingPhone(String(dsBilling.billingPhone || c.mobile || "").trim());
+    setBillingAddress(String(dsBilling.billingAddress || "").trim());
+    setBillingGstin(String(dsBilling.gstin || "").trim().toUpperCase());
     setValidationError("");
     setLeadType(c.leadType || "");
     setPaymentAmount(c.paymentAmount != null ? String(c.paymentAmount) : "");
@@ -357,6 +371,12 @@ function EditCustomerDialog({
         if (!latestDealId.trim()) missing.push("Latest Deal ID");
         if (!latestDealDocId.trim()) missing.push("Latest Deal Doc ID");
       }
+      if (useDifferentBillingDetails) {
+        if (!billingName.trim()) missing.push("Billing Name");
+        if (!billingPhone.trim()) missing.push("Billing Phone");
+        if (!billingAddress.trim()) missing.push("Billing Address");
+        if (!billingGstin.trim()) missing.push("Billing GST");
+      }
 
       if (missing.length > 0) {
         setValidationError(`Fill required deal fields: ${missing.join(", ")}`);
@@ -388,6 +408,15 @@ function EditCustomerDialog({
         const dealDocId = latestDealDocId.trim() || dealId;
         const custId = dealCustomerId.trim();
         const title = dealName.trim();
+        const selectedBillingDetails = useDifferentBillingDetails
+          ? {
+              billingName: billingName.trim(),
+              billingPhone: billingPhone.trim(),
+              billingAddress: billingAddress.trim(),
+              gstin: billingGstin.trim().toUpperCase(),
+              isDefault: true,
+            }
+          : undefined;
         patch.inquiryStatus = inquiry;
         patch.measurementRequired = msr;
         patch.advanceReceived = adv;
@@ -401,8 +430,13 @@ function EditCustomerDialog({
           dealName: title,
           measurementRequired: msr,
           advanceReceived: adv,
+          ...(selectedBillingDetails ? { billingDetails: selectedBillingDetails } : {}),
           createdAt: nowIso,
         };
+        patch.useDifferentBillingDetails = Boolean(selectedBillingDetails);
+        if (selectedBillingDetails) {
+          patch.billingDetails = selectedBillingDetails;
+        }
         if (dealMode === "instant_sale") {
           const orderId = instantOrderId.trim();
           const orderAmount = Number(instantOrderAmount) || 0;
@@ -623,6 +657,61 @@ function EditCustomerDialog({
                       </div>
                     </div>
                   )}
+                  <div className="space-y-2 rounded-xl border border-emerald-200/70 bg-white/70 p-3">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="walkin-different-billing"
+                        checked={useDifferentBillingDetails}
+                        onCheckedChange={(checked) => setUseDifferentBillingDetails(Boolean(checked))}
+                      />
+                      <Label
+                        htmlFor="walkin-different-billing"
+                        className="text-xs font-semibold text-emerald-800"
+                      >
+                        Different Billing Details
+                      </Label>
+                    </div>
+                    {useDifferentBillingDetails && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <FL req>Billing Name</FL>
+                          <Input
+                            value={billingName}
+                            onChange={(e) => setBillingName(e.target.value)}
+                            placeholder="Billing company / name"
+                            className="rounded-xl border-emerald-200 h-9 text-sm bg-white"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <FL req>Billing Phone</FL>
+                          <Input
+                            value={billingPhone}
+                            onChange={(e) => setBillingPhone(e.target.value)}
+                            placeholder="Billing contact"
+                            className="rounded-xl border-emerald-200 h-9 text-sm bg-white"
+                          />
+                        </div>
+                        <div className="space-y-1.5 col-span-2">
+                          <FL req>Billing Address</FL>
+                          <Input
+                            value={billingAddress}
+                            onChange={(e) => setBillingAddress(e.target.value)}
+                            placeholder="Billing address"
+                            className="rounded-xl border-emerald-200 h-9 text-sm bg-white"
+                          />
+                        </div>
+                        <div className="space-y-1.5 col-span-2">
+                          <FL req>Billing GST</FL>
+                          <Input
+                            value={billingGstin}
+                            onChange={(e) => setBillingGstin(e.target.value)}
+                            placeholder="GSTIN"
+                            className="rounded-xl border-emerald-200 h-9 text-sm bg-white uppercase"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <FL req>Customer ID</FL>
@@ -812,7 +901,11 @@ export default function WalkinDataPage() {
     if (!user) return;
     setUpdatingId(customerId);
     try {
-      const res = await handoverToSalesman(customerId, { id: salesman.id, name: salesman.name }, { id: user.id, name: user.name });
+      const res = await handoverToSalesman(
+        customerId,
+        { id: salesman.id, name: salesman.name },
+        { id: user.id, name: user.name, role: (user as any)?.role || null }
+      );
       toast(res.success ? { title: `Handed over to ${salesman.name}` } : { variant: "destructive", title: "Error", description: res.message });
     } finally { setUpdatingId(null); }
   };
@@ -835,11 +928,78 @@ export default function WalkinDataPage() {
 
   const handleEditSave = async (patch: Record<string, any>) => {
     if (!editCustomer) return;
+    const nowIso = new Date().toISOString();
     await updateDoc(doc(db, "Walkin_Customer", editCustomer.id), {
       ...patch,
       updatedBy: { userId: user?.id, username: user?.name },
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso,
     });
+
+    const incomingBilling = patch?.billingDetails as Record<string, any> | undefined;
+    const customerId = String(
+      patch?.dealSnapshot?.customerId || patch?.dealCustomerId || ""
+    ).trim();
+
+    if (incomingBilling && customerId) {
+      const resolvedDealId = String(
+        patch?.dealSnapshot?.dealId || patch?.latestDealId || ""
+      ).trim();
+      const normalizedIncoming = {
+        billingName: String(incomingBilling.billingName || "").trim(),
+        billingPhone: String(incomingBilling.billingPhone || "").trim(),
+        billingAddress: String(incomingBilling.billingAddress || "").trim(),
+        gstin: String(incomingBilling.gstin || "").trim().toUpperCase(),
+        isDefault: true,
+        updatedAt: nowIso,
+        createdAt: nowIso,
+        source: "walkin-deal",
+        ...(resolvedDealId ? { dealId: resolvedDealId } : {}),
+      };
+      if (
+        normalizedIncoming.billingName ||
+        normalizedIncoming.billingPhone ||
+        normalizedIncoming.billingAddress ||
+        normalizedIncoming.gstin
+      ) {
+        const customerRef = doc(db, "customers", customerId);
+        const customerSnap = await getDoc(customerRef);
+        if (customerSnap.exists()) {
+          const existingRows = Array.isArray(customerSnap.data()?.billingDetails)
+            ? customerSnap.data()?.billingDetails
+            : [];
+          let replaced = false;
+          const mergedRows = existingRows.map((row: any) => {
+            const sameAs =
+              String(row?.billingName || "").trim().toLowerCase() ===
+                normalizedIncoming.billingName.toLowerCase() &&
+              String(row?.billingPhone || "").trim() === normalizedIncoming.billingPhone &&
+              String(row?.billingAddress || "").trim().toLowerCase() ===
+                normalizedIncoming.billingAddress.toLowerCase() &&
+              String(row?.gstin || "").trim().toUpperCase() === normalizedIncoming.gstin;
+
+            if (sameAs) {
+              replaced = true;
+              return {
+                ...row,
+                ...normalizedIncoming,
+                createdAt: row?.createdAt || nowIso,
+              };
+            }
+            return {
+              ...row,
+              isDefault: false,
+            };
+          });
+          if (!replaced) {
+            mergedRows.unshift(normalizedIncoming);
+          }
+          await updateDoc(customerRef, {
+            billingDetails: mergedRows.slice(0, 20),
+            lastUpdatedAt: nowIso,
+          });
+        }
+      }
+    }
     toast({ title: "Record updated ✓" });
   };
 
@@ -905,6 +1065,13 @@ export default function WalkinDataPage() {
   const ActionCell = ({ customer: c }: { customer: Walkin_Customer }) => {
     const busy  = updatingId === c.id;
     const isAck = (c as any).acknowledgedStatus?.status === true || (c as any).acknowledgedStatus?.status === "true";
+    const canCrmHandover = canManage && c.status === "Attended" && (c as any).attendedBy?.id === user?.id;
+    const canAdminChangeSalesman = isAdmin && c.status !== "completed";
+    const showSalesmanAssignment = canCrmHandover || canAdminChangeSalesman;
+    const hasSalesman = Boolean(String((c as any).salesmanId || "").trim());
+    const salesmanButtonLabel = isAdmin
+      ? (hasSalesman ? "Change Salesman" : "Assign Salesman")
+      : "Handover";
 
     return (
       <div className="flex items-center gap-1.5 flex-wrap">
@@ -917,14 +1084,14 @@ export default function WalkinDataPage() {
           </Button>
         )}
 
-        {canManage && c.status === "Attended" && (c as any).attendedBy?.id === user?.id && (
+        {showSalesmanAssignment && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" variant="outline"
                 className="h-7 gap-1 text-xs border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg"
                 disabled={busy}>
                 {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRightLeft className="h-3 w-3" />}
-                Handover <ChevronDown className="h-3 w-3 opacity-60" />
+                {salesmanButtonLabel} <ChevronDown className="h-3 w-3 opacity-60" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-44 rounded-xl border-slate-200">

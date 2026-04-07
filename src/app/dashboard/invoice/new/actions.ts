@@ -88,6 +88,43 @@ const summarizeOrderItems = (items: Array<{ taxableAmount?: number; gstAmount?: 
   );
 };
 
+type BillingDetailsSnapshot = {
+  billingName?: string;
+  billingPhone?: string;
+  billingAddress?: string;
+  gstin?: string;
+  isDefault?: boolean;
+};
+
+const normalizeBillingDetailsSnapshot = (value: unknown): BillingDetailsSnapshot | undefined => {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const normalized = stripUndefinedDeep({
+    billingName: String(record.billingName || "").trim() || undefined,
+    billingPhone: String(record.billingPhone || "").trim() || undefined,
+    billingAddress: String(record.billingAddress || "").trim() || undefined,
+    gstin: String(record.gstin || "").trim().toUpperCase() || undefined,
+    isDefault: record.isDefault === true ? true : undefined,
+  });
+  const hasValues =
+    Boolean((normalized as any).billingName) ||
+    Boolean((normalized as any).billingPhone) ||
+    Boolean((normalized as any).billingAddress) ||
+    Boolean((normalized as any).gstin);
+  if (!hasValues) return undefined;
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+};
+
+const resolvePreferredBillingDetails = (customerData: Record<string, any>): BillingDetailsSnapshot | undefined => {
+  const entries = Array.isArray(customerData?.billingDetails)
+    ? customerData.billingDetails
+        .map((entry: unknown) => normalizeBillingDetailsSnapshot(entry))
+        .filter((entry): entry is BillingDetailsSnapshot => Boolean(entry))
+    : [];
+  if (entries.length === 0) return undefined;
+  return entries.find((entry) => entry.isDefault) || entries[0];
+};
+
 
 export async function createDealOrderAction(
   customerId: string,
@@ -297,12 +334,17 @@ export async function createDealOrderAction(
           hsnCode: vas.hsn ?? vas.hsnCode,
         }));
 
-    const billingAddress = customerData.billingAddress || {
+    const preferredBillingDetails = resolvePreferredBillingDetails(customerData as Record<string, any>);
+    const baseBillingAddress = customerData.billingAddress || {
       line1: customerData.addressPinCode || undefined,
       city: customerData.city || undefined,
       state: customerData.state || undefined,
       pincode: customerData.pinCode || customerData.addressPinCode || undefined,
     };
+    const billingAddress = stripUndefinedDeep({
+      ...(baseBillingAddress || {}),
+      line1: preferredBillingDetails?.billingAddress || baseBillingAddress?.line1,
+    });
 
     const newOrder: Order = stripUndefinedDeep({
       id: orderId,
@@ -313,11 +355,12 @@ export async function createDealOrderAction(
       customerId: customerId,
       dealId: dealData.dealId || dealId,
       customerSnapshot: {
-        name: customerData.name || quotation.customerName,
-        phone: customerData.phone || customerData.mobileNo || '',
-        gstin: customerData.gstin,
+        name: preferredBillingDetails?.billingName || customerData.name || quotation.customerName,
+        phone: preferredBillingDetails?.billingPhone || customerData.phone || customerData.mobileNo || '',
+        gstin: preferredBillingDetails?.gstin || customerData.gstin,
         billingAddress,
         shippingAddress: customerData.shippingAddress,
+        billingDetails: preferredBillingDetails,
       },
       dealSnapshot: {
         dealCode: dealData.dealCode,
@@ -359,8 +402,16 @@ export async function createDealOrderAction(
       // Legacy fields (kept to avoid breaking existing dashboards)
       crmOrderNo: quotation.quotationNo,
       customerName: quotation.customerName,
-      customerPhone: customerData.phone || customerData.mobileNo || '',
-      customerAddress: customerData.billingAddress?.line1 || customerData.addressPinCode || `${customerData.city || ""}${customerData.state ? `, ${customerData.state}` : ""}`,
+      customerPhone:
+        preferredBillingDetails?.billingPhone ||
+        customerData.phone ||
+        customerData.mobileNo ||
+        '',
+      customerAddress:
+        preferredBillingDetails?.billingAddress ||
+        customerData.billingAddress?.line1 ||
+        customerData.addressPinCode ||
+        `${customerData.city || ""}${customerData.state ? `, ${customerData.state}` : ""}`,
       salesPerson: salesmanName,
       orderType: orderType,
       milestones: (() => {

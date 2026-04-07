@@ -3,7 +3,7 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Customer, Deal, User, Quotation, O2DProcess, CustomerAddress, CustomerStats, CustomerRecent } from '@/lib/types';
+import { Customer, Deal, User, Quotation, O2DProcess, CustomerAddress, CustomerStats, CustomerRecent, CustomerBillingDetail } from '@/lib/types';
 import { query, where } from 'firebase/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
 import { revalidatePath } from 'next/cache';
@@ -80,6 +80,85 @@ const defaultRecent = (): CustomerRecent => ({
 const buildDealCode = (dealId: string) => {
   const year = new Date().getFullYear();
   return `DEAL-${year}-${dealId}`;
+};
+
+const normalizeBillingDetail = (
+  source?: Partial<CustomerBillingDetail> | null
+): CustomerBillingDetail | undefined => {
+  if (!source || typeof source !== "object") return undefined;
+  const detail = stripUndefined({
+    billingName: String(source.billingName || "").trim() || undefined,
+    billingPhone: String(source.billingPhone || "").trim() || undefined,
+    billingAddress: String(source.billingAddress || "").trim() || undefined,
+    gstin: String(source.gstin || "").trim().toUpperCase() || undefined,
+    isDefault: source.isDefault === true ? true : undefined,
+  });
+  const hasValues =
+    Boolean(detail.billingName) ||
+    Boolean(detail.billingPhone) ||
+    Boolean(detail.billingAddress) ||
+    Boolean(detail.gstin);
+  if (!hasValues) return undefined;
+  return Object.keys(detail).length > 0 ? detail : undefined;
+};
+
+const mergeCustomerBillingDetails = (
+  existing: unknown,
+  incoming: CustomerBillingDetail,
+  nowIso: string,
+  options?: {
+    source?: string;
+    dealId?: string;
+  }
+): CustomerBillingDetail[] => {
+  const existingRows = Array.isArray(existing)
+    ? existing
+        .map((row) => normalizeBillingDetail(row as Partial<CustomerBillingDetail>))
+        .filter((row): row is CustomerBillingDetail => Boolean(row))
+    : [];
+
+  const sameAs = (row: CustomerBillingDetail) =>
+    String(row.billingName || "").trim().toLowerCase() ===
+      String(incoming.billingName || "").trim().toLowerCase() &&
+    String(row.billingPhone || "").trim() === String(incoming.billingPhone || "").trim() &&
+    String(row.billingAddress || "").trim().toLowerCase() ===
+      String(incoming.billingAddress || "").trim().toLowerCase() &&
+    String(row.gstin || "").trim().toUpperCase() ===
+      String(incoming.gstin || "").trim().toUpperCase();
+
+  const normalizedIncoming = stripUndefined({
+    billingName: incoming.billingName,
+    billingPhone: incoming.billingPhone,
+    billingAddress: incoming.billingAddress,
+    gstin: incoming.gstin,
+    isDefault: true,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    source: String(options?.source || "deal").trim() || "deal",
+    dealId: options?.dealId ? String(options.dealId).trim() : undefined,
+  });
+
+  let replaced = false;
+  const merged = existingRows.map((row) => {
+    if (sameAs(row)) {
+      replaced = true;
+      return stripUndefined({
+        ...row,
+        ...normalizedIncoming,
+        createdAt: row.createdAt || nowIso,
+      });
+    }
+    return stripUndefined({
+      ...row,
+      isDefault: false,
+    });
+  });
+
+  if (!replaced) {
+    merged.unshift(normalizedIncoming);
+  }
+
+  return merged.slice(0, 20);
 };
 
 export async function searchCustomersAction(filters: {
@@ -259,6 +338,7 @@ interface AddCustomerInput {
   status?: string;
   customerCode?: string;
   createdBy?: string;
+  billingDetails?: CustomerBillingDetail;
 }
 
 export async function addCustomerAction(data: AddCustomerInput): Promise<{ success: boolean; message: string; customer?: Customer }> {
@@ -291,6 +371,10 @@ export async function addCustomerAction(data: AddCustomerInput): Promise<{ succe
     const now = new Date().toISOString();
     const billingAddress = buildAddress(data.billingAddress);
     const shippingAddress = buildAddress(data.shippingAddress, data.billingAddress);
+    const normalizedBillingDetail = normalizeBillingDetail(data.billingDetails);
+    const mergedBillingDetails = normalizedBillingDetail
+      ? mergeCustomerBillingDetails([], normalizedBillingDetail, now, { source: "customer" })
+      : undefined;
 
     const newCustomerData: Omit<Customer, 'id'> = stripUndefined({
       customerId: docId,
@@ -305,6 +389,7 @@ export async function addCustomerAction(data: AddCustomerInput): Promise<{ succe
       customerType: data.customerType || "INDIVIDUAL",
       tags: Array.isArray(data.tags) ? data.tags : [],
       assignedSalesPerson: data.assignedSalesPerson,
+      billingDetails: mergedBillingDetails,
       stats: defaultStats(),
       recent: defaultRecent(),
       status: data.status || "ACTIVE",
@@ -344,6 +429,7 @@ type UpdateCustomerPayload = {
   city?: string;
   state?: string;
   salesSupport?: string;
+  billingDetails?: CustomerBillingDetail;
 };
 
 export async function updateCustomerAction(
@@ -381,6 +467,14 @@ export async function updateCustomerAction(
 
   if (!snap.exists) throw new Error("Customer not found");
 
+  const nowIso = new Date().toISOString();
+  const normalizedBillingDetail = normalizeBillingDetail(payload.billingDetails);
+  const mergedBillingDetails = normalizedBillingDetail
+    ? mergeCustomerBillingDetails((snap.data() as any)?.billingDetails, normalizedBillingDetail, nowIso, {
+        source: "customer-edit",
+      })
+    : undefined;
+
   // ✅ if you want to enforce unique mobile
   const dupSnap = await adminDb
     .collection("customers")
@@ -395,7 +489,8 @@ export async function updateCustomerAction(
   await ref.set(
     {
       ...stripUndefined(clean),
-      lastUpdatedAt: new Date().toISOString(),
+      ...(mergedBillingDetails ? { billingDetails: mergedBillingDetails } : {}),
+      lastUpdatedAt: nowIso,
     },
     { merge: true }
   );
@@ -429,6 +524,7 @@ type AddDealInput = {
   representativeId?: string;
   measurementRequired?: 'Yes' | 'No';
   advanceForMeasurement?: 'Yes' | 'No' | 'Old';
+  billingDetails?: CustomerBillingDetail;
 };
 
 export async function addDealAction(data: AddDealInput): Promise<{ success: boolean; message: string; deal?: Deal }> {
@@ -481,6 +577,13 @@ export async function addDealAction(data: AddDealInput): Promise<{ success: bool
     }
 
     const now = new Date().toISOString();
+    const normalizedBillingDetail = normalizeBillingDetail(dealData.billingDetails);
+    const mergedBillingDetails = normalizedBillingDetail
+      ? mergeCustomerBillingDetails((customerData as any)?.billingDetails, normalizedBillingDetail, now, {
+          source: "deal",
+          dealId,
+        })
+      : undefined;
 
     const newDeal: Deal = {
         id: newDealRef.id,
@@ -540,6 +643,16 @@ export async function addDealAction(data: AddDealInput): Promise<{ success: bool
     const batch = adminDb.batch();
     batch.set(newDealRef, stripUndefinedDeep(newDeal));
     batch.set(o2dRef.doc(dealId), newO2dProcess);
+    if (mergedBillingDetails) {
+      batch.set(
+        customerRef,
+        stripUndefinedDeep({
+          billingDetails: mergedBillingDetails,
+          lastUpdatedAt: now,
+        }),
+        { merge: true }
+      );
+    }
     
     await batch.commit();
 

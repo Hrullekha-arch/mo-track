@@ -353,6 +353,7 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
             onClose={() => setIsNewDealOpen(false)}
             onSuccess={handleNewDealSuccess}
             customerId={customer.customerId || customer.id}
+            customer={customer}
             salesmen={salesmen}
         />
         <EditCustomerDialog

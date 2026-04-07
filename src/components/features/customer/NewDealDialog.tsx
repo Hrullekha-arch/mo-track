@@ -12,29 +12,80 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
-import { User, Deal } from "@/lib/types";
+import { User, Deal, Customer } from "@/lib/types";
 import { addDealAction } from "@/app/dashboard/customers/actions";
 import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 
-const dealSchema = z.object({
-  dealName: z.string().min(1, "Deal Name is required."),
-  dealAmount: z.preprocess(
-    (a) => {
-        if (typeof a === 'string' && a.trim() === '') return undefined;
-        if (a === '') return undefined;
-        const parsed = parseFloat(z.string().parse(a));
-        return isNaN(parsed) ? undefined : parsed;
-    },
-    z.number().positive("Deal amount must be a positive number.").optional()
-  ),
-  representativeId: z.string().min(1, "A representative must be selected."),
-  description: z.string().max(2000, "Description cannot exceed 2000 characters.").optional(),
-  measurementRequired: z.enum(['Yes', 'No'], { required_error: "This field is required." }),
-  advanceForMeasurement: z.enum(['Yes', 'No', 'Old'], { required_error: "This field is required." }),
-});
+const resolveDefaultBillingValues = (customer?: Customer | null) => {
+  const normalizedHistory = Array.isArray((customer as any)?.billingDetails)
+    ? (customer as any).billingDetails
+        .map((entry: any) => ({
+          billingName: String(entry?.billingName || "").trim(),
+          billingPhone: String(entry?.billingPhone || "").trim(),
+          billingAddress: String(entry?.billingAddress || "").trim(),
+          gstin: String(entry?.gstin || "").trim().toUpperCase(),
+          isDefault: entry?.isDefault === true,
+        }))
+        .filter((entry: any) =>
+          entry.billingName || entry.billingPhone || entry.billingAddress || entry.gstin
+        )
+    : [];
+
+  const preferred = normalizedHistory.find((entry: any) => entry.isDefault) || normalizedHistory[0];
+
+  return {
+    billingName: preferred?.billingName || customer?.name || "",
+    billingPhone: preferred?.billingPhone || customer?.phone || customer?.mobileNo || "",
+    billingAddress:
+      preferred?.billingAddress ||
+      customer?.billingAddress?.line1 ||
+      customer?.addressPinCode ||
+      "",
+    billingGstin: preferred?.gstin || customer?.gstin || "",
+  };
+};
+
+const dealSchema = z
+  .object({
+    dealName: z.string().min(1, "Deal Name is required."),
+    dealAmount: z.preprocess(
+      (a) => {
+          if (typeof a === 'string' && a.trim() === '') return undefined;
+          if (a === '') return undefined;
+          const parsed = parseFloat(z.string().parse(a));
+          return isNaN(parsed) ? undefined : parsed;
+      },
+      z.number().positive("Deal amount must be a positive number.").optional()
+    ),
+    representativeId: z.string().min(1, "A representative must be selected."),
+    description: z.string().max(2000, "Description cannot exceed 2000 characters.").optional(),
+    measurementRequired: z.enum(['Yes', 'No'], { required_error: "This field is required." }),
+    advanceForMeasurement: z.enum(['Yes', 'No', 'Old'], { required_error: "This field is required." }),
+    useDifferentBillingDetails: z.boolean().default(false),
+    billingName: z.string().optional(),
+    billingPhone: z.string().optional(),
+    billingAddress: z.string().optional(),
+    billingGstin: z.string().optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (!values.useDifferentBillingDetails) return;
+    if (!String(values.billingName || "").trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["billingName"], message: "Billing name is required." });
+    }
+    if (!String(values.billingPhone || "").trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["billingPhone"], message: "Billing phone is required." });
+    }
+    if (!String(values.billingAddress || "").trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["billingAddress"], message: "Billing address is required." });
+    }
+    if (!String(values.billingGstin || "").trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["billingGstin"], message: "Billing GST is required." });
+    }
+  });
 
 type DealFormValues = z.infer<typeof dealSchema>;
 
@@ -43,10 +94,11 @@ interface NewDealDialogProps {
   onClose: () => void;
   onSuccess: (newDeal: Deal) => void;
   customerId: string;
+  customer?: Customer | null;
   salesmen: User[];
 }
 
-export function NewDealDialog({ isOpen, onClose, onSuccess, customerId, salesmen }: NewDealDialogProps) {
+export function NewDealDialog({ isOpen, onClose, onSuccess, customerId, customer, salesmen }: NewDealDialogProps) {
   const [loading, setLoading] = useState(false);
   const [crmUserId, setCrmUserId] = useState<string>("");
   const [crmUserName, setCrmUserName] = useState<string>("");
@@ -60,10 +112,34 @@ export function NewDealDialog({ isOpen, onClose, onSuccess, customerId, salesmen
       dealAmount: undefined,
       representativeId: "",
       description: "",
+      useDifferentBillingDetails: false,
+      billingName: "",
+      billingPhone: "",
+      billingAddress: "",
+      billingGstin: "",
     }
   });
 
   const representativeId = form.watch("representativeId");
+  const useDifferentBillingDetails = form.watch("useDifferentBillingDetails");
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const defaults = resolveDefaultBillingValues(customer);
+    form.reset({
+      dealName: "",
+      dealAmount: undefined,
+      representativeId: "",
+      description: "",
+      measurementRequired: undefined as unknown as DealFormValues["measurementRequired"],
+      advanceForMeasurement: undefined as unknown as DealFormValues["advanceForMeasurement"],
+      useDifferentBillingDetails: false,
+      billingName: defaults.billingName,
+      billingPhone: defaults.billingPhone,
+      billingAddress: defaults.billingAddress,
+      billingGstin: defaults.billingGstin,
+    });
+  }, [isOpen, customer?.id, customer, form]);
 
   useEffect(() => {
     const resolveCrm = async () => {
@@ -126,6 +202,15 @@ export function NewDealDialog({ isOpen, onClose, onSuccess, customerId, salesmen
         description: data.description || "",
         measurementRequired: data.measurementRequired,
         advanceForMeasurement: data.advanceForMeasurement,
+        billingDetails: data.useDifferentBillingDetails
+          ? {
+              billingName: String(data.billingName || "").trim(),
+              billingPhone: String(data.billingPhone || "").trim(),
+              billingAddress: String(data.billingAddress || "").trim(),
+              gstin: String(data.billingGstin || "").trim().toUpperCase(),
+              isDefault: true,
+            }
+          : undefined,
       });
 
       if (result.success && result.deal) {
@@ -250,6 +335,79 @@ export function NewDealDialog({ isOpen, onClose, onSuccess, customerId, salesmen
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name="useDifferentBillingDetails"
+              render={({ field }) => (
+                <FormItem className="rounded-md border p-3">
+                  <div className="flex items-center space-x-3">
+                    <FormControl>
+                      <Checkbox
+                        checked={Boolean(field.value)}
+                        onCheckedChange={(checked) => field.onChange(Boolean(checked))}
+                      />
+                    </FormControl>
+                    <FormLabel className="m-0">Different Billing Details</FormLabel>
+                  </div>
+                </FormItem>
+              )}
+            />
+            {useDifferentBillingDetails && (
+              <div className="grid grid-cols-1 gap-3 rounded-md border border-muted p-3">
+                <FormField
+                  control={form.control}
+                  name="billingName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Billing Name <span className="text-destructive">*</span></FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="Company / billing name" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="billingPhone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Billing Phone <span className="text-destructive">*</span></FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="Billing contact number" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="billingAddress"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Billing Address <span className="text-destructive">*</span></FormLabel>
+                      <FormControl>
+                        <Textarea rows={3} {...field} placeholder="Billing address" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="billingGstin"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Billing GST <span className="text-destructive">*</span></FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="GSTIN" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
             <FormField
               control={form.control}
               name="description"

@@ -355,6 +355,18 @@ export interface OrderUpdate {
   message?: string;
 }
 
+export interface CustomerBillingDetail {
+  billingName?: string;
+  billingPhone?: string;
+  billingAddress?: string;
+  gstin?: string;
+  isDefault?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  source?: string;
+  dealId?: string;
+}
+
 export interface Order {
   id: string; // This can also be the tracking code
   orderId?: string;
@@ -367,6 +379,7 @@ export interface Order {
     gstin?: string;
     billingAddress?: CustomerAddress;
     shippingAddress?: CustomerAddress;
+    billingDetails?: CustomerBillingDetail;
   };
   dealSnapshot?: {
     dealCode?: string;
@@ -809,6 +822,7 @@ export interface Customer {
     isGstRegistered?: boolean;
     billingAddress?: CustomerAddress;
     shippingAddress?: CustomerAddress;
+    billingDetails?: CustomerBillingDetail[];
     customerType?: string;
     tags?: string[];
     assignedSalesPerson?: { id?: string; name?: string };
@@ -1341,6 +1355,7 @@ export interface Invoice {
       phone?: string;
       address?: string;
       gstin?: string;
+      billingDetails?: CustomerBillingDetail;
     };
     sections?: {
       NORMAL?: {
@@ -1446,6 +1461,7 @@ export interface PrintableInvoicePayload {
     phone: string;
     address: string;
     gstin?: string;
+    billingDetails?: CustomerBillingDetail;
   };
   seller: {
     companyName: string;

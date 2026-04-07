@@ -129,7 +129,19 @@ export const buildPrintablePayloadFromInvoice = (invoice: Invoice): PrintableInv
   };
 
   const customerSnapshot = invoice.customerSnapshot || invoice.customer;
-  const customerAddress = formatAddress((invoice.customerSnapshot as any)?.address) || formatAddress(invoice.customer?.address);
+  const snapshotBillingDetails =
+    (invoice.customerSnapshot as any)?.billingDetails ||
+    (invoice.customer as any)?.billingDetails;
+  const resolvedCustomerName =
+    snapshotBillingDetails?.billingName || customerSnapshot?.name || "";
+  const resolvedCustomerPhone =
+    snapshotBillingDetails?.billingPhone || customerSnapshot?.phone || "";
+  const customerAddress =
+    snapshotBillingDetails?.billingAddress ||
+    formatAddress((invoice.customerSnapshot as any)?.address) ||
+    formatAddress(invoice.customer?.address);
+  const resolvedGstin =
+    snapshotBillingDetails?.gstin || (invoice.customerSnapshot as any)?.gstin;
 
   return {
     meta: {
@@ -141,10 +153,11 @@ export const buildPrintablePayloadFromInvoice = (invoice: Invoice): PrintableInv
       salesPerson: invoice.salesPerson,
     },
     customer: {
-      name: customerSnapshot?.name || "",
-      phone: customerSnapshot?.phone || "",
+      name: resolvedCustomerName,
+      phone: resolvedCustomerPhone,
       address: customerAddress,
-      gstin: (invoice.customerSnapshot as any)?.gstin,
+      gstin: resolvedGstin,
+      billingDetails: snapshotBillingDetails,
     },
     seller: {
       ...fallbackSeller,

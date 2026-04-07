@@ -256,7 +256,7 @@ export async function attendToWalkin(
 export async function handoverToSalesman(
     customerId: string,
     salesman: { id: string; name: string },
-    crmUser: { id: string; name: string }
+    crmUser: { id: string; name: string; role?: string | null }
 ): Promise<{ success: boolean; message: string }> {
     try {
         const customerRef = adminDb.collection('Walkin_Customer').doc(customerId);
@@ -267,7 +267,8 @@ export async function handoverToSalesman(
         }
         const customerData = customerSnap.data();
         const creatorId = customerData?.createdById || customerData?.createdBy?.id || null;
-        if (creatorId && creatorId !== crmUser.id) {
+        const isAdminActor = String(crmUser?.role || '').trim().toLowerCase() === 'admin';
+        if (!isAdminActor && creatorId && creatorId !== crmUser.id) {
             return { success: false, message: "You can only hand over walk-ins created by you." };
         }
 

@@ -110,15 +110,70 @@ import {
 
 type AllocationFilterValue = "all" | "ready" | "partial";
 
+const toFiniteNumber = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getAllocatedQtyFromOrderItem = (item: any) => {
+  const lengths = Array.isArray(item?.allocation?.lengths)
+    ? item.allocation.lengths
+    : [];
+  const lots = Array.isArray(item?.allocation?.lots) ? item.allocation.lots : [];
+  return [...lengths, ...lots].reduce(
+    (sum: number, entry: any) =>
+      sum + toFiniteNumber(entry?.allocatedQty ?? entry?.qty ?? entry?.quantity),
+    0
+  );
+};
+
 const getOrderAllocationMetrics = (order: Order) => {
-  const totalItems = order.fabricDetails?.length || 0;
-  const allocatedItemsCount =
-    order.fabricDetails?.filter((item) => item.status === "allocated").length ||
-    0;
-  const inStockOrAllocatedItems =
-    order.fabricDetails?.filter(
-      (item) => item.status === "in stock" || item.status === "allocated"
-    ).length || 0;
+  const sectionItems = Array.isArray(order.sections?.NORMAL?.items)
+    ? order.sections?.NORMAL?.items
+    : [];
+  const legacyItems = Array.isArray(order.fabricDetails) ? order.fabricDetails : [];
+  const totalItems = sectionItems.length || legacyItems.length || 0;
+
+  const sectionAllocatedItemsCount = sectionItems.filter((item: any) => {
+    const allocationStatus = String(item?.allocation?.status || "")
+      .trim()
+      .toUpperCase();
+    if (allocationStatus === "ALLOCATED") return true;
+    const requiredQty = toFiniteNumber(item?.qty ?? item?.quantity);
+    const allocatedQty = getAllocatedQtyFromOrderItem(item);
+    return requiredQty > 0 && allocatedQty > 0 && allocatedQty + 0.01 >= requiredQty;
+  }).length;
+
+  const sectionInStockOrAllocatedItems = sectionItems.filter((item: any) => {
+    const allocationStatus = String(item?.allocation?.status || "")
+      .trim()
+      .toUpperCase();
+    if (allocationStatus === "ALLOCATED" || allocationStatus === "PARTIAL")
+      return true;
+    const itemStatus = String(item?.status || "")
+      .trim()
+      .toLowerCase();
+    if (itemStatus === "in stock" || itemStatus === "allocated") return true;
+    return getAllocatedQtyFromOrderItem(item) > 0;
+  }).length;
+
+  const legacyAllocatedItemsCount = legacyItems.filter(
+    (item) => String(item?.status || "").trim().toLowerCase() === "allocated"
+  ).length;
+
+  const legacyInStockOrAllocatedItems = legacyItems.filter((item) => {
+    const status = String(item?.status || "").trim().toLowerCase();
+    return status === "in stock" || status === "allocated";
+  }).length;
+
+  const allocatedItemsCount = Math.min(
+    totalItems,
+    Math.max(sectionAllocatedItemsCount, legacyAllocatedItemsCount)
+  );
+  const inStockOrAllocatedItems = Math.min(
+    totalItems,
+    Math.max(sectionInStockOrAllocatedItems, legacyInStockOrAllocatedItems)
+  );
   const isFullyAllocated = totalItems > 0 && allocatedItemsCount === totalItems;
   const isReadyForAllocate =
     totalItems > 0 && inStockOrAllocatedItems === totalItems && !isFullyAllocated;
@@ -1033,7 +1088,7 @@ export function OrdersTable() {
       header: "Items",
       cell: ({ row }) => (
         <span className="font-medium">
-          {row.original.fabricDetails?.length || 0}
+          {getOrderAllocationMetrics(row.original).totalItems}
         </span>
       ),
     },

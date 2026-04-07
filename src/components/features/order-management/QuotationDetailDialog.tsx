@@ -9,7 +9,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Quotation, Deal, User, Cpd } from "@/lib/types";
+import { Quotation, Deal, User, Cpd, Customer } from "@/lib/types";
 import { format } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +22,7 @@ interface QuotationDetailDialogProps {
   onClose: () => void;
   quotation: Quotation | null;
   deal: Deal | null;
+  customer?: Customer;
   salesmen: User[];
   cpds: Cpd[];
 }
@@ -40,7 +41,7 @@ const parseDate = (date: any): Date => {
   return new Date();
 };
 
-export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesmen, cpds }: QuotationDetailDialogProps) {
+export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, customer, salesmen, cpds }: QuotationDetailDialogProps) {
   const [lineItemSearch, setLineItemSearch] = React.useState("");
   const [vasSearch, setVasSearch] = React.useState("");
 
@@ -327,6 +328,7 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
                   <PrintableQuotationProfessional
                     type="GOODS"
                     values={productOnlyQuotation}
+                    customer={customer}
                     creatorName={creatorName}
                     salesmanName={representativeName}
                   />
@@ -337,6 +339,7 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
                   <PrintableQuotationProfessional
                     type="VAS"
                     values={vasOnlyQuotation}
+                    customer={customer}
                     creatorName={creatorName}
                     salesmanName={representativeName}
                   />
