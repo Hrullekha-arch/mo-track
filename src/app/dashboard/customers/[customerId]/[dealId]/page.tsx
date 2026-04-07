@@ -1785,6 +1785,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
 
   const representativeId = deal.assignedSalesPerson?.id || deal.representativeId;
   const representative = salesmen.find(s => s.id === representativeId);
+  const primaryBillingDetail = customer.billingDetails?.[0];
 
   const tabItems = [
     { value: 'visits', label: 'Visits', icon: Calendar },
@@ -1968,7 +1969,8 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                   </div>
 
                   {/* Billing Info */}
-                  <div className="bg-white/60 backdrop-blur-md border rounded-2xl p-4 shadow-sm hover:shadow-md transition-all">
+                  {primaryBillingDetail && (
+                    <div className="bg-white/60 backdrop-blur-md border rounded-2xl p-4 shadow-sm hover:shadow-md transition-all">
                     <div className="flex gap-4">
                       
                       {/* Icon Section */}
@@ -1985,7 +1987,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                             Billing Details
                           </p>
 
-                          {customer.billingDetails[0]?.gstin && (
+                          {primaryBillingDetail?.gstin && (
                             <span className="text-[10px] px-2 py-1 bg-green-100 text-green-700 rounded-full font-medium">
                               GST Registered
                             </span>
@@ -1994,14 +1996,14 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
 
                         {/* Name */}
                         <p className="text-sm font-semibold text-foreground">
-                          {customer.billingDetails[0]?.billingName || customer.name}
+                          {primaryBillingDetail?.billingName || customer.name}
                         </p>
 
                         {/* Address */}
                         <div className="flex items-start gap-2 text-xs text-muted-foreground">
                           <MapPin className="h-4 w-4 mt-[2px] text-gray-400" />
                           <p className="leading-relaxed">
-                            {customer.billingDetails[0]?.billingAddress || "Same as Customer Address"}
+                            {primaryBillingDetail?.billingAddress || "Same as Customer Address"}
                           </p>
                         </div>
 
@@ -2017,11 +2019,11 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                           </div>
 
                           {/* GST */}
-                          {customer.billingDetails[0]?.gstin && (
+                          {primaryBillingDetail?.gstin && (
                             <div className="flex items-center gap-1">
                               <ReceiptIndianRupeeIcon className="h-3.5 w-3.5 text-gray-400" />
                               <span className="font-medium text-foreground">
-                                {customer.billingDetails[0]?.gstin}
+                                {primaryBillingDetail?.gstin}
                               </span>
                             </div>
                           )}
@@ -2030,6 +2032,8 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                       </div>
                     </div>
                   </div>
+                  )}
+                  
                 </div>
 
                 {/* Deal Description */}
