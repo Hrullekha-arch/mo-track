@@ -19,33 +19,45 @@ export async function markAsInStockAction(
         .collection('approvedStock')
         .doc(approvedStockId);
 
-      const orderRef = adminDb
-        .collection('orders')
-        .doc(orderId);
+      const approvedStockSnap = await tx.get(approvedStockRef);
+      if (!approvedStockSnap.exists) {
+        throw new Error('Approved stock item not found.');
+      }
 
-      // 1️⃣ Read order before any writes (Firestore transaction rule)
-      const orderSnap = await tx.get(orderRef);
-      if (!orderSnap.exists) return;
+      const orderRef = orderId ? adminDb.collection('orders').doc(orderId) : null;
+      const orderSnap = orderRef ? await tx.get(orderRef) : null;
 
-      const orderData = orderSnap.data() as Order;
-
-      const updatedFabricDetails = (orderData.fabricDetails || []).map(
-        (item: FabricDetail) =>
-          item.approvedStockId === approvedStockId
-            ? { ...item, status: 'in_stock' }
-            : item
-      );
-
-      // 2️⃣ Update approved stock
+      // 1️⃣ Always update approved stock status so item leaves verification queue.
       tx.update(approvedStockRef, {
         status: 'In Stock',
         updatedAt: new Date().toISOString(),
       });
 
-      // 3️⃣ Update exact fabric line in order
-      tx.update(orderRef, {
-        fabricDetails: updatedFabricDetails,
-      });
+      // 2️⃣ Best effort: update matching fabric line in order, if order exists.
+      if (orderRef && orderSnap?.exists) {
+        const orderData = orderSnap.data() as Order;
+        const stockFabricName = String(
+          (approvedStockSnap.data() as any)?.fabricName || ''
+        ).trim();
+
+        const updatedFabricDetails = (orderData.fabricDetails || []).map(
+          (item: FabricDetail) => {
+            const isApprovedStockMatch = item.approvedStockId === approvedStockId;
+            const isLegacyNameMatch =
+              !item.approvedStockId &&
+              stockFabricName.length > 0 &&
+              String(item.fabricName || '').trim() === stockFabricName;
+
+            return isApprovedStockMatch || isLegacyNameMatch
+              ? { ...item, status: 'in_stock', approvedStockId }
+              : item;
+          }
+        );
+
+        tx.update(orderRef, {
+          fabricDetails: updatedFabricDetails,
+        });
+      }
     });
 
     return { success: true, message: 'Fabric marked as in stock.' };

@@ -43,8 +43,9 @@ export default function StockVerificationPage() {
     const handleMarkInStock = async (item: ApprovedStockItem) => {
         setUpdatingId(item.id);
         try {
-            const result = await markAsInStockAction(item.id, item.orderId, item.fabricName);
+            const result = await markAsInStockAction(item.id, item.orderId);
             if (result.success) {
+                setItems(prev => prev.filter(row => row.id !== item.id));
                 toast({ title: 'Success', description: `${item.fabricName} marked as 'In Stock'.` });
             } else {
                 toast({ variant: 'destructive', title: 'Error', description: result.message });
@@ -80,6 +81,7 @@ export default function StockVerificationPage() {
             
 
             if (result.success) {
+                setItems(prev => prev.filter(row => row.id !== item.id));
                 toast({ title: 'Success', description: `Purchase Request created for ${item.fabricName}.` });
             } else {
                 toast({ variant: 'destructive', title: 'Error', description: result.message });

@@ -19,6 +19,7 @@ import {
   getStockById, 
   createStockItemAction, 
   updateStockQuantityAction, 
+  reserveStockQuantityAction,
   updateStockBatchAction, 
   getSupplierCompanyOptionsAction, 
   getStockTransactions 
@@ -462,6 +463,11 @@ React.useEffect(() => {
     return;
   }
 
+  if (reserveAction === "reserve" && !reserveOrderId.trim()) {
+    toast({ variant: "destructive", title: "Order ID is required for reserve" });
+    return;
+  }
+
   if (reserveAction === "release" && qty > (selected.reservedQty ?? 0)) {
     toast({ variant: "destructive", title: "Cannot release more than reserved quantity" });
     return;
@@ -469,23 +475,30 @@ React.useEffect(() => {
 
   setIsReserving(true);
   try {
-    const result = await updateStockQuantityAction(selected.id || selected.bcn, {
-      stockId: selected.id || selected.bcn,
+    const requestId =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${selected.id || selected.bcn}-${Date.now()}`;
+
+    const result = await reserveStockQuantityAction(selected.id || selected.bcn, {
+      action: reserveAction,
+      quantity: qty,
       bcn: selected.bcn,
-      type: reserveAction === "reserve" ? "reservation" : "release",
-      quantityChange: qty,
-      createdAt: new Date().toISOString(),
-      createdBy: user?.name || "System",
       orderId: reserveOrderId.trim() || undefined,
       customerName: reserveCustomer.trim() || undefined,
       notes: reserveNotes.trim() || undefined,
       unit: selected.unit,
+      createdBy: user?.name || "System",
+      source: "MANUAL_INVENTORY_UI",
+      requestId,
     });
 
     if (!result.success) {
       toast({ variant: "destructive", title: "Operation failed", description: result.message });
       return;
     }
+
+    console.log("stock reserve status", result);
 
     toast({ 
       title: reserveAction === "reserve" ? "✅ Stock Reserved" : "✅ Stock Released", 

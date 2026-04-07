@@ -45,6 +45,36 @@ const parseFiniteNumber = (value: unknown, fallback?: number) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 };
+const STOCK_QTY_PRECISION = 4;
+const STOCK_QTY_EPSILON = 1e-6;
+const roundStockQty = (value: number) => {
+  if (!Number.isFinite(value)) return 0;
+  const rounded = Number(value.toFixed(STOCK_QTY_PRECISION));
+  return rounded <= STOCK_QTY_EPSILON ? 0 : rounded;
+};
+const toTimestampSafe = (value: unknown) => {
+  const time = new Date(String(value ?? "")).getTime();
+  return Number.isFinite(time) ? time : 0;
+};
+const normalizeStockQty = (value: unknown, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+const resolveLengthAvailableQty = (data: Record<string, any>) => {
+  const available = normalizeStockQty(data?.availableLength, normalizeStockQty(data?.availableQty, 0));
+  return roundStockQty(Math.max(0, available));
+};
+const resolveLengthReservedQty = (data: Record<string, any>, availableQty?: number) => {
+  const directReserved = Number(data?.reservedQty);
+  if (Number.isFinite(directReserved) && directReserved >= 0) {
+    return roundStockQty(directReserved);
+  }
+  const original = normalizeStockQty(data?.originalLength, normalizeStockQty(data?.quantity, 0));
+  const available = availableQty ?? resolveLengthAvailableQty(data);
+  return roundStockQty(Math.max(0, original - available));
+};
+const normalizeReservationAction = (value: unknown): "reserve" | "release" =>
+  String(value ?? "").trim().toLowerCase() === "release" ? "release" : "reserve";
 const buildSearchTokens = (value: string) => {
   const source = String(value ?? "").toLowerCase();
   const words = source
@@ -1365,6 +1395,391 @@ export async function updateStockQuantityAction(
   return { success: false, message: 'This function only supports additions. Deductions are handled elsewhere.' };
 }
 
+type ReserveStockPayload = {
+  action?: "reserve" | "release";
+  quantity?: number | string;
+  bcn?: string;
+  unit?: string;
+  orderId?: string;
+  customerName?: string;
+  notes?: string;
+  createdBy?: string;
+  requestId?: string;
+  source?: string;
+};
+
+export async function reserveStockQuantityAction(
+  stockId: string,
+  payload: ReserveStockPayload
+): Promise<{
+  success: boolean;
+  message: string;
+  newStock?: Stock;
+  affectedLengths?: Array<{ lengthId: string; quantity: number }>;
+}> {
+  try {
+    const normalizedStockId = String(stockId ?? "").trim();
+    if (!normalizedStockId) {
+      return { success: false, message: "Stock ID is required." };
+    }
+
+    const action = normalizeReservationAction(payload?.action);
+    const quantityInput = parseFiniteNumber(payload?.quantity);
+    const requestedQty = roundStockQty(Math.max(0, quantityInput ?? 0));
+    if (requestedQty <= STOCK_QTY_EPSILON) {
+      return { success: false, message: "Quantity must be greater than 0." };
+    }
+
+    const nowIso = new Date().toISOString();
+    const orderId = trimToUndefined(payload?.orderId);
+    const customerName = trimToUndefined(payload?.customerName);
+    const notes = trimToUndefined(payload?.notes);
+    const createdBy = trimToUndefined(payload?.createdBy) || "System";
+    const source = trimToUndefined(payload?.source) || "MANUAL_INVENTORY";
+    const requestId = trimToUndefined(payload?.requestId);
+    const stockRef = adminDb.collection("stocks").doc(normalizedStockId);
+    const normalizedBcn =
+      trimToUndefined(payload?.bcn) || trimToUndefined(normalizedStockId) || normalizedStockId;
+
+    if (action === "reserve" && !orderId) {
+      return { success: false, message: "Order ID is required to reserve stock." };
+    }
+
+    let idempotentHit = false;
+    let finalAffectedLengths: Array<{ lengthId: string; quantity: number }> = [];
+
+    await adminDb.runTransaction(async (tx) => {
+      const stockDoc = await tx.get(stockRef);
+      if (!stockDoc.exists) {
+        throw new Error("Stock item not found.");
+      }
+
+      const reservationAuditRef = requestId
+        ? stockRef.collection("reservations").doc(requestId)
+        : stockRef.collection("reservations").doc();
+
+      if (requestId) {
+        const existingAudit = await tx.get(reservationAuditRef);
+        if (existingAudit.exists) {
+          idempotentHit = true;
+          return;
+        }
+      }
+
+      const stockData = (stockDoc.data() || {}) as Record<string, any>;
+      const lengthsSnapshot = await tx.get(stockRef.collection("lengths"));
+      const lengths = lengthsSnapshot.docs.map((docSnap: any) => {
+        const data = (docSnap.data() || {}) as Record<string, any>;
+        const available = resolveLengthAvailableQty(data);
+        const reserved = resolveLengthReservedQty(data, available);
+        return {
+          id: docSnap.id,
+          ref: docSnap.ref,
+          data,
+          available,
+          reserved,
+          sortAt: data?.receivedAt || data?.createdAt || data?.lastUpdatedAt,
+          lengthNo: Number(data?.lengthNo),
+        };
+      });
+
+      if (!lengths.length) {
+        throw new Error("No stock rolls found for this BCN. Add stock before reserving.");
+      }
+
+      const sumAvailableFromLengths = roundStockQty(
+        lengths.reduce((sum, length) => sum + length.available, 0)
+      );
+      const sumReservedFromLengths = roundStockQty(
+        lengths.reduce((sum, length) => sum + length.reserved, 0)
+      );
+
+      const availableFromStock = Number(stockData?.availableQty);
+      const reservedFromStock = Number(stockData?.reservedQty);
+      const currentAvailable =
+        Number.isFinite(availableFromStock) && availableFromStock >= 0
+          ? roundStockQty(availableFromStock)
+          : sumAvailableFromLengths;
+      const currentReserved =
+        Number.isFinite(reservedFromStock) && reservedFromStock >= 0
+          ? roundStockQty(reservedFromStock)
+          : sumReservedFromLengths;
+      const resolvedUnit =
+        (trimToUndefined(payload?.unit) ||
+          trimToUndefined(stockData?.unit) ||
+          "MTR").toUpperCase();
+
+      if (action === "reserve" && currentAvailable + STOCK_QTY_EPSILON < requestedQty) {
+        throw new Error(
+          `Insufficient available stock. Available: ${currentAvailable.toFixed(2)}, Requested: ${requestedQty.toFixed(2)}.`
+        );
+      }
+      if (action === "release" && currentReserved + STOCK_QTY_EPSILON < requestedQty) {
+        throw new Error(
+          `Insufficient reserved stock. Reserved: ${currentReserved.toFixed(2)}, Requested: ${requestedQty.toFixed(2)}.`
+        );
+      }
+
+      const touched: Array<{ lengthId: string; quantity: number }> = [];
+      let remainingQty = requestedQty;
+
+      if (action === "reserve") {
+        const reserveCandidates = [...lengths]
+          .filter((length) => length.available > STOCK_QTY_EPSILON)
+          .sort((a, b) => {
+            const timeDiff = toTimestampSafe(a.sortAt) - toTimestampSafe(b.sortAt);
+            if (timeDiff !== 0) return timeDiff;
+            const aLengthNo = Number.isFinite(a.lengthNo) ? a.lengthNo : Number.MAX_SAFE_INTEGER;
+            const bLengthNo = Number.isFinite(b.lengthNo) ? b.lengthNo : Number.MAX_SAFE_INTEGER;
+            if (aLengthNo !== bLengthNo) return aLengthNo - bLengthNo;
+            return String(a.id).localeCompare(String(b.id));
+          });
+
+        for (const length of reserveCandidates) {
+          if (remainingQty <= STOCK_QTY_EPSILON) break;
+          const allocateQty = roundStockQty(Math.min(length.available, remainingQty));
+          if (allocateQty <= STOCK_QTY_EPSILON) continue;
+
+          remainingQty = roundStockQty(remainingQty - allocateQty);
+          const nextAvailable = roundStockQty(length.available - allocateQty);
+          const nextReserved = roundStockQty(length.reserved + allocateQty);
+
+          tx.update(length.ref, {
+            availableLength: nextAvailable,
+            availableQty: nextAvailable,
+            reservedQty: nextReserved,
+            status: nextAvailable <= STOCK_QTY_EPSILON ? "RESERVED" : "AVAILABLE",
+            reservation: {
+              orderId,
+              orderNo: orderId,
+              reservedQty: allocateQty,
+              reservedAt: nowIso,
+              reservedBy: createdBy,
+            },
+            lastUpdatedAt: nowIso,
+          });
+
+          tx.set(
+            length.ref.collection("reservedQty").doc(),
+            stripUndefined({
+              action: "reserve",
+              type: "reservation",
+              reservedQty: allocateQty,
+              quantity: allocateQty,
+              orderId,
+              customerName,
+              notes,
+              unit: resolvedUnit,
+              timestamp: nowIso,
+              createdAt: nowIso,
+              createdBy,
+              reservedBy: createdBy,
+              stockId: normalizedStockId,
+              bcn: normalizedBcn,
+              lengthId: length.id,
+              source,
+            })
+          );
+
+          touched.push({ lengthId: length.id, quantity: allocateQty });
+        }
+
+        if (remainingQty > STOCK_QTY_EPSILON) {
+          throw new Error(
+            `Could not reserve full quantity. Remaining: ${remainingQty.toFixed(2)}. Please refresh and retry.`
+          );
+        }
+      } else {
+        const releaseCandidatesBase = [...lengths]
+          .filter((length) => length.reserved > STOCK_QTY_EPSILON)
+          .sort((a, b) => {
+            const timeDiff = toTimestampSafe(b.sortAt) - toTimestampSafe(a.sortAt);
+            if (timeDiff !== 0) return timeDiff;
+            return String(a.id).localeCompare(String(b.id));
+          });
+
+        const releaseCandidates: Array<{
+          id: string;
+          ref: any;
+          data: Record<string, any>;
+          available: number;
+          reserved: number;
+          releasable: number;
+        }> = [];
+
+        if (orderId) {
+          for (const length of releaseCandidatesBase) {
+            const orderReservationQuery = length.ref
+              .collection("reservedQty")
+              .where("orderId", "==", orderId);
+            const orderReservationSnapshot = await tx.get(orderReservationQuery as any);
+            let netReservedForOrder = 0;
+
+            orderReservationSnapshot.docs.forEach((entryDoc: any) => {
+              const entry = (entryDoc.data() || {}) as Record<string, any>;
+              const rawQty = normalizeStockQty(
+                entry?.reservedQty,
+                normalizeStockQty(entry?.quantity, 0)
+              );
+              const qty = roundStockQty(Math.abs(rawQty));
+              if (qty <= STOCK_QTY_EPSILON) return;
+              const rawAction = String(entry?.action ?? entry?.type ?? "").trim().toLowerCase();
+              const sign = rawAction === "release" || rawQty < 0 ? -1 : 1;
+              netReservedForOrder += qty * sign;
+            });
+
+            const releasable = roundStockQty(
+              Math.min(length.reserved, Math.max(0, netReservedForOrder))
+            );
+            if (releasable > STOCK_QTY_EPSILON) {
+              releaseCandidates.push({ ...length, releasable });
+            }
+          }
+
+          const totalOrderReserved = roundStockQty(
+            releaseCandidates.reduce((sum, length) => sum + length.releasable, 0)
+          );
+          if (totalOrderReserved + STOCK_QTY_EPSILON < requestedQty) {
+            throw new Error(
+              `Order ${orderId} has only ${totalOrderReserved.toFixed(2)} reserved for this BCN.`
+            );
+          }
+        } else {
+          releaseCandidatesBase.forEach((length) => {
+            releaseCandidates.push({ ...length, releasable: length.reserved });
+          });
+        }
+
+        for (const length of releaseCandidates) {
+          if (remainingQty <= STOCK_QTY_EPSILON) break;
+          const releaseQty = roundStockQty(Math.min(length.releasable, remainingQty));
+          if (releaseQty <= STOCK_QTY_EPSILON) continue;
+
+          remainingQty = roundStockQty(remainingQty - releaseQty);
+          const nextReserved = roundStockQty(length.reserved - releaseQty);
+          const nextAvailable = roundStockQty(length.available + releaseQty);
+
+          tx.update(length.ref, {
+            availableLength: nextAvailable,
+            availableQty: nextAvailable,
+            reservedQty: nextReserved,
+            status: nextReserved > STOCK_QTY_EPSILON ? "RESERVED" : "AVAILABLE",
+            reservation:
+              nextReserved > STOCK_QTY_EPSILON
+                ? stripUndefined({
+                    ...(length.data?.reservation || {}),
+                    reservedQty: nextReserved,
+                    reservedAt: nowIso,
+                    reservedBy: createdBy,
+                  })
+                : null,
+            lastUpdatedAt: nowIso,
+          });
+
+          tx.set(
+            length.ref.collection("reservedQty").doc(),
+            stripUndefined({
+              action: "release",
+              type: "release",
+              reservedQty: releaseQty,
+              quantity: releaseQty,
+              orderId,
+              customerName,
+              notes,
+              unit: resolvedUnit,
+              timestamp: nowIso,
+              createdAt: nowIso,
+              createdBy,
+              reservedBy: createdBy,
+              stockId: normalizedStockId,
+              bcn: normalizedBcn,
+              lengthId: length.id,
+              source,
+            })
+          );
+
+          touched.push({ lengthId: length.id, quantity: releaseQty });
+        }
+
+        if (remainingQty > STOCK_QTY_EPSILON) {
+          throw new Error(
+            `Could not release full quantity. Remaining: ${remainingQty.toFixed(2)}.`
+          );
+        }
+      }
+
+      const nextAvailableQty = roundStockQty(
+        action === "reserve" ? currentAvailable - requestedQty : currentAvailable + requestedQty
+      );
+      const nextReservedQty = roundStockQty(
+        action === "reserve" ? currentReserved + requestedQty : currentReserved - requestedQty
+      );
+
+      tx.update(stockRef, {
+        availableQty: nextAvailableQty,
+        reservedQty: nextReservedQty,
+        updatedAt: nowIso,
+        lastUpdatedAt: nowIso,
+      });
+
+      tx.set(
+        reservationAuditRef,
+        stripUndefined({
+          id: reservationAuditRef.id,
+          action,
+          type: action === "reserve" ? "reservation" : "release",
+          quantity: requestedQty,
+          reservedQty: requestedQty,
+          stockId: normalizedStockId,
+          bcn: normalizedBcn,
+          orderId,
+          customerName,
+          notes,
+          unit: resolvedUnit,
+          createdBy,
+          source,
+          touchedLengths: touched.map((entry) => ({
+            lengthId: entry.lengthId,
+            quantity: entry.quantity,
+          })),
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        }),
+        { merge: true }
+      );
+
+      finalAffectedLengths = touched;
+    });
+
+    const updatedStockDoc = await stockRef.get();
+    const updatedStock = updatedStockDoc.exists
+      ? ({ id: updatedStockDoc.id, ...updatedStockDoc.data() } as Stock)
+      : undefined;
+
+    if (idempotentHit) {
+      return {
+        success: true,
+        message: "Reservation request already processed.",
+        newStock: updatedStock ? JSON.parse(JSON.stringify(updatedStock)) : undefined,
+        affectedLengths: [],
+      };
+    }
+
+    return {
+      success: true,
+      message: action === "reserve" ? "Stock reserved successfully." : "Stock released successfully.",
+      newStock: updatedStock ? JSON.parse(JSON.stringify(updatedStock)) : undefined,
+      affectedLengths: JSON.parse(JSON.stringify(finalAffectedLengths)),
+    };
+  } catch (error: any) {
+    console.error("Error in reserveStockQuantityAction:", error);
+    return {
+      success: false,
+      message: error?.message || "Failed to update stock reservation.",
+    };
+  }
+}
+
 export async function revertStockAdditionAction(
   stockId: string, // This is now BCN
   poNumber: string,
@@ -1467,15 +1882,26 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
                 const reservedSnapshot = await doc.ref.collection('reservedQty').get();
                 reservedSnapshot.forEach(reservedDoc => {
                     const data = reservedDoc.data() as any;
+                    const rawQty = normalizeStockQty(
+                      data?.reservedQty,
+                      normalizeStockQty(data?.quantity, 0)
+                    );
+                    const qty = roundStockQty(Math.abs(rawQty));
+                    if (qty <= STOCK_QTY_EPSILON) return;
+                    const rawAction = String(data?.action ?? data?.type ?? "")
+                      .trim()
+                      .toLowerCase();
+                    const txType: "reservation" | "release" =
+                      rawAction === "release" || rawQty < 0 ? "release" : "reservation";
                     reservationTransactions.push({
-                        id: reservedDoc.id,
+                        id: `${doc.id}-${reservedDoc.id}`,
                         stockId: bcn,
                         bcn,
-                        type: 'reservation',
-                        quantityChange: Number(data.reservedQty) || 0,
+                        type: txType,
+                        quantityChange: qty,
                         orderId: data.orderId,
                         createdAt: data.timestamp || data.createdAt || new Date().toISOString(),
-                        createdBy: data.reservedBy || "System",
+                        createdBy: data.createdBy || data.reservedBy || data.releasedBy || "System",
                         lengthId: doc.id,
                         customerName: data.customerName,
                         notes: data.notes,
