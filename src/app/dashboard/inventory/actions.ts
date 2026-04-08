@@ -1843,15 +1843,30 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
     try {
         const stockRef = adminDb.collection('stocks').doc(bcn);
         const addedSnapshot = await stockRef.collection('lengths').get();
+        const normalizedBcn = String(bcn ?? "").trim().toUpperCase();
         
-        // Fetch all cutting tasks to find relevant cuts for this BCN
-        const cuttingTasksSnapshot = await adminDb.collection('Cutting').where("items", "array-contains", {bcn: bcn}).get();
+        // Firestore cannot query nested array object fields like items[].bcn reliably with array-contains.
+        // Prefer denormalized bcnList query (future-friendly), then fallback to full scan + in-memory filter.
+        let cuttingTasksSnapshot: FirebaseFirestore.QuerySnapshot<FirebaseFirestore.DocumentData>;
+        try {
+          const byBcnList = await adminDb
+            .collection("Cutting")
+            .where("bcnList", "array-contains", normalizedBcn)
+            .get();
+          cuttingTasksSnapshot = byBcnList.empty
+            ? await adminDb.collection("Cutting").get()
+            : byBcnList;
+        } catch {
+          cuttingTasksSnapshot = await adminDb.collection("Cutting").get();
+        }
 
         const allCuttingItemsForBcn: (CuttingTaskItem & { createdAt: string; orderId: string; salesman: string })[] = [];
-        cuttingTasksSnapshot.forEach(doc => {
-            const task = doc.data() as CuttingTask;
-            task.items.forEach(item => {
-                if (item.bcn === bcn) {
+        cuttingTasksSnapshot.forEach(docSnap => {
+            const task = docSnap.data() as CuttingTask;
+            const items = Array.isArray(task?.items) ? task.items : [];
+            items.forEach(item => {
+                const itemBcn = String(item?.bcn ?? "").trim().toUpperCase();
+                if (itemBcn === normalizedBcn) {
                     allCuttingItemsForBcn.push({ 
                         ...item, 
                         createdAt: task.createdAt, 
@@ -1862,19 +1877,26 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
             });
         });
 
-        const soldTransactions: StockTransaction[] = allCuttingItemsForBcn.map(cut => ({
-            id: `${cut.orderId}-${cut.stockAddedId}-${new Date(cut.createdAt).getTime()}`, // Make key more unique
-            stockId: bcn,
-            bcn: cut.bcn,
-            type: 'deduction',
-            quantityChange: -cut.quantityAllocated,
-            orderId: cut.orderId,
-            createdAt: cut.createdAt,
-            createdBy: (cut as any).cutBy || "Cutting Module", // Use the name of the user who cut
-            status: cut.status,
-            lengthId: cut.stockAddedId,
-            salesman: cut.salesman,
-        } as StockTransaction));
+        const soldTransactions: StockTransaction[] = allCuttingItemsForBcn
+          .map((cut, index) => {
+            const cutQty = roundStockQty(Math.abs(Number(cut.quantityAllocated) || 0));
+            if (cutQty <= STOCK_QTY_EPSILON) return null;
+            return {
+              id: `${cut.orderId || "CUT"}-${cut.stockAddedId || cut.bcn || "ROLL"}-${new Date(cut.createdAt).getTime()}-${index}`,
+              stockId: bcn,
+              bcn: cut.bcn,
+              type: 'deduction',
+              quantityChange: cutQty,
+              orderId: cut.orderId,
+              createdAt: cut.createdAt,
+              createdBy: (cut as any).cutBy || "Cutting Module",
+              status: cut.status,
+              lengthId: cut.stockAddedId,
+              salesman: cut.salesman,
+              unit: (cut as any)?.unit,
+            } as StockTransaction;
+          })
+          .filter(Boolean) as StockTransaction[];
 
         const reservationTransactions: StockTransaction[] = [];
         await Promise.all(
@@ -1921,7 +1943,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
                 .map(cut => ({
                     id: `${cut.orderId}-${cut.stockAddedId}-${new Date(cut.createdAt).getTime()}`,
                     type: 'deduction',
-                    quantityChange: -cut.quantityAllocated,
+                    quantityChange: roundStockQty(Math.abs(Number(cut.quantityAllocated) || 0)),
                     createdAt: cut.createdAt,
                     orderId: cut.orderId,
                     salesman: cut.salesman

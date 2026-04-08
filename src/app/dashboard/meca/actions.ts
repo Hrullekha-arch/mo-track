@@ -33,6 +33,7 @@ export interface MecaOrderProgressRow {
   totalAmount: number;
   status: string;
   currentStep: string;
+  conversionSource: "meeting" | "outside";
 }
 
 export interface MecaVisitRow {
@@ -50,6 +51,8 @@ export interface MecaSalesmanMetric {
   meetings: number;
   attendedMeetings: number;
   convertedOrders: number;
+  convertedFromMeetings: number;
+  convertedOutsideMeetings: number;
   conversionRatio: number;
   totalRevenue: number;
   averageRupeeSale: number;
@@ -63,6 +66,8 @@ export interface MecaSummary {
   meetings: number;
   attendedMeetings: number;
   convertedOrders: number;
+  convertedFromMeetings: number;
+  convertedOutsideMeetings: number;
   conversionRatio: number;
   totalRevenue: number;
   averageRupeeSale: number;
@@ -76,6 +81,7 @@ export interface MecaResponse {
   summary: MecaSummary;
   inProcessByStep: MecaStageCount[];
   inProcessOrders: MecaOrderProgressRow[];
+  convertedOrders: MecaOrderProgressRow[];
 }
 
 type RawDoc = Record<string, unknown>;
@@ -86,6 +92,8 @@ interface MutableSalesmanMetric {
   meetings: number;
   attendedMeetings: number;
   convertedOrders: number;
+  convertedFromMeetings: number;
+  convertedOutsideMeetings: number;
   totalRevenue: number;
   inProcessOrders: number;
   completedOrders: number;
@@ -101,6 +109,8 @@ const EMPTY_RESPONSE: MecaResponse = {
     meetings: 0,
     attendedMeetings: 0,
     convertedOrders: 0,
+    convertedFromMeetings: 0,
+    convertedOutsideMeetings: 0,
     conversionRatio: 0,
     totalRevenue: 0,
     averageRupeeSale: 0,
@@ -108,6 +118,7 @@ const EMPTY_RESPONSE: MecaResponse = {
   },
   inProcessByStep: [],
   inProcessOrders: [],
+  convertedOrders: [],
 };
 
 const normalizeText = (value: unknown): string => String(value ?? "").trim().toLowerCase();
@@ -166,6 +177,149 @@ const toPositiveNumber = (value: unknown): number => {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   }
   return 0;
+};
+
+const normalizeKey = (value: unknown): string | undefined => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized || undefined;
+};
+
+const normalizePhoneDigits = (value: unknown): string | undefined => {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (!digits) return undefined;
+  return digits.length > 10 ? digits.slice(-10) : digits;
+};
+
+const addKeyToSet = (set: Set<string>, value: unknown) => {
+  const key = normalizeKey(value);
+  if (key) set.add(key);
+};
+
+const addPhoneToSet = (set: Set<string>, value: unknown) => {
+  const key = normalizePhoneDigits(value);
+  if (key) set.add(key);
+};
+
+interface AttendedMeetingSignals {
+  dealKeys: Set<string>;
+  leadKeys: Set<string>;
+  customerNameKeys: Set<string>;
+  customerPhoneKeys: Set<string>;
+}
+
+const newAttendedMeetingSignals = (): AttendedMeetingSignals => ({
+  dealKeys: new Set<string>(),
+  leadKeys: new Set<string>(),
+  customerNameKeys: new Set<string>(),
+  customerPhoneKeys: new Set<string>(),
+});
+
+const collectWalkinDealKeys = (walkin: RawDoc): string[] => {
+  const dealSnapshot = asRecord(walkin.dealSnapshot);
+  const dealRef = asRecord(walkin.dealRef);
+  const cashsale = asRecord(walkin.cashsale);
+  const keys = new Set<string>();
+  addKeyToSet(keys, walkin.latestDealId);
+  addKeyToSet(keys, walkin.latestDealDocId);
+  addKeyToSet(keys, walkin.dealId);
+  addKeyToSet(keys, dealSnapshot.dealId);
+  addKeyToSet(keys, dealSnapshot.dealDocId);
+  addKeyToSet(keys, dealRef.dealId);
+  addKeyToSet(keys, cashsale.dealId);
+  return Array.from(keys);
+};
+
+const collectOrderDealKeys = (order: RawDoc): string[] => {
+  const keys = new Set<string>();
+  addKeyToSet(keys, order.dealId);
+  addKeyToSet(keys, order.dealDocId);
+  addKeyToSet(keys, asRecord(order.dealSnapshot).dealId);
+  addKeyToSet(keys, asRecord(order.dealSnapshot).dealDocId);
+  return Array.from(keys);
+};
+
+const collectWalkinLeadKeys = (walkin: RawDoc, fallbackDocId: string): string[] => {
+  const keys = new Set<string>();
+  addKeyToSet(keys, walkin.walkinId);
+  addKeyToSet(keys, walkin.leadId);
+  addKeyToSet(keys, walkin.id);
+  addKeyToSet(keys, fallbackDocId);
+  return Array.from(keys);
+};
+
+const collectOrderLeadKeys = (order: RawDoc): string[] => {
+  const keys = new Set<string>();
+  addKeyToSet(keys, order.walkinId);
+  addKeyToSet(keys, order.leadId);
+  addKeyToSet(keys, order.leadDocId);
+  addKeyToSet(keys, asRecord(order.instantQuotationMeta).leadId);
+  return Array.from(keys);
+};
+
+const collectWalkinCustomerSignals = (walkin: RawDoc): {
+  names: string[];
+  phones: string[];
+} => {
+  const customer = asRecord(walkin.customer);
+  const namesSet = new Set<string>();
+  const phonesSet = new Set<string>();
+
+  addKeyToSet(namesSet, `${asNonEmptyString(walkin.firstName) ?? ""} ${asNonEmptyString(walkin.familyName) ?? ""}`.trim());
+  addKeyToSet(namesSet, walkin.customerName);
+  addKeyToSet(namesSet, walkin.fullName);
+  addKeyToSet(namesSet, walkin.name);
+  addKeyToSet(namesSet, customer.name);
+
+  addPhoneToSet(phonesSet, walkin.mobile);
+  addPhoneToSet(phonesSet, walkin.phone);
+  addPhoneToSet(phonesSet, walkin.mobileNo);
+  addPhoneToSet(phonesSet, walkin.mobileLast10);
+  addPhoneToSet(phonesSet, walkin.mobileNormalized);
+  addPhoneToSet(phonesSet, customer.phone);
+
+  return {
+    names: Array.from(namesSet),
+    phones: Array.from(phonesSet),
+  };
+};
+
+const collectOrderCustomerSignals = (order: RawDoc): {
+  names: string[];
+  phones: string[];
+} => {
+  const customerSnapshot = asRecord(order.customerSnapshot);
+  const namesSet = new Set<string>();
+  const phonesSet = new Set<string>();
+
+  addKeyToSet(namesSet, order.customerName);
+  addKeyToSet(namesSet, customerSnapshot.name);
+
+  addPhoneToSet(phonesSet, order.customerPhone);
+  addPhoneToSet(phonesSet, customerSnapshot.phone);
+
+  return {
+    names: Array.from(namesSet),
+    phones: Array.from(phonesSet),
+  };
+};
+
+const isOrderAttributedToMeeting = (
+  order: RawDoc,
+  signals: AttendedMeetingSignals | undefined
+): boolean => {
+  if (!signals) return false;
+
+  const orderDealKeys = collectOrderDealKeys(order);
+  if (orderDealKeys.some((key) => signals.dealKeys.has(key))) return true;
+
+  const orderLeadKeys = collectOrderLeadKeys(order);
+  if (orderLeadKeys.some((key) => signals.leadKeys.has(key))) return true;
+
+  const customerSignals = collectOrderCustomerSignals(order);
+  if (customerSignals.phones.some((phone) => signals.customerPhoneKeys.has(phone))) return true;
+  if (customerSignals.names.some((name) => signals.customerNameKeys.has(name))) return true;
+
+  return false;
 };
 
 const resolveOrderAmount = (order: RawDoc): number => {
@@ -365,6 +519,7 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
     });
 
     const metricsBySalesmanId = new Map<string, MutableSalesmanMetric>();
+    const attendedMeetingSignalsBySalesman = new Map<string, AttendedMeetingSignals>();
     const ensureMetric = (salesman: MecaSalesmanOption): MutableSalesmanMetric => {
       let metric = metricsBySalesmanId.get(salesman.id);
       if (!metric) {
@@ -374,6 +529,8 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
           meetings: 0,
           attendedMeetings: 0,
           convertedOrders: 0,
+          convertedFromMeetings: 0,
+          convertedOutsideMeetings: 0,
           totalRevenue: 0,
           inProcessOrders: 0,
           completedOrders: 0,
@@ -430,6 +587,14 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
       metric.meetings += 1;
       if (attended) {
         metric.attendedMeetings += 1;
+        const signals =
+          attendedMeetingSignalsBySalesman.get(salesman.id) ?? newAttendedMeetingSignals();
+        collectWalkinDealKeys(walkin).forEach((key) => signals.dealKeys.add(key));
+        collectWalkinLeadKeys(walkin, doc.id).forEach((key) => signals.leadKeys.add(key));
+        const customerSignals = collectWalkinCustomerSignals(walkin);
+        customerSignals.names.forEach((name) => signals.customerNameKeys.add(name));
+        customerSignals.phones.forEach((phone) => signals.customerPhoneKeys.add(phone));
+        attendedMeetingSignalsBySalesman.set(salesman.id, signals);
       }
 
       const scheduledDate =
@@ -462,6 +627,7 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
     });
 
     const inProcessOrders: MecaOrderProgressRow[] = [];
+    const convertedOrders: MecaOrderProgressRow[] = [];
     ordersSnap.docs.forEach((doc) => {
       const order = { id: doc.id, ...(doc.data() as RawDoc) } as RawDoc;
       if (!isWithinRange(order.createdAt, fromMs, toMs)) return;
@@ -473,6 +639,12 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
       const metric = ensureMetric(salesman);
       metric.convertedOrders += 1;
       metric.totalRevenue += resolveOrderAmount(order);
+      const convertedFromMeeting = isOrderAttributedToMeeting(
+        order,
+        attendedMeetingSignalsBySalesman.get(salesman.id)
+      );
+      if (convertedFromMeeting) metric.convertedFromMeetings += 1;
+      else metric.convertedOutsideMeetings += 1;
 
       const dealId = asNonEmptyString(order.dealId);
       const orderMilestones = dealId
@@ -482,29 +654,32 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
           : [];
 
       const progress = resolveOrderProgress(order, orderMilestones);
+      const convertedOrderRow: MecaOrderProgressRow = {
+        orderId: asNonEmptyString(order.id) ?? doc.id,
+        orderNo:
+          asNonEmptyString(order.crmOrderNo) ??
+          asNonEmptyString(order.orderNo) ??
+          asNonEmptyString(order.orderId) ??
+          doc.id,
+        dealId,
+        customerName: asNonEmptyString(order.customerName) ?? "Unknown",
+        salesmanId: salesman.id,
+        salesmanName: salesman.name,
+        createdAt: toDateSafe(order.createdAt)?.toISOString() ?? new Date(0).toISOString(),
+        totalAmount: resolveOrderAmount(order),
+        status: progress.status,
+        currentStep: progress.currentStep,
+        conversionSource: convertedFromMeeting ? "meeting" : "outside",
+      };
+      convertedOrders.push(convertedOrderRow);
+
       if (progress.inProcess) {
         metric.inProcessOrders += 1;
         metric.stageCounter.set(
           progress.currentStep,
           (metric.stageCounter.get(progress.currentStep) ?? 0) + 1
         );
-
-        inProcessOrders.push({
-          orderId: asNonEmptyString(order.id) ?? doc.id,
-          orderNo:
-            asNonEmptyString(order.crmOrderNo) ??
-            asNonEmptyString(order.orderNo) ??
-            asNonEmptyString(order.orderId) ??
-            doc.id,
-          dealId,
-          customerName: asNonEmptyString(order.customerName) ?? "Unknown",
-          salesmanId: salesman.id,
-          salesmanName: salesman.name,
-          createdAt: toDateSafe(order.createdAt)?.toISOString() ?? new Date(0).toISOString(),
-          totalAmount: resolveOrderAmount(order),
-          status: progress.status,
-          currentStep: progress.currentStep,
-        });
+        inProcessOrders.push(convertedOrderRow);
       } else {
         metric.completedOrders += 1;
       }
@@ -517,8 +692,10 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
 
     const salesmanMetrics: MecaSalesmanMetric[] = salesmen
       .map((entry) => {
-        const denominator = entry.attendedMeetings > 0 ? entry.attendedMeetings : entry.meetings;
-        const conversionRatio = denominator > 0 ? (entry.convertedOrders / denominator) * 100 : 0;
+        const conversionRatio =
+          entry.convertedOrders > 0
+            ? (entry.convertedFromMeetings / entry.convertedOrders) * 100
+            : 0;
         const averageRupeeSale = entry.convertedOrders > 0 ? entry.totalRevenue / entry.convertedOrders : 0;
         const sortedVisits = [...entry.visitRows].sort(
           (a, b) => (b.scheduledDate > a.scheduledDate ? 1 : -1)
@@ -529,6 +706,8 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
           meetings: entry.meetings,
           attendedMeetings: entry.attendedMeetings,
           convertedOrders: entry.convertedOrders,
+          convertedFromMeetings: entry.convertedFromMeetings,
+          convertedOutsideMeetings: entry.convertedOutsideMeetings,
           conversionRatio,
           totalRevenue: entry.totalRevenue,
           averageRupeeSale,
@@ -550,6 +729,8 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
         acc.meetings += row.meetings;
         acc.attendedMeetings += row.attendedMeetings;
         acc.convertedOrders += row.convertedOrders;
+        acc.convertedFromMeetings += row.convertedFromMeetings;
+        acc.convertedOutsideMeetings += row.convertedOutsideMeetings;
         acc.totalRevenue += row.totalRevenue;
         acc.inProcessOrders += row.inProcessOrders;
         return acc;
@@ -558,6 +739,8 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
         meetings: 0,
         attendedMeetings: 0,
         convertedOrders: 0,
+        convertedFromMeetings: 0,
+        convertedOutsideMeetings: 0,
         conversionRatio: 0,
         totalRevenue: 0,
         averageRupeeSale: 0,
@@ -565,9 +748,10 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
       } as MecaSummary
     );
 
-    const conversionDenominator = summary.attendedMeetings > 0 ? summary.attendedMeetings : summary.meetings;
     summary.conversionRatio =
-      conversionDenominator > 0 ? (summary.convertedOrders / conversionDenominator) * 100 : 0;
+      summary.convertedOrders > 0
+        ? (summary.convertedFromMeetings / summary.convertedOrders) * 100
+        : 0;
     summary.averageRupeeSale =
       summary.convertedOrders > 0 ? summary.totalRevenue / summary.convertedOrders : 0;
 
@@ -579,7 +763,11 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
     const filteredInProcessOrders = selectedSalesmanId
       ? inProcessOrders.filter((row) => row.salesmanId === selectedSalesmanId)
       : inProcessOrders;
+    const filteredConvertedOrders = selectedSalesmanId
+      ? convertedOrders.filter((row) => row.salesmanId === selectedSalesmanId)
+      : convertedOrders;
     filteredInProcessOrders.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    filteredConvertedOrders.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 
     const sortedSalesmanOptions = Array.from(salesmanOptionsById.values()).sort((a, b) =>
       a.name.localeCompare(b.name)
@@ -592,6 +780,7 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
       summary,
       inProcessByStep: sortStageCounts(inProcessByStepMap),
       inProcessOrders: filteredInProcessOrders,
+      convertedOrders: filteredConvertedOrders,
     };
   } catch (error) {
     console.error("Error loading MeCA data:", error);

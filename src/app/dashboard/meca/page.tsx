@@ -74,7 +74,7 @@ import {
   type MecaVisitRow,
 } from "./actions";
 
-// ─── Constants & Formatters ───────────────────────────────────────────────────
+// --- Constants & Formatters ---
 
 const INR = (v: number) =>
   new Intl.NumberFormat("en-IN", {
@@ -85,9 +85,9 @@ const INR = (v: number) =>
   }).format(v);
 
 const SHORT = (v: number): string => {
-  if (v >= 10_000_000) return `₹${(v / 10_000_000).toFixed(1)}Cr`;
-  if (v >= 100_000) return `₹${(v / 100_000).toFixed(1)}L`;
-  if (v >= 1_000) return `₹${(v / 1_000).toFixed(0)}K`;
+  if (v >= 10_000_000) return `Rs ${(v / 10_000_000).toFixed(1)}Cr`;
+  if (v >= 100_000) return `Rs ${(v / 100_000).toFixed(1)}L`;
+  if (v >= 1_000) return `Rs ${(v / 1_000).toFixed(0)}K`;
   return INR(v);
 };
 
@@ -106,6 +106,8 @@ const EMPTY_SUMMARY: MecaSummary = {
   meetings: 0,
   attendedMeetings: 0,
   convertedOrders: 0,
+  convertedFromMeetings: 0,
+  convertedOutsideMeetings: 0,
   conversionRatio: 0,
   totalRevenue: 0,
   averageRupeeSale: 0,
@@ -119,6 +121,7 @@ const EMPTY_DATA: MecaResponse = {
   summary: EMPTY_SUMMARY,
   inProcessByStep: [],
   inProcessOrders: [],
+  convertedOrders: [],
 };
 
 const INITIAL_RANGE: DateRange = {
@@ -134,7 +137,7 @@ const CHART_COLORS = {
   pipeline: "#3b82f6",
 };
 
-// ─── KPI Card ─────────────────────────────────────────────────────────────────
+// --- KPI Card ---
 
 function KpiCard({
   icon: Icon,
@@ -179,7 +182,7 @@ function KpiCard({
   );
 }
 
-// ─── Gauge (Radial) for conversion rate ───────────────────────────────────────
+// --- Gauge (Radial) for conversion rate ---
 
 function ConversionGauge({ value, loading }: { value: number; loading: boolean }) {
   const capped = Math.min(value, 100);
@@ -214,7 +217,7 @@ function ConversionGauge({ value, loading }: { value: number; loading: boolean }
   );
 }
 
-// ─── Team Charts Section ───────────────────────────────────────────────────────
+// --- Team Charts Section ---
 
 function TeamChartsSection({
   salesmen,
@@ -312,7 +315,7 @@ function TeamChartsSection({
   );
 }
 
-// ─── Leaderboard Table ────────────────────────────────────────────────────────
+// --- Leaderboard Table ---
 
 type SortKey = "convertedOrders" | "meetings" | "conversionRatio" | "totalRevenue" | "averageRupeeSale" | "inProcessOrders";
 
@@ -398,7 +401,7 @@ function LeaderboardTable({
               onClick={() => onSelect(sm.salesmanId)}
             >
               <TableCell className="text-center font-medium">
-                {idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : idx + 1}
+                {idx + 1}
               </TableCell>
               <TableCell>
                 <div className="font-semibold">{sm.salesmanName}</div>
@@ -428,7 +431,7 @@ function LeaderboardTable({
                   <span className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 font-semibold">
                     <Clock className="h-3 w-3" /> {sm.inProcessOrders}
                   </span>
-                ) : "—"}
+                ) : "-"}
               </TableCell>
               <TableCell className="text-center">
                 <Button
@@ -448,7 +451,7 @@ function LeaderboardTable({
   );
 }
 
-// ─── Meetings List View ───────────────────────────────────────────────────────
+// --- Meetings List View ---
 
 type MeetingFilter = "all" | "attended" | "not_attended";
 
@@ -566,7 +569,7 @@ function MeetingsListView({ sm, loading }: { sm: MecaSalesmanMetric; loading: bo
                     <TableCell className="text-center text-xs text-muted-foreground">
                       {v.scheduledDate && v.scheduledDate !== new Date(0).toISOString()
                         ? format(new Date(v.scheduledDate), "dd MMM yy")
-                        : "—"}
+                        : "-"}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -579,7 +582,7 @@ function MeetingsListView({ sm, loading }: { sm: MecaSalesmanMetric; loading: bo
   );
 }
 
-// ─── Pipeline List View ───────────────────────────────────────────────────────
+// --- Pipeline List View ---
 
 function PipelineListView({
   sm,
@@ -708,21 +711,32 @@ function PipelineListView({
   );
 }
 
-// ─── Salesman Detail View ─────────────────────────────────────────────────────
+// --- Salesman Detail View ---
 
 function SalesmanDetailView({
   sm,
-  orders,
+  inProcessOrders,
+  convertedOrders,
   loading,
 }: {
   sm: MecaSalesmanMetric;
-  orders: MecaOrderProgressRow[];
+  inProcessOrders: MecaOrderProgressRow[];
+  convertedOrders: MecaOrderProgressRow[];
   loading: boolean;
 }) {
-  const myOrders = orders.filter((o) => o.salesmanId === sm.salesmanId);
+  const myInProcessOrders = inProcessOrders.filter((o) => o.salesmanId === sm.salesmanId);
+  const myConvertedOrders = convertedOrders.filter((o) => o.salesmanId === sm.salesmanId);
   const totalOrders = sm.convertedOrders;
-  const completedOrders = sm.completedOrders;
   const activeOrders = sm.inProcessOrders;
+  const [orderSourceFilter, setOrderSourceFilter] = useState<"all" | "meeting" | "outside">("all");
+  const displayedConvertedOrders =
+    orderSourceFilter === "all"
+      ? myConvertedOrders
+      : myConvertedOrders.filter((order) => order.conversionSource === orderSourceFilter);
+  const displayedConvertedRevenue = displayedConvertedOrders.reduce(
+    (sum, order) => sum + order.totalAmount,
+    0
+  );
 
   // Funnel data
   const funnelData = [
@@ -741,16 +755,16 @@ function SalesmanDetailView({
           {loading ? <Skeleton className="h-36 w-full" /> : <ConversionGauge value={sm.conversionRatio} loading={false} />}
         </Card>
 
-        <KpiCard icon={Users} label="Meetings" value={loading ? "—" : String(sm.meetings)}
+        <KpiCard icon={Users} label="Meetings" value={loading ? "-" : String(sm.meetings)}
           sub={`${sm.attendedMeetings} attended`} accent="bg-indigo-100 text-indigo-600 dark:bg-indigo-900/50 dark:text-indigo-400" loading={loading} />
 
-        <KpiCard icon={TrendingUp} label="Converted" value={loading ? "—" : String(totalOrders)}
-          sub={`${completedOrders} done · ${activeOrders} active`} accent="bg-emerald-100 text-emerald-600 dark:bg-emerald-900/50 dark:text-emerald-400" loading={loading} />
+        <KpiCard icon={TrendingUp} label="Converted" value={loading ? "-" : String(totalOrders)}
+          sub={`${sm.convertedFromMeetings} from meetings | ${sm.convertedOutsideMeetings} outside`} accent="bg-emerald-100 text-emerald-600 dark:bg-emerald-900/50 dark:text-emerald-400" loading={loading} />
 
-        <KpiCard icon={IndianRupee} label="Avg Sale" value={loading ? "—" : SHORT(sm.averageRupeeSale)}
+        <KpiCard icon={IndianRupee} label="Avg Sale" value={loading ? "-" : SHORT(sm.averageRupeeSale)}
           sub={INR(sm.averageRupeeSale)} accent="bg-amber-100 text-amber-600 dark:bg-amber-900/50 dark:text-amber-400" loading={loading} />
 
-        <KpiCard icon={Activity} label="Revenue" value={loading ? "—" : SHORT(sm.totalRevenue)}
+        <KpiCard icon={Activity} label="Revenue" value={loading ? "-" : SHORT(sm.totalRevenue)}
           sub={INR(sm.totalRevenue)} accent="bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-400" loading={loading} />
       </div>
 
@@ -774,7 +788,7 @@ function SalesmanDetailView({
           </TabsTrigger>
         </TabsList>
 
-        {/* ── Overview Tab ── */}
+        {/* Overview Tab */}
         <TabsContent value="overview" className="mt-4 space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Funnel chart */}
@@ -848,7 +862,7 @@ function SalesmanDetailView({
                     {PCT(sm.conversionRatio)}
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">Conversion Rate</p>
-                  <p className="text-[10px] text-muted-foreground">Orders / Attended</p>
+                  <p className="text-[10px] text-muted-foreground">From Meetings / Total Orders</p>
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">
@@ -862,21 +876,29 @@ function SalesmanDetailView({
           </Card>
         </TabsContent>
 
-        {/* ── Meetings Tab ── */}
+        {/* Meetings Tab */}
         <TabsContent value="meetings" className="mt-4">
           <MeetingsListView sm={sm} loading={loading} />
         </TabsContent>
 
-        {/* ── Orders Tab ── */}
+        {/* Orders Tab */}
         <TabsContent value="orders" className="mt-4">
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-sm font-semibold">Converted Orders</CardTitle>
-                  <CardDescription className="text-xs">All orders created by {sm.salesmanName}</CardDescription>
+                  <CardDescription className="text-xs">Meeting-attributed vs outside conversions for {sm.salesmanName}</CardDescription>
                 </div>
                 <div className="flex gap-2">
+                  <div className="flex items-center gap-1 text-xs text-indigo-600">
+                    <Users className="h-3.5 w-3.5" />
+                    {sm.convertedFromMeetings} from meetings
+                  </div>
+                  <div className="flex items-center gap-1 text-xs text-amber-600">
+                    <Target className="h-3.5 w-3.5" />
+                    {sm.convertedOutsideMeetings} outside
+                  </div>
                   <div className="flex items-center gap-1 text-xs text-emerald-600">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     {sm.completedOrders} done
@@ -891,11 +913,36 @@ function SalesmanDetailView({
                   </div>
                 </div>
               </div>
+              <div className="flex flex-wrap gap-2 pt-2">
+                {(
+                  [
+                    { key: "all", label: "All", count: myConvertedOrders.length },
+                    { key: "meeting", label: "From Meeting", count: sm.convertedFromMeetings },
+                    { key: "outside", label: "Outside Meeting", count: sm.convertedOutsideMeetings },
+                  ] as const
+                ).map((source) => (
+                  <button
+                    key={source.key}
+                    onClick={() => setOrderSourceFilter(source.key)}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold border transition-all",
+                      orderSourceFilter === source.key
+                        ? "bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/40 dark:text-blue-200"
+                        : "bg-muted/40 text-muted-foreground border-border hover:bg-muted"
+                    )}
+                  >
+                    {source.label}
+                    <span className="bg-white/60 dark:bg-black/30 rounded-full px-1.5 py-0.5 text-[10px] font-bold">
+                      {source.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </CardHeader>
             <CardContent>
-              {myOrders.length === 0 ? (
+              {displayedConvertedOrders.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-10">
-                  No active orders in the selected period.
+                  No converted orders in this filter.
                 </p>
               ) : (
                 <div className="overflow-x-auto rounded-lg border max-h-[380px] overflow-y-auto">
@@ -904,16 +951,30 @@ function SalesmanDetailView({
                       <TableRow className="bg-muted/40 sticky top-0">
                         <TableHead>Order No</TableHead>
                         <TableHead>Customer</TableHead>
+                        <TableHead>Source</TableHead>
                         <TableHead>Current Step</TableHead>
                         <TableHead className="text-right">Value</TableHead>
                         <TableHead className="text-center">Date</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {myOrders.map((o) => (
+                      {displayedConvertedOrders.map((o) => (
                         <TableRow key={o.orderId}>
                           <TableCell className="font-mono text-xs font-medium">{o.orderNo}</TableCell>
                           <TableCell className="font-medium">{o.customerName}</TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "text-xs",
+                                o.conversionSource === "meeting"
+                                  ? "border-indigo-300 text-indigo-700 dark:border-indigo-700 dark:text-indigo-300"
+                                  : "border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300"
+                              )}
+                            >
+                              {o.conversionSource === "meeting" ? "From Meeting" : "Outside Meeting"}
+                            </Badge>
+                          </TableCell>
                           <TableCell>
                             <Badge variant="outline" className="text-xs">{o.currentStep}</Badge>
                           </TableCell>
@@ -929,23 +990,25 @@ function SalesmanDetailView({
               )}
               {/* Revenue summary */}
               <div className="mt-3 flex items-center justify-between px-1 py-2 bg-muted/40 rounded-lg">
-                <span className="text-xs font-medium">Total Revenue from {myOrders.length} active orders</span>
-                <span className="text-sm font-bold">{SHORT(sm.totalRevenue)}</span>
+                <span className="text-xs font-medium">
+                  Total revenue from {displayedConvertedOrders.length} converted orders
+                </span>
+                <span className="text-sm font-bold">{SHORT(displayedConvertedRevenue)}</span>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* ── Pipeline Tab ── */}
+        {/* Pipeline Tab */}
         <TabsContent value="pipeline" className="mt-4">
-          <PipelineListView sm={sm} orders={myOrders} loading={loading} />
+          <PipelineListView sm={sm} orders={myInProcessOrders} loading={loading} />
         </TabsContent>
       </Tabs>
     </div>
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// --- Main Page ---
 
 export default function MecaPage() {
   const { toast } = useToast();
@@ -989,20 +1052,19 @@ export default function MecaPage() {
     [data.salesmen, selectedSalesmanId],
   );
 
-  const totalCompleted = data.salesmen.reduce((a, s) => a + s.completedOrders, 0);
   const s = data.summary;
 
   const rangeLabel = useMemo(() => {
     if (!dateRange?.from) return "All time";
     if (dateRange.to)
-      return `${format(dateRange.from, "dd MMM")} – ${format(dateRange.to, "dd MMM yyyy")}`;
+      return `${format(dateRange.from, "dd MMM")} - ${format(dateRange.to, "dd MMM yyyy")}`;
     return format(dateRange.from, "dd MMM yyyy");
   }, [dateRange?.from, dateRange?.to]);
 
   return (
     <div className="p-4 md:p-6 max-w-screen-2xl mx-auto space-y-5">
 
-      {/* ── Header ── */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           {selectedSalesman && (
@@ -1020,7 +1082,7 @@ export default function MecaPage() {
               <>
                 <h1 className="text-xl font-bold tracking-tight">{selectedSalesman.salesmanName}</h1>
                 <p className="text-xs text-muted-foreground">
-                  MeCA Detail · {rangeLabel}
+                  MeCA Detail - {rangeLabel}
                 </p>
               </>
             ) : (
@@ -1028,12 +1090,12 @@ export default function MecaPage() {
                 <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
                   MeCA Dashboard
                   <span className="text-xs font-normal text-muted-foreground hidden sm:inline">
-                    <span className="text-indigo-500 font-semibold">Me</span>eting ·{" "}
-                    <span className="text-amber-500 font-semibold">C</span>onversion ·{" "}
+                    <span className="text-indigo-500 font-semibold">Me</span>eting -{" "}
+                    <span className="text-amber-500 font-semibold">C</span>onversion -{" "}
                     <span className="text-emerald-500 font-semibold">A</span>vg Rupee Sale
                   </span>
                 </h1>
-                <p className="text-xs text-muted-foreground">{rangeLabel} · {data.salesmen.length} salesmen</p>
+                <p className="text-xs text-muted-foreground">{rangeLabel} - {data.salesmen.length} salesmen</p>
               </>
             )}
           </div>
@@ -1046,7 +1108,7 @@ export default function MecaPage() {
               onValueChange={(v) => setSelectedSalesmanId(v === "all" ? null : v)}
             >
               <SelectTrigger className="w-44 h-9 text-sm">
-                <SelectValue placeholder="Select salesman…" />
+                <SelectValue placeholder="Select salesman..." />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Salesmen</SelectItem>
@@ -1069,49 +1131,50 @@ export default function MecaPage() {
         </div>
       </div>
 
-      {/* ── SALESMAN DETAIL VIEW ── */}
+      {/* Salesman Detail View */}
       {selectedSalesman ? (
         <SalesmanDetailView
           sm={selectedSalesman}
-          orders={data.inProcessOrders}
+          inProcessOrders={data.inProcessOrders}
+          convertedOrders={data.convertedOrders}
           loading={loading}
         />
       ) : (
         <>
-          {/* ── TEAM KPI CARDS ── */}
+          {/* Team KPI Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <KpiCard icon={Users} label="Total Meetings" value={loading ? "—" : s.meetings.toString()}
+            <KpiCard icon={Users} label="Total Meetings" value={loading ? "-" : s.meetings.toString()}
               sub={`${s.attendedMeetings} attended`}
               accent="bg-indigo-100 text-indigo-600 dark:bg-indigo-900/50 dark:text-indigo-400" loading={loading} />
-            <KpiCard icon={Target} label="Attended" value={loading ? "—" : s.attendedMeetings.toString()}
-              sub={s.meetings > 0 ? `${Math.round((s.attendedMeetings / s.meetings) * 100)}% show-up` : "—"}
+            <KpiCard icon={Target} label="Attended" value={loading ? "-" : s.attendedMeetings.toString()}
+              sub={s.meetings > 0 ? `${Math.round((s.attendedMeetings / s.meetings) * 100)}% show-up` : "-"}
               accent="bg-violet-100 text-violet-600 dark:bg-violet-900/50 dark:text-violet-400" loading={loading} />
-            <KpiCard icon={TrendingUp} label="Orders Converted" value={loading ? "—" : s.convertedOrders.toString()}
-              sub={`${s.inProcessOrders} active · ${totalCompleted} done`}
+            <KpiCard icon={TrendingUp} label="Orders Converted" value={loading ? "-" : s.convertedOrders.toString()}
+              sub={`${s.convertedFromMeetings} from meetings | ${s.convertedOutsideMeetings} outside`}
               accent="bg-emerald-100 text-emerald-600 dark:bg-emerald-900/50 dark:text-emerald-400" loading={loading} />
-            <KpiCard icon={BarChart3} label="Conv. Rate" value={loading ? "—" : PCT(s.conversionRatio)}
-              sub="Orders / Attended"
+            <KpiCard icon={BarChart3} label="Conv. Rate" value={loading ? "-" : PCT(s.conversionRatio)}
+              sub="From Meetings / Total Orders"
               accent="bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400" loading={loading} />
-            <KpiCard icon={IndianRupee} label="Total Revenue" value={loading ? "—" : SHORT(s.totalRevenue)}
+            <KpiCard icon={IndianRupee} label="Total Revenue" value={loading ? "-" : SHORT(s.totalRevenue)}
               sub={INR(s.totalRevenue)}
               accent="bg-green-100 text-green-600 dark:bg-green-900/50 dark:text-green-400" loading={loading} />
-            <KpiCard icon={Activity} label="Avg. Rupee Sale" value={loading ? "—" : SHORT(s.averageRupeeSale)}
+            <KpiCard icon={Activity} label="Avg. Rupee Sale" value={loading ? "-" : SHORT(s.averageRupeeSale)}
               sub="Per converted order"
               accent="bg-amber-100 text-amber-600 dark:bg-amber-900/50 dark:text-amber-400" loading={loading} />
           </div>
 
-          {/* ── CHARTS ── */}
+          {/* Charts */}
           <TeamChartsSection
             salesmen={data.salesmen}
             inProcessByStep={data.inProcessByStep}
             loading={loading}
           />
 
-          {/* ── LEADERBOARD ── */}
+          {/* Leaderboard */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                🏆 Salesman Leaderboard
+                Salesman Leaderboard
               </CardTitle>
               <CardDescription className="text-xs">
                 Click any row or &quot;View Detail&quot; to see full MeCA breakdown for that salesman
@@ -1126,7 +1189,7 @@ export default function MecaPage() {
             </CardContent>
           </Card>
 
-          {/* ── PIPELINE SNAPSHOT ── */}
+          {/* Pipeline Snapshot */}
           {data.inProcessOrders.length > 0 && (
             <Card>
               <CardHeader className="pb-2">

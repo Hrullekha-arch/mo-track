@@ -444,10 +444,7 @@ React.useEffect(() => {
     [transactions]
   );
 
-  const stockTransactions = React.useMemo(
-    () => allTransactions.filter((tx) => tx.type === "addition" || tx.type === "deduction"),
-    [allTransactions]
-  );
+  const stockTransactions = React.useMemo(() => allTransactions, [allTransactions]);
 
   // handle reserve stock
   const handleReserveStock = async () => {
@@ -869,7 +866,7 @@ React.useEffect(() => {
                             <History className="h-5 w-5" />
                             Transaction History
                           </CardTitle>
-                          <CardDescription>All additions and deductions for this BCN</CardDescription>
+                          <CardDescription>All stock movements for this BCN (add, reserve, release, cut)</CardDescription>
                         </div>
                         {isLoadingTransactions && <Loader2 className="h-5 w-5 animate-spin" />}
                       </div>
@@ -901,7 +898,13 @@ React.useEffect(() => {
                                     </td>
                                     <td className="px-4 py-3">
                                       <Badge
-                                        variant={tx.type === "addition" ? "default" : "destructive"}
+                                        variant={
+                                          tx.type === "addition"
+                                            ? "default"
+                                            : tx.type === "release"
+                                            ? "secondary"
+                                            : "destructive"
+                                        }
                                         className="gap-1"
                                       >
                                         {tx.type === "addition" ? (
@@ -909,17 +912,27 @@ React.useEffect(() => {
                                             <TrendingUp className="h-3 w-3" />
                                             Added
                                           </>
+                                        ) : tx.type === "reservation" ? (
+                                          <>
+                                            <AlertCircle className="h-3 w-3" />
+                                            Reserved
+                                          </>
+                                        ) : tx.type === "release" ? (
+                                          <>
+                                            <CheckCircle2 className="h-3 w-3" />
+                                            Released
+                                          </>
                                         ) : (
                                           <>
                                             <XCircle className="h-3 w-3" />
-                                            Deducted
+                                            Cut
                                           </>
                                         )}
                                       </Badge>
                                     </td>
                                     <td className="px-4 py-3 text-right font-semibold">
-                                      {tx.type === "addition" ? "+" : "-"}
-                                      {formatQty(tx.quantityChange ?? 0)}
+                                      {tx.type === "addition" || tx.type === "release" ? "+" : "-"}
+                                      {formatQty(Math.abs(Number(tx.quantityChange ?? 0)))}
                                     </td>
                                     <td className="px-4 py-3">
                                       <Badge variant="outline">{tx.unit || selected.unit || "-"}</Badge>
