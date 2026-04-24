@@ -57,6 +57,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -101,6 +102,15 @@ const RATE_CLS = (r: number) =>
     : r >= 8
     ? "bg-orange-100 text-orange-800 border border-orange-300 dark:bg-orange-900/40 dark:text-orange-200"
     : "bg-red-100 text-red-800 border border-red-300 dark:bg-red-900/40 dark:text-red-200";
+
+const normalizeCustomerNameKey = (value: unknown): string | undefined => {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  if (!normalized || normalized === "customer" || normalized === "unknown") return undefined;
+  return normalized;
+};
 
 const EMPTY_SUMMARY: MecaSummary = {
   meetings: 0,
@@ -728,6 +738,9 @@ function SalesmanDetailView({
   const myConvertedOrders = convertedOrders.filter((o) => o.salesmanId === sm.salesmanId);
   const totalOrders = sm.convertedOrders;
   const activeOrders = sm.inProcessOrders;
+  const meetingBaseTotal = sm.meetings + sm.convertedOutsideMeetings;
+  const detailConversionRatio =
+    meetingBaseTotal > 0 ? (sm.convertedOrders / meetingBaseTotal) * 100 : 0;
   const [orderSourceFilter, setOrderSourceFilter] = useState<"all" | "meeting" | "outside">("all");
   const displayedConvertedOrders =
     orderSourceFilter === "all"
@@ -737,6 +750,71 @@ function SalesmanDetailView({
     (sum, order) => sum + order.totalAmount,
     0
   );
+  const customerMeetingSummary = useMemo(() => {
+    const summaryMap = new Map<
+      string,
+      {
+        rowKey: string;
+        customerName: string;
+        noOfMeetings: number;
+        noOfOrderConversions: number;
+      }
+    >();
+
+    const resolveDisplayName = (value: unknown) => {
+      const label = String(value ?? "").trim();
+      return label || "Unknown Customer";
+    };
+
+    (sm.visits ?? []).forEach((visit) => {
+      const key = normalizeCustomerNameKey(visit.customerName) ?? `visit:${visit.visitId}`;
+      const existing = summaryMap.get(key);
+      if (existing) {
+        existing.noOfMeetings += 1;
+      } else {
+        summaryMap.set(key, {
+          rowKey: key,
+          customerName: resolveDisplayName(visit.customerName),
+          noOfMeetings: 1,
+          noOfOrderConversions: 0,
+        });
+      }
+    });
+
+    myConvertedOrders.forEach((order) => {
+      const key = normalizeCustomerNameKey(order.customerName);
+      if (!key) return;
+      const existing = summaryMap.get(key);
+      if (existing) {
+        existing.noOfOrderConversions += 1;
+      }
+    });
+
+    return Array.from(summaryMap.values()).sort(
+      (a, b) =>
+        b.noOfMeetings - a.noOfMeetings ||
+        b.noOfOrderConversions - a.noOfOrderConversions ||
+        a.customerName.localeCompare(b.customerName)
+    );
+  }, [sm.visits, myConvertedOrders]);
+  const customerMeetingSummaryTotals = useMemo(() => {
+    const subtotalMeetings = customerMeetingSummary.reduce(
+      (sum, row) => sum + row.noOfMeetings,
+      0
+    );
+    const subtotalConversions = customerMeetingSummary.reduce(
+      (sum, row) => sum + row.noOfOrderConversions,
+      0
+    );
+
+    return {
+      subtotalMeetings,
+      subtotalConversions,
+      totalMeetings: sm.meetings,
+      totalConversions: totalOrders,
+      unmappedConversions: Math.max(totalOrders - subtotalConversions, 0),
+    };
+  }, [customerMeetingSummary, sm.meetings, totalOrders]);
 
   // Funnel data
   const funnelData = [
@@ -752,11 +830,11 @@ function SalesmanDetailView({
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {/* Gauge */}
         <Card className="flex items-center justify-center p-4">
-          {loading ? <Skeleton className="h-36 w-full" /> : <ConversionGauge value={sm.conversionRatio} loading={false} />}
+          {loading ? <Skeleton className="h-36 w-full" /> : <ConversionGauge value={detailConversionRatio} loading={false} />}
         </Card>
 
-        <KpiCard icon={Users} label="Meetings" value={loading ? "-" : String(sm.meetings)}
-          sub={`${sm.attendedMeetings} attended`} accent="bg-indigo-100 text-indigo-600 dark:bg-indigo-900/50 dark:text-indigo-400" loading={loading} />
+        <KpiCard icon={Users} label="Meetings" value={loading ? "-" : String(meetingBaseTotal)}
+          sub={`${sm.meetings} from walk-in | ${sm.convertedOutsideMeetings} outside`} accent="bg-indigo-100 text-indigo-600 dark:bg-indigo-900/50 dark:text-indigo-400" loading={loading} />
 
         <KpiCard icon={TrendingUp} label="Converted" value={loading ? "-" : String(totalOrders)}
           sub={`${sm.convertedFromMeetings} from meetings | ${sm.convertedOutsideMeetings} outside`} accent="bg-emerald-100 text-emerald-600 dark:bg-emerald-900/50 dark:text-emerald-400" loading={loading} />
@@ -859,10 +937,10 @@ function SalesmanDetailView({
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-amber-700 dark:text-amber-300 tabular-nums">
-                    {PCT(sm.conversionRatio)}
+                    {PCT(detailConversionRatio)}
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">Conversion Rate</p>
-                  <p className="text-[10px] text-muted-foreground">From Meetings / Total Orders</p>
+                  <p className="text-[10px] text-muted-foreground">Converted / (Walk-in + Outside)</p>
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">
@@ -872,6 +950,79 @@ function SalesmanDetailView({
                   <p className="text-[10px] text-muted-foreground">Completed / Converted</p>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold">Customer Meeting Summary</CardTitle>
+              <CardDescription className="text-xs">
+                Deduplicated meeting list by customer with meeting count and conversion count
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 5 }).map((_, index) => (
+                    <Skeleton key={index} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : customerMeetingSummary.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
+                  <Users className="h-8 w-8" />
+                  <p className="text-sm">No customer meetings found.</p>
+                </div>
+              ) : (
+                <>
+                <div className="overflow-x-auto rounded-lg border max-h-[320px] overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/40 sticky top-0">
+                        <TableHead>Customer Name</TableHead>
+                        <TableHead className="text-center">No. of Meetings</TableHead>
+                        <TableHead className="text-center">No. of Order Conversions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {customerMeetingSummary.map((row) => (
+                        <TableRow key={row.rowKey}>
+                          <TableCell className="font-medium">{row.customerName}</TableCell>
+                          <TableCell className="text-center font-semibold tabular-nums">{row.noOfMeetings}</TableCell>
+                          <TableCell className="text-center font-semibold tabular-nums">
+                            {row.noOfOrderConversions}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                    <TableFooter>
+                      <TableRow>
+                        <TableCell className="font-semibold">Subtotal (Grouped Customers)</TableCell>
+                        <TableCell className="text-center font-semibold tabular-nums">
+                          {customerMeetingSummaryTotals.subtotalMeetings}
+                        </TableCell>
+                        <TableCell className="text-center font-semibold tabular-nums">
+                          {customerMeetingSummaryTotals.subtotalConversions}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="font-semibold">Total ({sm.salesmanName})</TableCell>
+                        <TableCell className="text-center font-semibold tabular-nums">
+                          {customerMeetingSummaryTotals.totalMeetings}
+                        </TableCell>
+                        <TableCell className="text-center font-semibold tabular-nums">
+                          {customerMeetingSummaryTotals.totalConversions}
+                        </TableCell>
+                      </TableRow>
+                    </TableFooter>
+                  </Table>
+                </div>
+                {customerMeetingSummaryTotals.unmappedConversions > 0 ? (
+                  <p className="pt-2 text-[11px] text-muted-foreground">
+                    {customerMeetingSummaryTotals.unmappedConversions} conversion(s) are outside customer-name mapping.
+                  </p>
+                ) : null}
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -963,17 +1114,22 @@ function SalesmanDetailView({
                           <TableCell className="font-mono text-xs font-medium">{o.orderNo}</TableCell>
                           <TableCell className="font-medium">{o.customerName}</TableCell>
                           <TableCell>
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                "text-xs",
-                                o.conversionSource === "meeting"
-                                  ? "border-indigo-300 text-indigo-700 dark:border-indigo-700 dark:text-indigo-300"
-                                  : "border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300"
-                              )}
-                            >
-                              {o.conversionSource === "meeting" ? "From Meeting" : "Outside Meeting"}
-                            </Badge>
+                            <div className="space-y-1">
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "text-xs",
+                                  o.conversionSource === "meeting"
+                                    ? "border-indigo-300 text-indigo-700 dark:border-indigo-700 dark:text-indigo-300"
+                                    : "border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300"
+                                )}
+                              >
+                                {o.conversionSource === "meeting" ? "From Meeting" : "Outside Meeting"}
+                              </Badge>
+                              <p className="font-mono text-[10px] text-muted-foreground">
+                                WalkIn: {o.walkinId || "-"}
+                              </p>
+                            </div>
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline" className="text-xs">{o.currentStep}</Badge>
@@ -1053,6 +1209,21 @@ export default function MecaPage() {
   );
 
   const s = data.summary;
+  const uniqueCustomers = useMemo(() => {
+    const customerKeys = new Set<string>();
+    data.salesmen.forEach((salesman) => {
+      salesman.visits.forEach((visit) => {
+        const normalizedName = normalizeCustomerNameKey(visit.customerName);
+        if (!normalizedName) {
+          customerKeys.add(`visit:${visit.visitId}`);
+          return;
+        }
+
+        customerKeys.add(normalizedName);
+      });
+    });
+    return customerKeys.size;
+  }, [data.salesmen]);
 
   const rangeLabel = useMemo(() => {
     if (!dateRange?.from) return "All time";
@@ -1142,7 +1313,10 @@ export default function MecaPage() {
       ) : (
         <>
           {/* Team KPI Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+            <KpiCard icon={Users} label="Total Customers" value={loading ? "-" : uniqueCustomers.toString()}
+              sub={`${s.meetings} meetings (deduped customers)`}
+              accent="bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-400" loading={loading} />
             <KpiCard icon={Users} label="Total Meetings" value={loading ? "-" : s.meetings.toString()}
               sub={`${s.attendedMeetings} attended`}
               accent="bg-indigo-100 text-indigo-600 dark:bg-indigo-900/50 dark:text-indigo-400" loading={loading} />

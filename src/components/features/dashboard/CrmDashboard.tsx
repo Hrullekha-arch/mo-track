@@ -12,6 +12,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  setDoc,
   updateDoc,
   where,
 } from "firebase/firestore";
@@ -46,6 +47,8 @@ import { MilestoneProgress } from "@/components/features/order-management/Milest
 import { Progress } from "@/components/ui/progress";
 import { getNormalizedOrderMilestones } from "@/lib/order-workflow";
 import { useRouter } from "next/navigation";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
 
 interface EnrichedVisit extends DealVisit {
   customerName: string;
@@ -99,6 +102,25 @@ interface OrderSearchDetails {
   timeline: DetailTimelineItem[];
 }
 
+interface TimesheetSlot {
+  slotStart: string;
+  slotEnd: string;
+  slotLabel: string;
+  startMinutes: number;
+  endMinutes: number;
+}
+
+interface TimesheetHourEntry {
+  slotStart: string;
+  slotEnd: string;
+  slotLabel: string;
+  startMinutes: number;
+  endMinutes: number;
+  workDetail: string;
+  updatedAt?: string;
+  updatedBy?: { id?: string; name?: string };
+}
+
 interface CrmOrderDetailsDialogData {
   order: Order;
   purchaseRequests: PurchaseRequest[];
@@ -146,6 +168,45 @@ const formatDateTimeLabel = (value: unknown) => {
   const date = toDateSafe(value);
   if (!date) return "N/A";
   return format(date, "dd MMM yyyy, hh:mm a");
+};
+
+const parseHourTimeToMinutes = (value?: string) => {
+  if (!value || !/^\d{2}:\d{2}$/.test(value)) return null;
+  const [hours, minutes] = value.split(":").map(Number);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+};
+
+const minutesToLabel = (minutes: number) => {
+  const hours = String(Math.floor(minutes / 60)).padStart(2, "0");
+  const mins = String(minutes % 60).padStart(2, "0");
+  return `${hours}:${mins}`;
+};
+
+const buildTimesheetSlots = (start?: string, end?: string): TimesheetSlot[] => {
+  const startMinutes = parseHourTimeToMinutes(start);
+  const endMinutes = parseHourTimeToMinutes(end);
+  if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) return [];
+
+  const slots: TimesheetSlot[] = [];
+  for (let cursor = startMinutes; cursor < endMinutes; cursor += 60) {
+    const slotEnd = Math.min(cursor + 60, endMinutes);
+    slots.push({
+      slotStart: minutesToLabel(cursor),
+      slotEnd: minutesToLabel(slotEnd),
+      slotLabel: `${minutesToLabel(cursor)} - ${minutesToLabel(slotEnd)}`,
+      startMinutes: cursor,
+      endMinutes: slotEnd,
+    });
+  }
+  return slots;
+};
+
+const formatRelativeTimeSafe = (value?: string) => {
+  const dateValue = toDateSafe(value);
+  if (!dateValue) return "";
+  return formatDistanceToNow(dateValue, { addSuffix: true });
 };
 
 const timelineSort = (a: DetailTimelineItem, b: DetailTimelineItem) =>
@@ -276,28 +337,108 @@ const OrderUpdatesFeed = ({
   heightClassName?: string;
   assignedSalesmen?: string[];
 }) => {
-  const [updates, setUpdates] = useState<any[]>([]);
   const [orderMoments, setOrderMoments] = useState<DetailTimelineItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [loadingMoments, setLoadingMoments] = useState(true);
+  const [timesheetRemark, setTimesheetRemark] = useState("");
+  const [timesheetEntries, setTimesheetEntries] = useState<TimesheetHourEntry[]>([]);
+  const [savedTimesheetEntries, setSavedTimesheetEntries] = useState<TimesheetHourEntry[]>([]);
+  const [timesheetLoading, setTimesheetLoading] = useState(false);
+  const [timesheetSaving, setTimesheetSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const { toast } = useToast();
   const { user } = useAuth();
 
-  useEffect(() => {
-    if (!user) return;
+  const isTimesheetApplicableRole = user?.role !== "admin" && user?.role !== "installer";
+  const timesheetEnabled = isTimesheetApplicableRole && Boolean(user?.timesheetEnabled);
+  const timesheetDutyStart = String(user?.timesheetDutyStart || "");
+  const timesheetDutyEnd = String(user?.timesheetDutyEnd || "");
+  const timesheetSlots = useMemo(
+    () => buildTimesheetSlots(timesheetDutyStart, timesheetDutyEnd),
+    [timesheetDutyStart, timesheetDutyEnd]
+  );
+  const timesheetConfigValid = timesheetSlots.length > 0;
 
-    const notificationQuery = query(
-      collection(db, "users", user.id, "notifications"),
-      orderBy("createdAt", "desc")
+  useEffect(() => {
+    if (!timesheetSlots.length) {
+      setTimesheetEntries([]);
+      setSavedTimesheetEntries([]);
+      setTimesheetRemark("");
+      return;
+    }
+
+    const initialEntries = timesheetSlots.map((slot) => ({
+      ...slot,
+      workDetail: "",
+    }));
+    setTimesheetEntries(initialEntries);
+    setSavedTimesheetEntries(initialEntries);
+    setTimesheetRemark("");
+  }, [timesheetSlots]);
+
+  useEffect(() => {
+    if (!user || !timesheetEnabled || !timesheetConfigValid) {
+      setTimesheetLoading(false);
+      return;
+    }
+
+    setTimesheetLoading(true);
+    const dateDocId = format(new Date(), "yyyy-MM-dd");
+    const timesheetRef = doc(db, "users", user.id, "Timesheet", dateDocId);
+
+    const unsubscribe = onSnapshot(
+      timesheetRef,
+      (snapshot) => {
+        const baseEntries = timesheetSlots.map((slot) => ({ ...slot, workDetail: "" }));
+
+        if (!snapshot.exists()) {
+          setTimesheetEntries(baseEntries);
+          setSavedTimesheetEntries(baseEntries);
+          setTimesheetRemark("");
+          setTimesheetLoading(false);
+          return;
+        }
+
+        const data = snapshot.data() as any;
+        const existingMap = new Map<string, any>();
+        const existingRows = Array.isArray(data?.perHour) ? data.perHour : [];
+
+        existingRows.forEach((row: any) => {
+          const slotStart = String(row?.slotStart || "").trim();
+          const slotEnd = String(row?.slotEnd || "").trim();
+          if (!slotStart || !slotEnd) return;
+          existingMap.set(`${slotStart}-${slotEnd}`, row);
+        });
+
+        const hydratedEntries = baseEntries.map((entry) => {
+          const existing = existingMap.get(`${entry.slotStart}-${entry.slotEnd}`);
+          const updatedBy =
+            existing?.updatedBy && typeof existing.updatedBy === "object"
+              ? {
+                  id: String(existing.updatedBy.id || ""),
+                  name: String(existing.updatedBy.name || ""),
+                }
+              : undefined;
+
+          return {
+            ...entry,
+            workDetail: String(existing?.workDetail || ""),
+            updatedAt: existing?.updatedAt ? String(existing.updatedAt) : undefined,
+            updatedBy,
+          };
+        });
+
+        setTimesheetEntries(hydratedEntries);
+        setSavedTimesheetEntries(hydratedEntries);
+        setTimesheetRemark(String(data?.remark || ""));
+        setTimesheetLoading(false);
+      },
+      () => {
+        setTimesheetLoading(false);
+      }
     );
 
-    const unsubscribe = onSnapshot(notificationQuery, (snapshot) => {
-      setUpdates(snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() })));
-      setLoading(false);
-    });
-
     return () => unsubscribe();
-  }, [user]);
+  }, [user, timesheetEnabled, timesheetConfigValid, timesheetSlots]);
 
   useEffect(() => {
     if (assignedSalesmen.length === 0) {
@@ -367,23 +508,6 @@ const OrderUpdatesFeed = ({
     return () => unsubscribe();
   }, [assignedSalesmen]);
 
-  const handleMarkAsRead = async (notificationId: string) => {
-    if (!user) return;
-    const notifRef = doc(db, "users", user.id, "notifications", notificationId);
-    await updateDoc(notifRef, { read: true });
-  };
-
-  const filteredUpdates = useMemo(() => {
-    if (!searchTerm) return updates;
-    const normalizedSearch = searchTerm.toLowerCase();
-
-    return updates.filter((update) => {
-      const message = String(update.message || "").toLowerCase();
-      const type = String(update.type || "").toLowerCase();
-      return message.includes(normalizedSearch) || type.includes(normalizedSearch);
-    });
-  }, [updates, searchTerm]);
-
   const filteredMoments = useMemo(() => {
     if (!searchTerm) return orderMoments;
     const normalizedSearch = searchTerm.toLowerCase();
@@ -400,56 +524,124 @@ const OrderUpdatesFeed = ({
     });
   }, [orderMoments, searchTerm]);
 
-  const unreadCount = useMemo(
-    () => updates.reduce((count, item) => count + (item.read ? 0 : 1), 0),
-    [updates]
-  );
-
-  const renderNotification = (notification: any) => {
-    let title = "Update";
-    let description = notification.message || "A new update has been posted.";
-    let icon = <FileSignature className="h-4 w-4 text-slate-600" />;
-    let cardClass = "border-slate-200 bg-white";
-    const link = notification.link || "#";
-    const createdAt = toDateSafe(notification.createdAt || notification.date);
-
-    if (notification.type === "new_walkin") {
-      title = "New Walk-in Customer";
-      icon = <Activity className="h-4 w-4 text-blue-600" />;
-      cardClass = "border-blue-200 bg-blue-50/40";
-    } else if (notification.type === "order_approved") {
-      title = "Order Approved";
-      icon = <CheckCircle className="h-4 w-4 text-emerald-600" />;
-      cardClass = "border-emerald-200 bg-emerald-50/40";
-    }
-
-    return (
-      <Link
-        href={link}
-        key={notification.id}
-        className="block"
-        onClick={() => void handleMarkAsRead(notification.id)}
-      >
-        <div
-          className={`rounded-xl border p-3 transition-colors hover:bg-muted/40 ${cardClass} ${
-            notification.read ? "opacity-70" : ""
-          }`}
-        >
-          <div className="flex items-start gap-3">
-            <div className="mt-1">{icon}</div>
-            <div className="min-w-0 space-y-1">
-              <p className="truncate text-sm font-semibold">{title}</p>
-              <p className="text-xs text-muted-foreground">{description}</p>
-              <p className="text-xs text-muted-foreground">
-                {createdAt ? formatDistanceToNow(createdAt, { addSuffix: true }) : "Unknown time"}
-              </p>
-            </div>
-            {!notification.read ? <Badge className="border-slate-900 bg-slate-900 text-white">New</Badge> : null}
-          </div>
-        </div>
-      </Link>
+  const handleTimesheetEntryChange = (slotStart: string, value: string) => {
+    setTimesheetEntries((current) =>
+      current.map((entry) =>
+        entry.slotStart === slotStart
+          ? {
+              ...entry,
+              workDetail: value,
+            }
+          : entry
+      )
     );
   };
+
+  const handleSaveTimesheet = async () => {
+    if (!user || !timesheetEnabled || !timesheetConfigValid) return;
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+    const firstMissing = timesheetEntries.find(
+      (entry) => entry.endMinutes <= currentMinutes && !entry.workDetail.trim()
+    );
+
+    if (firstMissing) {
+      toast({
+        variant: "destructive",
+        title: "Pending hour entry",
+        description: `Please fill ${firstMissing.slotLabel} before submitting today's timesheet.`,
+      });
+      return;
+    }
+
+    setTimesheetSaving(true);
+    try {
+      const previousMap = new Map(
+        savedTimesheetEntries.map((entry) => [`${entry.slotStart}-${entry.slotEnd}`, entry])
+      );
+
+      const perHour = timesheetEntries.map((entry) => {
+        const key = `${entry.slotStart}-${entry.slotEnd}`;
+        const previous = previousMap.get(key);
+        const trimmedWorkDetail = entry.workDetail.trim();
+        const previousWorkDetail = previous?.workDetail?.trim() || "";
+        const hasChanged = trimmedWorkDetail !== previousWorkDetail;
+
+        return {
+          slotStart: entry.slotStart,
+          slotEnd: entry.slotEnd,
+          slotLabel: entry.slotLabel,
+          workDetail: trimmedWorkDetail,
+          updatedAt: hasChanged ? nowIso : previous?.updatedAt || nowIso,
+          updatedBy: hasChanged
+            ? { id: user.id, name: user.name }
+            : previous?.updatedBy || { id: user.id, name: user.name },
+        };
+      });
+
+      const dateDocId = format(now, "yyyy-MM-dd");
+      await setDoc(
+        doc(db, "users", user.id, "Timesheet", dateDocId),
+        {
+          date: dateDocId,
+          dutyStart: timesheetDutyStart,
+          dutyEnd: timesheetDutyEnd,
+          perHour,
+          remark: timesheetRemark.trim(),
+          updatedAt: nowIso,
+          updatedBy: { id: user.id, name: user.name },
+        },
+        { merge: true }
+      );
+
+      const localEntries: TimesheetHourEntry[] = perHour.map((item) => {
+        const base = timesheetSlots.find(
+          (slot) => slot.slotStart === item.slotStart && slot.slotEnd === item.slotEnd
+        );
+        return {
+          slotStart: item.slotStart,
+          slotEnd: item.slotEnd,
+          slotLabel: item.slotLabel,
+          startMinutes: base?.startMinutes || 0,
+          endMinutes: base?.endMinutes || 0,
+          workDetail: item.workDetail,
+          updatedAt: item.updatedAt,
+          updatedBy: item.updatedBy,
+        };
+      });
+      setSavedTimesheetEntries(localEntries);
+
+      toast({
+        title: "Timesheet saved",
+        description: "Hourly updates were saved for today.",
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Save failed",
+        description: error?.message || "Unable to save timesheet right now.",
+      });
+    } finally {
+      setTimesheetSaving(false);
+    }
+  };
+
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const requiredTimesheetCount = timesheetEntries.filter((entry) => entry.endMinutes <= currentMinutes).length;
+  const requiredTimesheetFilledCount = timesheetEntries.filter(
+    (entry) => entry.endMinutes <= currentMinutes && entry.workDetail.trim()
+  ).length;
+  const totalTimesheetFilledCount = timesheetEntries.filter((entry) => entry.workDetail.trim()).length;
+  const firstPendingTimesheetSlot = timesheetEntries.find(
+    (entry) => entry.endMinutes <= currentMinutes && !entry.workDetail.trim()
+  );
+  const timesheetStatValue = timesheetEnabled
+    ? `${requiredTimesheetFilledCount}/${requiredTimesheetCount || 0}`
+    : "Off";
 
   return (
     <Card className="border-slate-200">
@@ -457,17 +649,17 @@ const OrderUpdatesFeed = ({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <CardTitle>CRM Activity Feed</CardTitle>
-            <CardDescription>Unread updates and movement alerts assigned to you.</CardDescription>
+            <CardDescription>Timesheet updates and order movement alerts assigned to you.</CardDescription>
           </div>
           <div className="min-w-[8rem] rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <p className="text-xs text-muted-foreground">Unread</p>
-            <p className="text-2xl font-bold">{unreadCount}</p>
+            <p className="text-xs text-muted-foreground">Timesheet</p>
+            <p className="text-2xl font-bold">{timesheetStatValue}</p>
           </div>
         </div>
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search updates by type or message..."
+            placeholder="Search order moments by type or message..."
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
             className="pl-8"
@@ -480,16 +672,76 @@ const OrderUpdatesFeed = ({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  Notifications
+                  Timesheet Update
                 </p>
-                <Badge variant="outline">{filteredUpdates.length}</Badge>
+                <Badge variant="outline">
+                  {timesheetEnabled && timesheetConfigValid
+                    ? `${requiredTimesheetFilledCount}/${requiredTimesheetCount || 0}`
+                    : "Off"}
+                </Badge>
               </div>
-              {loading ? (
-                Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-16 w-full" />)
-              ) : filteredUpdates.length > 0 ? (
-                filteredUpdates.map((update) => renderNotification(update))
+              {!isTimesheetApplicableRole ? (
+                <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-muted-foreground">
+                  Timesheet is not applicable for your role.
+                </p>
+              ) : !timesheetEnabled ? (
+                <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-muted-foreground">
+                  Timesheet is currently disabled for your account.
+                </p>
+              ) : !timesheetConfigValid ? (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-4 text-sm text-amber-700">
+                  Duty time is not configured correctly. Ask admin to set start and end time.
+                </p>
+              ) : timesheetLoading ? (
+                Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-20 w-full" />)
               ) : (
-                <p className="py-5 text-center text-sm text-muted-foreground">No recent notifications.</p>
+                <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-slate-700">
+                      Duty: {timesheetDutyStart} - {timesheetDutyEnd}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {totalTimesheetFilledCount}/{timesheetEntries.length} slots updated
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    {timesheetEntries.map((entry) => (
+                      <div key={`${entry.slotStart}-${entry.slotEnd}`} className="rounded-lg border border-slate-200 p-2">
+                        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-medium text-slate-800">{entry.slotLabel}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {entry.updatedAt ? `Updated ${formatRelativeTimeSafe(entry.updatedAt)}` : "Not updated"}
+                          </p>
+                        </div>
+                        <Textarea
+                          value={entry.workDetail}
+                          onChange={(event) => handleTimesheetEntryChange(entry.slotStart, event.target.value)}
+                          placeholder={`Work details for ${entry.slotLabel}`}
+                          className="min-h-[72px] text-sm"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-slate-700">Remark</p>
+                    <Textarea
+                      value={timesheetRemark}
+                      onChange={(event) => setTimesheetRemark(event.target.value)}
+                      placeholder="Add day summary or blockers"
+                      className="min-h-[72px] text-sm"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      {firstPendingTimesheetSlot
+                        ? `Pending required slot: ${firstPendingTimesheetSlot.slotLabel}`
+                        : "All elapsed slots are filled."}
+                    </p>
+                    <Button size="sm" onClick={handleSaveTimesheet} disabled={timesheetSaving}>
+                      {timesheetSaving ? "Saving..." : "Save Timesheet"}
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
 

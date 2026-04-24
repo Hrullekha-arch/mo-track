@@ -33,6 +33,7 @@ import {
   TrendingUp,
   ShieldCheck,
   Sofa,
+  BadgePercent,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -75,10 +76,11 @@ export const navItems = [
     //{ href: "/dashboard/cutting", icon: Scissors, label: "Cutting & Details", roles: ['admin', 'employee'] },
     { href: "/dashboard/all-orders", icon: Table, label: "Details", roles: ['admin'] },
     { href: "/dashboard/users", icon: UserCog, label: "User Management", roles: ['admin'] },
-    { href: "/dashboard/user-report", icon: Users, label: "User Report", roles: ['admin'] },
+    //{ href: "/dashboard/user-report", icon: Users, label: "User Report", roles: ['admin'] },
     { href: "/dashboard/reports", icon: BarChartHorizontalBig, label: "Reports", roles: ['admin'] },
+    //{ href: "/dashboard/salesman-incentives", icon: BadgePercent, label: "Incentives", roles: ['admin'] },
     { href: "/dashboard/meca", icon: TrendingUp, label: "MeCA", roles: ['admin', 'employee', 'Accounts'] },
-    { href: "/dashboard/furniture-details", icon: Sofa, label: "Furniture Details", roles: ['admin', 'employee'] },
+    //{ href: "/dashboard/furniture-details", icon: Sofa, label: "Furniture Details", roles: ['admin', 'employee'] },
 ];
 
 function SidebarNav({ className }: { className?: string }) {

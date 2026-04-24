@@ -12,7 +12,7 @@ import {
   FileText,
   CheckCircle,
   PhoneCall,
-  Bell,
+  Clock3,
   ListOrdered,
   UserPlus,
   Briefcase,
@@ -42,6 +42,7 @@ import {
   getDocs,
   orderBy,
   doc,
+  setDoc,
   updateDoc,
   limit,
 } from "firebase/firestore";
@@ -61,7 +62,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { InboundRequest, Order, Quotation, PurchaseRequest, Walkin_Customer } from "@/lib/types";
 import { getFollowUpItems } from "./po-tracking/actions";
 import { useAuth } from "@/context/AuthContext";
-import { format, formatDistanceToNow, set } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import CrmDashboard from "@/components/features/dashboard/CrmDashboard";
@@ -105,6 +106,25 @@ interface DashboardOrderFabricSummary {
   inStockFabricCount: number;
   prFabricCount: number;
   prItems: DashboardPrItemStatus[];
+}
+
+interface TimesheetSlot {
+  slotStart: string;
+  slotEnd: string;
+  slotLabel: string;
+  startMinutes: number;
+  endMinutes: number;
+}
+
+interface TimesheetHourEntry {
+  slotStart: string;
+  slotEnd: string;
+  slotLabel: string;
+  startMinutes: number;
+  endMinutes: number;
+  workDetail: string;
+  updatedAt?: string;
+  updatedBy?: { id?: string; name?: string };
 }
 
 const normalizeText = (value?: string) => String(value || "").trim().toLowerCase();
@@ -189,6 +209,45 @@ const isPrFabricStatus = (status?: string) => {
 const formatFabricDate = (value?: string) => {
   const dateValue = toDateSafe(value);
   return dateValue ? format(dateValue, "dd MMM yyyy") : "";
+};
+
+const parseHourTimeToMinutes = (value?: string) => {
+  if (!value || !/^\d{2}:\d{2}$/.test(value)) return null;
+  const [hours, minutes] = value.split(":").map(Number);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+};
+
+const minutesToLabel = (minutes: number) => {
+  const hours = String(Math.floor(minutes / 60)).padStart(2, "0");
+  const mins = String(minutes % 60).padStart(2, "0");
+  return `${hours}:${mins}`;
+};
+
+const buildTimesheetSlots = (start?: string, end?: string): TimesheetSlot[] => {
+  const startMinutes = parseHourTimeToMinutes(start);
+  const endMinutes = parseHourTimeToMinutes(end);
+  if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) return [];
+
+  const slots: TimesheetSlot[] = [];
+  for (let cursor = startMinutes; cursor < endMinutes; cursor += 60) {
+    const slotEnd = Math.min(cursor + 60, endMinutes);
+    slots.push({
+      slotStart: minutesToLabel(cursor),
+      slotEnd: minutesToLabel(slotEnd),
+      slotLabel: `${minutesToLabel(cursor)} - ${minutesToLabel(slotEnd)}`,
+      startMinutes: cursor,
+      endMinutes: slotEnd,
+    });
+  }
+  return slots;
+};
+
+const formatRelativeTimeSafe = (value?: string) => {
+  const dateValue = toDateSafe(value);
+  if (!dateValue) return "";
+  return formatDistanceToNow(dateValue, { addSuffix: true });
 };
 
 const isPurchaseRequestForOrder = (request: any, order: Order) => {
@@ -404,8 +463,12 @@ const  SalesmanDashboardV2 =() => {
   const [orders, setOrders] = useState<any[]>([]);
   const [quotations, setQuotations] = useState<any[]>([]);
   const [purchaseRequests, setPurchaseRequests] = useState<any[]>([]);
-  const [notifications, setNotifications] = useState<any[]>([]);
   const [walkinLeads, setWalkinLeads] = useState<any[]>([]);
+  const [timesheetRemark, setTimesheetRemark] = useState("");
+  const [timesheetEntries, setTimesheetEntries] = useState<TimesheetHourEntry[]>([]);
+  const [savedTimesheetEntries, setSavedTimesheetEntries] = useState<TimesheetHourEntry[]>([]);
+  const [timesheetLoading, setTimesheetLoading] = useState(false);
+  const [timesheetSaving, setTimesheetSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // ── Search ──
@@ -465,6 +528,202 @@ const  SalesmanDashboardV2 =() => {
     setReturnCustomerDialog(true);
   };
 
+  const isTimesheetApplicableRole = user?.role !== "admin" && user?.role !== "installer";
+  const timesheetEnabled = isTimesheetApplicableRole && Boolean(user?.timesheetEnabled);
+  const timesheetDutyStart = String(user?.timesheetDutyStart || "");
+  const timesheetDutyEnd = String(user?.timesheetDutyEnd || "");
+  const timesheetSlots = useMemo(
+    () => buildTimesheetSlots(timesheetDutyStart, timesheetDutyEnd),
+    [timesheetDutyStart, timesheetDutyEnd]
+  );
+  const timesheetConfigValid = timesheetSlots.length > 0;
+
+  useEffect(() => {
+    if (!timesheetSlots.length) {
+      setTimesheetEntries([]);
+      setSavedTimesheetEntries([]);
+      setTimesheetRemark("");
+      return;
+    }
+
+    const initialEntries = timesheetSlots.map((slot) => ({
+      ...slot,
+      workDetail: "",
+    }));
+    setTimesheetEntries(initialEntries);
+    setSavedTimesheetEntries(initialEntries);
+    setTimesheetRemark("");
+  }, [timesheetSlots]);
+
+  useEffect(() => {
+    if (!user || !timesheetEnabled || !timesheetConfigValid) {
+      setTimesheetLoading(false);
+      return;
+    }
+
+    setTimesheetLoading(true);
+    const dateDocId = format(new Date(), "yyyy-MM-dd");
+    const timesheetRef = doc(db, "users", user.id, "Timesheet", dateDocId);
+
+    const unsubscribe = onSnapshot(
+      timesheetRef,
+      (snapshot) => {
+        const baseEntries = timesheetSlots.map((slot) => ({ ...slot, workDetail: "" }));
+
+        if (!snapshot.exists()) {
+          setTimesheetEntries(baseEntries);
+          setSavedTimesheetEntries(baseEntries);
+          setTimesheetRemark("");
+          setTimesheetLoading(false);
+          return;
+        }
+
+        const data = snapshot.data() as any;
+        const existingMap = new Map<string, any>();
+        const existingRows = Array.isArray(data?.perHour) ? data.perHour : [];
+
+        existingRows.forEach((row: any) => {
+          const slotStart = String(row?.slotStart || "").trim();
+          const slotEnd = String(row?.slotEnd || "").trim();
+          if (!slotStart || !slotEnd) return;
+          existingMap.set(`${slotStart}-${slotEnd}`, row);
+        });
+
+        const hydratedEntries = baseEntries.map((entry) => {
+          const existing = existingMap.get(`${entry.slotStart}-${entry.slotEnd}`);
+          const updatedBy = existing?.updatedBy && typeof existing.updatedBy === "object"
+            ? {
+                id: String(existing.updatedBy.id || ""),
+                name: String(existing.updatedBy.name || ""),
+              }
+            : undefined;
+
+          return {
+            ...entry,
+            workDetail: String(existing?.workDetail || ""),
+            updatedAt: existing?.updatedAt ? String(existing.updatedAt) : undefined,
+            updatedBy,
+          };
+        });
+
+        setTimesheetEntries(hydratedEntries);
+        setSavedTimesheetEntries(hydratedEntries);
+        setTimesheetRemark(String(data?.remark || ""));
+        setTimesheetLoading(false);
+      },
+      () => {
+        setTimesheetLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user, timesheetEnabled, timesheetConfigValid, timesheetSlots]);
+
+  const handleTimesheetEntryChange = (slotStart: string, value: string) => {
+    setTimesheetEntries((current) =>
+      current.map((entry) =>
+        entry.slotStart === slotStart
+          ? {
+              ...entry,
+              workDetail: value,
+            }
+          : entry
+      )
+    );
+  };
+
+  const handleSaveTimesheet = async () => {
+    if (!user || !timesheetEnabled || !timesheetConfigValid) return;
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+    const firstMissing = timesheetEntries.find(
+      (entry) => entry.endMinutes <= currentMinutes && !entry.workDetail.trim()
+    );
+
+    if (firstMissing) {
+      toast({
+        variant: "destructive",
+        title: "Pending hour entry",
+        description: `Please fill ${firstMissing.slotLabel} before submitting today's timesheet.`,
+      });
+      return;
+    }
+
+    setTimesheetSaving(true);
+    try {
+      const previousMap = new Map(
+        savedTimesheetEntries.map((entry) => [`${entry.slotStart}-${entry.slotEnd}`, entry])
+      );
+
+      const perHour = timesheetEntries.map((entry) => {
+        const key = `${entry.slotStart}-${entry.slotEnd}`;
+        const previous = previousMap.get(key);
+        const trimmedWorkDetail = entry.workDetail.trim();
+        const previousWorkDetail = previous?.workDetail?.trim() || "";
+        const hasChanged = trimmedWorkDetail !== previousWorkDetail;
+
+        return {
+          slotStart: entry.slotStart,
+          slotEnd: entry.slotEnd,
+          slotLabel: entry.slotLabel,
+          workDetail: trimmedWorkDetail,
+          updatedAt: hasChanged ? nowIso : previous?.updatedAt || nowIso,
+          updatedBy: hasChanged
+            ? { id: user.id, name: user.name }
+            : previous?.updatedBy || { id: user.id, name: user.name },
+        };
+      });
+
+      const dateDocId = format(now, "yyyy-MM-dd");
+      await setDoc(
+        doc(db, "users", user.id, "Timesheet", dateDocId),
+        {
+          date: dateDocId,
+          dutyStart: timesheetDutyStart,
+          dutyEnd: timesheetDutyEnd,
+          perHour,
+          remark: timesheetRemark.trim(),
+          updatedAt: nowIso,
+          updatedBy: { id: user.id, name: user.name },
+        },
+        { merge: true }
+      );
+
+      const localEntries: TimesheetHourEntry[] = perHour.map((item) => {
+        const base = timesheetSlots.find(
+          (slot) => slot.slotStart === item.slotStart && slot.slotEnd === item.slotEnd
+        );
+        return {
+          slotStart: item.slotStart,
+          slotEnd: item.slotEnd,
+          slotLabel: item.slotLabel,
+          startMinutes: base?.startMinutes || 0,
+          endMinutes: base?.endMinutes || 0,
+          workDetail: item.workDetail,
+          updatedAt: item.updatedAt,
+          updatedBy: item.updatedBy,
+        };
+      });
+      setSavedTimesheetEntries(localEntries);
+
+      toast({
+        title: "Timesheet saved",
+        description: "Hourly updates were saved for today.",
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Save failed",
+        description: error?.message || "Unable to save timesheet right now.",
+      });
+    } finally {
+      setTimesheetSaving(false);
+    }
+  };
+
   // ── Firestore ──
   useEffect(() => {
     if (!user) return;
@@ -494,13 +753,8 @@ const  SalesmanDashboardV2 =() => {
       (snap) => { setWalkinLeads(snap.docs.map((d) => ({ id: d.id, ...d.data() }))); loadedLeads = true; markLoaded(); },
       () => { loadedLeads = true; markLoaded(); }
     );
-    const unsubNotifications = onSnapshot(
-      query(collection(db, "users", user.id, "notifications"), orderBy("createdAt", "desc"), limit(50)),
-      (snap) => setNotifications(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
-      () => setNotifications([])
-    );
 
-    return () => { unsubOrders(); unsubQuotations(); unsubPurchase(); unsubLeads(); unsubNotifications(); };
+    return () => { unsubOrders(); unsubQuotations(); unsubPurchase(); unsubLeads(); };
   }, [user]);
 
   // ── Fetch return customer deals ──
@@ -785,7 +1039,19 @@ const  SalesmanDashboardV2 =() => {
   const completedCount = Math.max(0, orderRows.length - activeOrderRows.length);
   const avgProgress = activeOrderRows.length ? Math.round(activeOrderRows.reduce((s, r) => s + r.progress, 0) / activeOrderRows.length) : 0;
   const poGeneratedCount = purchaseRequests.filter((i) => normalizeText(i.status) === "po generated").length;
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const requiredTimesheetCount = timesheetEntries.filter((entry) => entry.endMinutes <= currentMinutes).length;
+  const requiredTimesheetFilledCount = timesheetEntries.filter(
+    (entry) => entry.endMinutes <= currentMinutes && entry.workDetail.trim()
+  ).length;
+  const totalTimesheetFilledCount = timesheetEntries.filter((entry) => entry.workDetail.trim()).length;
+  const firstPendingTimesheetSlot = timesheetEntries.find(
+    (entry) => entry.endMinutes <= currentMinutes && !entry.workDetail.trim()
+  );
+  const timesheetStatValue = timesheetEnabled
+    ? `${requiredTimesheetFilledCount}/${requiredTimesheetCount || 0}`
+    : "Off";
 
   // ── Return dialog type colors ──
   const rtColor = returnTypeColor(returnCustomerType);
@@ -818,12 +1084,16 @@ const  SalesmanDashboardV2 =() => {
                   <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Orders</p>
                   {loading ? <Skeleton className="h-7 w-8 mx-auto mt-1" /> : <p className="text-2xl font-bold text-slate-900">{activeOrderRows.length}</p>}
                 </div>
-                {unreadCount > 0 && (
-                  <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 shadow-sm text-center min-w-[80px]">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-rose-400">Alerts</p>
-                    <p className="text-2xl font-bold text-rose-600">{unreadCount}</p>
-                  </div>
-                )}
+                <div
+                  className={`rounded-2xl border px-4 py-3 shadow-sm text-center min-w-[80px] ${
+                    timesheetEnabled ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white"
+                  }`}
+                >
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Timesheet</p>
+                  <p className={`text-2xl font-bold ${timesheetEnabled ? "text-emerald-700" : "text-slate-500"}`}>
+                    {timesheetEnabled ? `${requiredTimesheetFilledCount}/${requiredTimesheetCount || 0}` : "Off"}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -847,7 +1117,13 @@ const  SalesmanDashboardV2 =() => {
             <StatCard label="Completed" value={completedCount} loading={loading} icon={CheckCircle2} accent="border-emerald-200" />
             <StatCard label="PO Generated" value={poGeneratedCount} loading={loading} icon={ShoppingBag} />
             <StatCard label="Quotations" value={quotations.length} loading={loading} icon={Briefcase} />
-            <StatCard label="Unread Alerts" value={unreadCount} loading={loading} icon={Bell} accent={unreadCount > 0 ? "border-rose-200" : "border-slate-200"} />
+            <StatCard
+              label="Timesheet"
+              value={timesheetStatValue}
+              loading={loading}
+              icon={Clock3}
+              accent={timesheetEnabled ? "border-emerald-200" : "border-slate-200"}
+            />
           </div>
 
           {/* ── PRIORITY: Active Leads (full width, top) ── */}
@@ -907,7 +1183,7 @@ const  SalesmanDashboardV2 =() => {
             </div>
           </div>
 
-          {/* ── Lower: Orders + Notifications ── */}
+          {/* ── Lower: Orders + Timesheet ── */}
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
             {/* Order Queue */}
             <div className="xl:col-span-2 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -1018,41 +1294,89 @@ const  SalesmanDashboardV2 =() => {
               </ScrollArea>
             </div>
 
-            {/* Notifications */}
+            {/* Timesheet */}
             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
                 <div className="h-7 w-7 rounded-lg bg-slate-100 flex items-center justify-center">
-                  <Bell className="h-4 w-4 text-slate-600" />
+                  <Clock3 className="h-4 w-4 text-slate-600" />
                 </div>
-                <h2 className="text-base font-bold text-slate-900">Recent Alerts</h2>
-                {unreadCount > 0 && (
-                  <span className="rounded-full bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.5 ml-auto">{unreadCount}</span>
-                )}
+                <h2 className="text-base font-bold text-slate-900">Timesheet Update</h2>
+                <span className="rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold px-1.5 py-0.5 ml-auto">
+                  {format(new Date(), "dd MMM")}
+                </span>
               </div>
               <ScrollArea className="h-[28rem]">
-                <div className="p-4 space-y-2">
-                  {loading ? (
-                    [...Array(4)].map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-xl" />)
-                  ) : notifications.length ? (
-                    notifications.map((n) => {
-                      const createdAt = toDateSafe(n.createdAt || n.date);
-                      return (
-                        <div key={n.id} className={`rounded-xl border p-3 ${!n.read ? "border-rose-100 bg-rose-50/50" : "border-slate-100 bg-white"}`}>
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="text-xs font-semibold text-slate-800">{n.type || "Update"}</p>
-                            {!n.read && <span className="flex-shrink-0 rounded-full bg-rose-500 h-1.5 w-1.5 mt-1" />}
-                          </div>
-                          <p className="text-xs text-slate-500 mt-1 leading-relaxed">{n.message || "No message"}</p>
-                          <p className="text-[10px] text-slate-400 mt-1">
-                            {createdAt ? formatDistanceToNow(createdAt, { addSuffix: true }) : "—"}
-                          </p>
-                        </div>
-                      );
-                    })
+                <div className="p-4 space-y-3">
+                  {loading || timesheetLoading ? (
+                    [...Array(3)].map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)
+                  ) : !timesheetEnabled ? (
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
+                      Timesheet is not enabled for your user.
+                    </div>
+                  ) : !timesheetConfigValid ? (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                      Duty time is not configured. Ask admin to set start and end time.
+                    </div>
                   ) : (
-                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
-                      <Bell className="h-7 w-7 opacity-30" />
-                      <p className="text-sm">No notifications yet.</p>
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Duty Window</p>
+                        <p className="mt-1 text-sm font-medium text-slate-800">
+                          {timesheetDutyStart} - {timesheetDutyEnd}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Required filled: {requiredTimesheetFilledCount}/{requiredTimesheetCount || 0}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Total filled slots: {totalTimesheetFilledCount}/{timesheetEntries.length}
+                        </p>
+                        {firstPendingTimesheetSlot && (
+                          <p className="mt-1 text-xs text-amber-700">
+                            Pending hour: {firstPendingTimesheetSlot.slotLabel}
+                          </p>
+                        )}
+                      </div>
+
+                      {timesheetEntries.map((entry) => {
+                        const relativeUpdatedAt = formatRelativeTimeSafe(entry.updatedAt);
+                        return (
+                          <div key={`${entry.slotStart}-${entry.slotEnd}`} className="rounded-xl border border-slate-200 p-3">
+                            <p className="text-xs font-semibold text-slate-700">{entry.slotLabel}</p>
+                            <Textarea
+                              value={entry.workDetail}
+                              onChange={(event) => handleTimesheetEntryChange(entry.slotStart, event.target.value)}
+                              placeholder="Write work details for this hour..."
+                              className="mt-2 min-h-[74px] text-sm"
+                            />
+                            {relativeUpdatedAt && (
+                              <p className="mt-1 text-[10px] text-slate-400">
+                                Updated {relativeUpdatedAt}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      <div className="rounded-xl border border-slate-200 p-3">
+                        <p className="text-xs font-semibold text-slate-700">Remark</p>
+                        <Textarea
+                          value={timesheetRemark}
+                          onChange={(event) => setTimesheetRemark(event.target.value)}
+                          placeholder="Any summary or blocker for today..."
+                          className="mt-2 min-h-[84px] text-sm"
+                        />
+                      </div>
+
+                      <Button onClick={() => void handleSaveTimesheet()} disabled={timesheetSaving} className="w-full">
+                        {timesheetSaving ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Saving...
+                          </>
+                        ) : (
+                          "Save Timesheet"
+                        )}
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -2194,3 +2518,4 @@ export default function DashboardPage() {
 
     return <AdminDashboard />;
 }
+

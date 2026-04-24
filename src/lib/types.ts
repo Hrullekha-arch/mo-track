@@ -105,6 +105,9 @@ export interface User {
   store?: string;
   fcmTokens?: string[]; // For push notifications
   dayOff?: Weekday;
+  timesheetEnabled?: boolean;
+  timesheetDutyStart?: string; // HH:mm
+  timesheetDutyEnd?: string; // HH:mm
 }
 
 export interface Walkin_Customer {
@@ -122,6 +125,7 @@ export interface Walkin_Customer {
     store?: string;
     storeName?: string;
     createdByStore?: string;
+    originStoreName?: string;
     assignedStoreName?: string;
     salesmanStore?: string;
     createdAt: string; // ISO Date
@@ -208,6 +212,10 @@ export interface InboundMilestone {
 }
 
 export interface FabricDetail {
+    lineId?: string;
+    approvedStockId?: string;
+    bcn?: string;
+    itemName?: string;
     fabricName: string;
     quantity: string;
     unit?: 'Mtr' | 'Pcs' | 'mtr' | 'pcs';
@@ -223,6 +231,7 @@ export interface FabricDetail {
     type?: string;
     panels?: string;
     status?: 'pending for po' | 'po generated' | 'in stock' | 'allocated';
+    isInStock?: boolean | null;
     rate?: number; // Added from quotation
     discountPercent?: number; // Added discount from quotation
 }
@@ -1549,6 +1558,7 @@ export interface ApprovedStockItem {
     orderId: string;
     crmOrderNo: string;
     dealId?: string;
+    lineId?: string;
     customerName: string;
     salesPerson: string;
     fabricName: string;
@@ -1560,6 +1570,115 @@ export interface ApprovedStockItem {
         name: string;
     };
     itemDetail: FabricDetail;
+}
+
+export type SalesmanIncentiveRuleCode =
+  | "PREFIX_S_F_FS_RLM_W_WS"
+  | "PREFIX_ESC_ES"
+  | "TASSEL"
+  | "NONE";
+
+export interface SalesmanIncentiveItem {
+  lineId: string;
+  approvedStockId?: string;
+  bcn?: string;
+  itemName: string;
+  qty: number;
+  rate: number;
+  discountPercent: number;
+  discountAmount: number;
+  totalItemRate: number;
+  incentivePercent: number;
+  potentialIncentiveAmount: number;
+  incentiveAmount: number;
+  requiresInStock: boolean;
+  isInStock: boolean | null;
+  isIncentivable: boolean;
+  isEligibleForPayout: boolean;
+  ruleCode: SalesmanIncentiveRuleCode;
+  matchedToken?: string;
+  stockVerifiedAt?: string;
+  stockVerificationSource?: "IN_STOCK" | "OUT_OF_STOCK";
+  manualOverride?: {
+    incentivePercent?: number;
+    incentiveAmount?: number;
+    updatedAt?: string;
+    updatedBy?: { id?: string; name?: string };
+  };
+}
+
+export interface SalesmanIncentiveOrderSummary {
+  itemsCount: number;
+  incentivableItemsCount: number;
+  eligibleItemsCount: number;
+  verifiedItemsCount: number;
+  inStockItemsCount: number;
+  totalItemRate: number;
+  potentialIncentiveAmount: number;
+  earnedIncentiveAmount: number;
+}
+
+export interface SalesmanIncentiveSummary {
+  totalOrders: number;
+  ordersWithEarnedIncentive: number;
+  totalItems: number;
+  incentivableItemsCount: number;
+  eligibleItemsCount: number;
+  verifiedItemsCount: number;
+  inStockItemsCount: number;
+  totalItemRate: number;
+  potentialIncentiveAmount: number;
+  earnedIncentiveAmount: number;
+  updatedAt?: string;
+}
+
+export interface SalesmanIncentiveOrderDoc {
+  orderId: string;
+  orderNo?: string;
+  crmOrderNo?: string;
+  customerId?: string;
+  dealId?: string;
+  orderDate?: string;
+  createdAt?: string;
+  isIncentiveApplicableByDate: boolean;
+  incentiveEffectiveFrom: string;
+  customerSnapshot?: {
+    name?: string;
+    phone?: string;
+    billingAddress?: CustomerAddress;
+  };
+  dealSnapshot?: {
+    dealCode?: string;
+    title?: string;
+  };
+  salesmanSnapshot?: {
+    id?: string;
+    name?: string;
+    salesmanCode?: string;
+  };
+  fabricDetails: SalesmanIncentiveItem[];
+  summary: SalesmanIncentiveOrderSummary;
+  sourceMeta?: {
+    source?: string;
+    createdBy?: { id?: string; name?: string };
+  };
+  updatedAt?: string;
+}
+
+export interface SalesmanIncentiveRootDoc {
+  salesmanDetails: {
+    salesmanId?: string;
+    salesmanName: string;
+    salesmanCode?: string;
+    docId: string;
+  };
+  schema: {
+    effectiveFrom: string;
+    version: string;
+  };
+  summary: SalesmanIncentiveSummary;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // Owner types for handover logic

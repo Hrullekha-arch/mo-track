@@ -3,7 +3,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useForm, Controller } from "react-hook-form";
+import { useForm, type FieldErrors } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { doc, setDoc, updateDoc } from "firebase/firestore";
@@ -16,10 +16,20 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { User } from "@/lib/types";
-import { Loader2, Info, PlusCircle } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { navItems } from "@/components/shared/AppShell";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+
+const parseTimeToMinutes = (value?: string) => {
+  if (!value || !/^\d{2}:\d{2}$/.test(value)) return null;
+  const [hour, minute] = value.split(":").map(Number);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return hour * 60 + minute;
+};
 
 const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -27,10 +37,13 @@ const formSchema = z.object({
   password: z.string().optional(),
   role: z.enum(['admin', 'employee', 'installer', 'salesman', 'Accounts', 'Hr', 'Purchase'], { required_error: "Role is required" }),
   store: z.string().optional(),
-  designation: z.enum(['CRM', 'Allocators', 'PC']).optional(),
+  designation: z.enum(['CRM', 'Allocators', 'PC', 'salesmanager']).optional(),
   salesmanCode: z.string().optional(),
   dayOff: z.enum(['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']).optional(),
   permissions: z.array(z.string()).optional(),
+  timesheetEnabled: z.boolean().optional(),
+  timesheetDutyStart: z.string().optional(),
+  timesheetDutyEnd: z.string().optional(),
 }).refine(data => {
     if (data.role === 'employee' && !data.designation) {
         return false;
@@ -40,26 +53,38 @@ const formSchema = z.object({
     message: "Designation is required for employees",
     path: ["designation"],
 }).superRefine((data, ctx) => {
-    if (data.role !== 'employee' && data.designation) {
+    const isTimesheetRoleAllowed = data.role !== "admin" && data.role !== "installer";
+    if (data.timesheetEnabled && !isTimesheetRoleAllowed) {
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            path: ["designation"],
-            message: "Designation is only applicable for employees.",
+            path: ["timesheetEnabled"],
+            message: "Timesheet is applicable only for non-admin, non-installer users.",
         });
     }
-    if (data.role !== 'salesman' && data.salesmanCode) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["salesmanCode"],
-            message: "Salesman code is only applicable for salesmen.",
-        });
-    }
-    if (data.role !== 'installer' && data.dayOff) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["dayOff"],
-            message: "Day off is only applicable for installers.",
-        });
+    if (data.timesheetEnabled) {
+        const startMinutes = parseTimeToMinutes(data.timesheetDutyStart);
+        const endMinutes = parseTimeToMinutes(data.timesheetDutyEnd);
+        if (startMinutes === null) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["timesheetDutyStart"],
+                message: "Duty start time is required.",
+            });
+        }
+        if (endMinutes === null) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["timesheetDutyEnd"],
+                message: "Duty end time is required.",
+            });
+        }
+        if (startMinutes !== null && endMinutes !== null && endMinutes <= startMinutes) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["timesheetDutyEnd"],
+                message: "Duty end time must be after start time.",
+            });
+        }
     }
 });
 
@@ -72,6 +97,9 @@ interface UserFormDialogProps {
 
 export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
   const [loading, setLoading] = useState(false);
+  const [isDutyTimeDialogOpen, setIsDutyTimeDialogOpen] = useState(false);
+  const [draftDutyStart, setDraftDutyStart] = useState("10:00");
+  const [draftDutyEnd, setDraftDutyEnd] = useState("19:00");
   const { toast } = useToast();
   const isEditing = !!user;
 
@@ -87,10 +115,17 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
       salesmanCode: '',
       dayOff: undefined,
       permissions: [],
+      timesheetEnabled: false,
+      timesheetDutyStart: '',
+      timesheetDutyEnd: '',
     },
   });
 
   const role = form.watch('role');
+  const isTimesheetRoleAllowed = role !== "admin" && role !== "installer";
+  const timesheetEnabled = Boolean(form.watch('timesheetEnabled'));
+  const timesheetDutyStart = form.watch('timesheetDutyStart');
+  const timesheetDutyEnd = form.watch('timesheetDutyEnd');
 
   useEffect(() => {
     if (user) {
@@ -104,6 +139,9 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
         salesmanCode: user.salesmanCode || '',
         dayOff: user.dayOff,
         permissions: user.permissions || [],
+        timesheetEnabled: Boolean(user.timesheetEnabled),
+        timesheetDutyStart: user.timesheetDutyStart || '',
+        timesheetDutyEnd: user.timesheetDutyEnd || '',
       });
     } else {
       form.reset({
@@ -114,10 +152,14 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
         store: '',
         designation: undefined,
         salesmanCode: '',
-        dayOff: undefined,
+        dayOff:undefined,
         permissions: [],
+        timesheetEnabled: false,
+        timesheetDutyStart: '',
+        timesheetDutyEnd: '',
       });
     }
+    setIsDutyTimeDialogOpen(false);
   }, [user, isOpen, form]);
 
   useEffect(() => {
@@ -130,11 +172,78 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
       if (role !== 'installer') {
           form.setValue('dayOff', undefined);
       }
+      if (role === 'admin' || role === 'installer') {
+          form.setValue("timesheetEnabled", false);
+          form.setValue("timesheetDutyStart", "");
+          form.setValue("timesheetDutyEnd", "");
+          form.clearErrors(["timesheetEnabled", "timesheetDutyStart", "timesheetDutyEnd"]);
+      }
   }, [role, form]);
+
+  const openDutyTimeDialog = () => {
+    setDraftDutyStart(form.getValues("timesheetDutyStart") || "10:00");
+    setDraftDutyEnd(form.getValues("timesheetDutyEnd") || "19:00");
+    setIsDutyTimeDialogOpen(true);
+  };
+
+  const applyDutyTimeConfig = () => {
+    const startMinutes = parseTimeToMinutes(draftDutyStart);
+    const endMinutes = parseTimeToMinutes(draftDutyEnd);
+
+    if (startMinutes === null) {
+      form.setError("timesheetDutyStart", { message: "Duty start time is required." });
+      return;
+    }
+    if (endMinutes === null) {
+      form.setError("timesheetDutyEnd", { message: "Duty end time is required." });
+      return;
+    }
+    if (endMinutes <= startMinutes) {
+      form.setError("timesheetDutyEnd", { message: "Duty end time must be after start time." });
+      return;
+    }
+
+    form.clearErrors(["timesheetDutyStart", "timesheetDutyEnd"]);
+    form.setValue("timesheetDutyStart", draftDutyStart, { shouldValidate: true });
+    form.setValue("timesheetDutyEnd", draftDutyEnd, { shouldValidate: true });
+    setIsDutyTimeDialogOpen(false);
+  };
+
+  const getFirstFormErrorMessage = (errors: FieldErrors<z.infer<typeof formSchema>>): string | null => {
+    const queue: any[] = Object.values(errors || {});
+    while (queue.length) {
+      const item = queue.shift();
+      if (!item) continue;
+      if (typeof item.message === "string" && item.message.trim()) {
+        return item.message;
+      }
+      if (typeof item === "object") {
+        queue.push(...Object.values(item));
+      }
+    }
+    return null;
+  };
+
+  const onInvalidSubmit = (errors: FieldErrors<z.infer<typeof formSchema>>) => {
+    const message = getFirstFormErrorMessage(errors) || "Please check the form fields and try again.";
+    toast({
+      variant: "destructive",
+      title: "Cannot Save User",
+      description: message,
+    });
+  };
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setLoading(true);
     try {
+      const normalizedDesignation = values.role === "employee" ? (values.designation || null) : null;
+      const normalizedSalesmanCode = values.role === "salesman" ? (values.salesmanCode || null) : null;
+      const normalizedDayOff = values.role === "installer" ? (values.dayOff || null) : null;
+      const isTimesheetApplicable = values.role !== "admin" && values.role !== "installer";
+      const normalizedTimesheetEnabled = isTimesheetApplicable && Boolean(values.timesheetEnabled);
+      const normalizedTimesheetStart = normalizedTimesheetEnabled ? (values.timesheetDutyStart || null) : null;
+      const normalizedTimesheetEnd = normalizedTimesheetEnabled ? (values.timesheetDutyEnd || null) : null;
+
       if (isEditing) {
         // Update existing user in Firestore
         const userRef = doc(db, "users", user.id);
@@ -142,10 +251,13 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
             name: values.name,
             role: values.role,
             store: values.store || null,
-            designation: values.designation || null,
-            salesmanCode: values.salesmanCode || null,
-            dayOff: values.role === 'installer' ? (values.dayOff || null) : null,
+            designation: normalizedDesignation,
+            salesmanCode: normalizedSalesmanCode,
+            dayOff: normalizedDayOff,
             permissions: values.permissions || [],
+            timesheetEnabled: normalizedTimesheetEnabled,
+            timesheetDutyStart: normalizedTimesheetStart,
+            timesheetDutyEnd: normalizedTimesheetEnd,
         });
         toast({ title: "User Updated", description: "User details have been successfully updated." });
       } else {
@@ -166,15 +278,20 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                 role: values.role,
                 store: values.store,
                 permissions: values.permissions || [],
+                timesheetEnabled: normalizedTimesheetEnabled,
             };
-            if (values.designation && values.role === 'employee') {
-                newUser.designation = values.designation;
+            if (normalizedDesignation) {
+                newUser.designation = normalizedDesignation;
             }
-             if (values.salesmanCode && values.role === 'salesman') {
-                newUser.salesmanCode = values.salesmanCode;
+             if (normalizedSalesmanCode) {
+                newUser.salesmanCode = normalizedSalesmanCode;
             }
-            if (values.dayOff && values.role === 'installer') {
-                newUser.dayOff = values.dayOff;
+            if (normalizedDayOff) {
+                newUser.dayOff = normalizedDayOff;
+            }
+            if (normalizedTimesheetEnabled && normalizedTimesheetStart && normalizedTimesheetEnd) {
+                newUser.timesheetDutyStart = normalizedTimesheetStart;
+                newUser.timesheetDutyEnd = normalizedTimesheetEnd;
             }
             
             await setDoc(doc(db, "users", authUser.uid), newUser);
@@ -198,30 +315,35 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
       form.reset();
       onClose();
     } catch (error: any) {
-      // This outer catch block will now receive more specific errors.
       console.error("Error saving user: ", error);
-      // The specific error message is already shown in the inner try-catch
+      toast({
+        variant: "destructive",
+        title: isEditing ? "Update Failed" : "Save Failed",
+        description: error?.message || "Could not save user details. Please try again.",
+      });
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => {
-        if (!open) {
-            form.reset();
-            onClose();
-        }
-    }}>
-      <DialogContent className="sm:max-w-[425px]">
-        <DialogHeader>
-          <DialogTitle>{isEditing ? 'Edit User' : 'Create New User'}</DialogTitle>
-          <DialogDescription>
-            Fill in the details below to {isEditing ? 'update the user' : 'create a new user'}.
-          </DialogDescription>
-        </DialogHeader>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4 max-h-[80vh] overflow-y-auto pr-4">
+    <>
+      <Dialog open={isOpen} onOpenChange={(open) => {
+          if (!open) {
+              form.reset();
+              setIsDutyTimeDialogOpen(false);
+              onClose();
+          }
+      }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>{isEditing ? 'Edit User' : 'Create New User'}</DialogTitle>
+            <DialogDescription>
+              Fill in the details below to {isEditing ? 'update the user' : 'create a new user'}.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit, onInvalidSubmit)} className="space-y-4 py-4 max-h-[80vh] overflow-y-auto pr-4">
             <FormField
               control={form.control}
               name="name"
@@ -316,6 +438,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                                     <SelectItem value="CRM">CRM</SelectItem>
                                     <SelectItem value="Allocators">Allocators</SelectItem>
                                     <SelectItem value="PC">PC</SelectItem>
+                                    <SelectItem value="salesmanager">Sales Manager</SelectItem>
                                 </SelectContent>
                             </Select>
                             <FormMessage />
@@ -336,35 +459,100 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                 )}
               />
             )}
-            {role === 'installer' && (
+              <FormField
+                  control={form.control}
+                  name="dayOff"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Day Off</FormLabel>
+                      <Select
+                        onValueChange={(value) => field.onChange(value === "__none__" ? undefined : value)}
+                        value={field.value || "__none__"}
+                      >
+                        <FormControl>
+                          <SelectTrigger><SelectValue placeholder="Select weekly day off" /></SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="__none__">No Day Off</SelectItem>
+                          <SelectItem value="sunday">Sunday</SelectItem>
+                          <SelectItem value="monday">Monday</SelectItem>
+                          <SelectItem value="tuesday">Tuesday</SelectItem>
+                          <SelectItem value="wednesday">Wednesday</SelectItem>
+                          <SelectItem value="thursday">Thursday</SelectItem>
+                          <SelectItem value="friday">Friday</SelectItem>
+                          <SelectItem value="saturday">Saturday</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+            <Separator />
+            {isTimesheetRoleAllowed ? (
               <FormField
                 control={form.control}
-                name="dayOff"
+                name="timesheetEnabled"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Day Off</FormLabel>
-                    <Select
-                      onValueChange={(value) => field.onChange(value === "__none__" ? undefined : value)}
-                      value={field.value || "__none__"}
-                    >
+                  <FormItem className="space-y-2">
+                    <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
+                      <div>
+                        <FormLabel className="text-sm font-medium">Enable Timesheet</FormLabel>
+                        <FormDescription className="text-xs">
+                          User must submit hourly work updates during duty time.
+                        </FormDescription>
+                      </div>
                       <FormControl>
-                        <SelectTrigger><SelectValue placeholder="Select weekly day off" /></SelectTrigger>
+                        <Switch
+                          checked={Boolean(field.value)}
+                          onCheckedChange={(checked) => {
+                            field.onChange(checked);
+                            if (checked) {
+                              if (!form.getValues("timesheetDutyStart") || !form.getValues("timesheetDutyEnd")) {
+                                openDutyTimeDialog();
+                              }
+                            } else {
+                              form.setValue("timesheetDutyStart", "", { shouldValidate: true });
+                              form.setValue("timesheetDutyEnd", "", { shouldValidate: true });
+                              form.clearErrors(["timesheetDutyStart", "timesheetDutyEnd"]);
+                            }
+                          }}
+                        />
                       </FormControl>
-                      <SelectContent>
-                        <SelectItem value="__none__">No Day Off</SelectItem>
-                        <SelectItem value="sunday">Sunday</SelectItem>
-                        <SelectItem value="monday">Monday</SelectItem>
-                        <SelectItem value="tuesday">Tuesday</SelectItem>
-                        <SelectItem value="wednesday">Wednesday</SelectItem>
-                        <SelectItem value="thursday">Thursday</SelectItem>
-                        <SelectItem value="friday">Friday</SelectItem>
-                        <SelectItem value="saturday">Saturday</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    </div>
+                    {timesheetEnabled && (
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm text-slate-700">
+                            Duty:{" "}
+                            <span className="font-medium">
+                              {timesheetDutyStart || "--:--"} - {timesheetDutyEnd || "--:--"}
+                            </span>
+                          </p>
+                          <Button type="button" variant="outline" size="sm" onClick={openDutyTimeDialog}>
+                            Set Duty Time
+                          </Button>
+                        </div>
+                        {form.formState.errors.timesheetDutyStart?.message && (
+                          <p className="mt-1 text-xs text-destructive">
+                            {form.formState.errors.timesheetDutyStart.message}
+                          </p>
+                        )}
+                        {form.formState.errors.timesheetDutyEnd?.message && (
+                          <p className="mt-1 text-xs text-destructive">
+                            {form.formState.errors.timesheetDutyEnd.message}
+                          </p>
+                        )}
+                      </div>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
               />
+            ) : (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <p className="text-sm font-medium text-slate-700">Timesheet</p>
+                <p className="text-xs text-slate-500">Not applicable for Admin and Installer roles.</p>
+              </div>
             )}
              <Separator />
             <FormField
@@ -417,16 +605,57 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                     </FormItem>
                 )}
              />
-            <DialogFooter>
-                <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-                <Button type="submit" disabled={loading}>
-                    {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {isEditing ? 'Save Changes' : 'Create User'}
-                </Button>
-            </DialogFooter>
-          </form>
-        </Form>
-      </DialogContent>
-    </Dialog>
+              <DialogFooter>
+                  <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+                  <Button type="submit" disabled={loading}>
+                      {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      {isEditing ? 'Save Changes' : 'Create User'}
+                  </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={isDutyTimeDialogOpen} onOpenChange={setIsDutyTimeDialogOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Duty Time</DialogTitle>
+            <DialogDescription>
+              Set duty start and end time for hourly timesheet updates.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3 py-1">
+            <div className="space-y-1">
+              <Label htmlFor="duty-start-time">Start</Label>
+              <Input
+                id="duty-start-time"
+                type="time"
+                step={3600}
+                value={draftDutyStart}
+                onChange={(event) => setDraftDutyStart(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="duty-end-time">End</Label>
+              <Input
+                id="duty-end-time"
+                type="time"
+                step={3600}
+                value={draftDutyEnd}
+                onChange={(event) => setDraftDutyEnd(event.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setIsDutyTimeDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={applyDutyTimeConfig}>
+              Save Duty Time
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

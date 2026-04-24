@@ -6,6 +6,7 @@ import { adminDb } from '@/lib/firebase-admin';
 import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequest, Stock, VasDetail, OrderType, CuttingTask } from '@/lib/types';
 import { getMilestonesForOrder } from '@/lib/constants';
 import { buildWorkflowMilestones } from '@/lib/order-workflow';
+import { upsertSalesmanIncentiveOrderEntry } from '@/lib/server/salesman-incentive';
 
 export async function getQuotationsForDeal(customerId: string, dealId: string): Promise<Quotation[]> {
     try {
@@ -162,12 +163,15 @@ export async function createDealOrderAction(
     const dealData = dealSnap.data() as Deal;
 
     let salesmanName = 'N/A';
+    let salesmanCode: string | undefined;
     const representativeId = dealData.assignedSalesPerson?.id || dealData.representativeId;
     if (representativeId) {
         const salesmanRef = adminDb.collection('users').doc(representativeId);
         const salesmanSnap = await salesmanRef.get();
         if (salesmanSnap.exists) {
             salesmanName = salesmanSnap.data()?.name || 'N/A';
+            salesmanCode =
+              String(salesmanSnap.data()?.salesmanCode || '').trim() || undefined;
         }
     }
 
@@ -428,13 +432,20 @@ export async function createDealOrderAction(
       status: isVasOnly ? 'Approved' : 'Pending Approval',
       dealOrderDocId: newDealOrderRef.id,
       storeName: quotation.store,
-      fabricDetails: rawNormalItems.map((item: any) => ({
-        fabricName: item.bcn ?? item.collectionBrand ?? item.description ?? "N/A",
-        quantity: String(item.qty ?? item.quantity ?? 0),
-        status: 'pending for po',
-        rate: coerceNumber(item.exclusiveRate ?? item.rate),
-        discountPercent: coerceNumber(item.discountPercent),
-      })),
+      fabricDetails: rawNormalItems.map((item: any, index: number) => {
+        const bcn = item.bcn ?? item.collectionBrand ?? item.description ?? "N/A";
+        return {
+          lineId: String(item.lineId || item.itemId || `line-${index + 1}`),
+          bcn,
+          itemName: item.description ?? item.salesDescription ?? bcn,
+          fabricName: bcn,
+          quantity: String(item.qty ?? item.quantity ?? 0),
+          status: 'pending for po',
+          isInStock: null,
+          rate: coerceNumber(item.exclusiveRate ?? item.rate),
+          discountPercent: coerceNumber(item.discountPercent),
+        };
+      }),
       totalAmount: overallSummary.grandTotal || quotation.totalAmount,
       vasDetails: legacyVasDetails,
       representativeId: representativeId,
@@ -463,6 +474,23 @@ export async function createDealOrderAction(
     await batch.commit();
     console.log('Batch committed successfully',batch);
     console.log('Deal order created successfully with ID:', newOrder.id);
+
+    try {
+      await upsertSalesmanIncentiveOrderEntry({
+        order: newOrder,
+        salesman: {
+          id: representativeId,
+          name: salesmanName,
+          salesmanCode,
+        },
+        source: "INVOICE_NEW_ORDER_CONVERSION",
+      });
+    } catch (incentiveError) {
+      console.error(
+        `[salesman-incentive] Failed to persist incentive snapshot for order ${newOrder.id}:`,
+        incentiveError
+      );
+    }
 
     return {
       success: true,

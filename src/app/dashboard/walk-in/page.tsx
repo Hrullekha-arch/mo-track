@@ -61,6 +61,20 @@ const COLLECTION_TYPES = ["Sample Collection", "Fabric Collection"];
 const BRANCHES = ["MO GCR BRANCH", "MO MG ROAD"] as const;
 type Branch = typeof BRANCHES[number] | "all";
 
+const resolveWalkinStore = (walkin: Partial<Walkin_Customer> & Record<string, any>): string => {
+  const resolved = String(
+    walkin.originStoreName ||
+    walkin.createdByStore ||
+    walkin.store ||
+    walkin.storeName ||
+    walkin.assignedStoreName ||
+    walkin.salesmanStore ||
+    walkin.createdBy?.store ||
+    ""
+  ).trim();
+  return resolved;
+};
+
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 const STATUS_CONFIG: Record<string, { bg: string; text: string; dot: string; label: string }> = {
   "Pending":      { bg: "bg-stone-100",  text: "text-stone-500",   dot: "bg-stone-400",   label: "Pending" },
@@ -313,7 +327,15 @@ function EditCustomerDialog({
     setCustomerType(c.customerType || "");
     setLookingFor(Array.isArray(c.lookingFor) ? c.lookingFor.join(", ") : c.lookingFor || "");
     setStatus(c.status || "");
-    const nextStore = String(c.store || c.storeName || "").trim();
+    const nextStore = String(
+      c.originStoreName ||
+      c.createdByStore ||
+      c.store ||
+      c.storeName ||
+      c.assignedStoreName ||
+      c.salesmanStore ||
+      ""
+    ).trim();
     setStore((BRANCHES as readonly string[]).includes(nextStore) ? (nextStore as (typeof BRANCHES)[number]) : BRANCHES[0]);
     setInquiryStatus(c.inquiryStatus || ds.status || (c.status === "Deal Created" ? "Inquery made" : ""));
     setAdvanceReceived(c.advanceReceived || ds.advanceReceived || "");
@@ -397,6 +419,7 @@ function EditCustomerDialog({
         status,
         store,
         storeName: store,
+        originStoreName: store,
         assignedStoreName: store,
         leadType,
       };
@@ -848,7 +871,12 @@ export default function WalkinDataPage() {
   const canAcknowledge = isAdmin || isSalesmanager;
 
   // The store this user belongs to (from their User doc)
-  const userStore: string = (user as any)?.store || "";
+  const userStore: string = String(
+    (user as any)?.store ||
+    (user as any)?.storeName ||
+    (user as any)?.branch ||
+    ""
+  ).trim();
   // Non-admin users are locked to their own branch; admin sees all
   const canSeeAllBranches = isAdmin;
 
@@ -868,7 +896,23 @@ export default function WalkinDataPage() {
       : query(collection(db, "Walkin_Customer"), where("createdById", "==", user.id));
     const unsub = onSnapshot(q,
       (snap) => {
-        setWalkinData(snap.docs.map(d => ({ id: d.id, ...d.data() } as Walkin_Customer)).sort((a, b) => new Date((b as any).createdAt || 0).getTime() - new Date((a as any).createdAt || 0).getTime()));
+        setWalkinData(
+          snap.docs
+            .map((d) => {
+              const row = { id: d.id, ...d.data() } as Walkin_Customer & Record<string, any>;
+              const resolvedStore = resolveWalkinStore(row);
+              if (resolvedStore) {
+                row.store = resolvedStore;
+                row.storeName = resolvedStore;
+              }
+              return row as Walkin_Customer;
+            })
+            .sort(
+              (a, b) =>
+                new Date((b as any).createdAt || 0).getTime() -
+                new Date((a as any).createdAt || 0).getTime()
+            )
+        );
         setLoading(false);
       },
       () => setLoading(false)

@@ -182,6 +182,7 @@ export async function addWalkinCustomer(
             store: resolvedStore || null,
             storeName: resolvedStore || null,
             createdByStore: creatorStore || null,
+            originStoreName: resolvedStore || null,
             assignedStoreName: assignedOwnerStore || resolvedStore || null,
             createdAt: createdAtIso,
             status: autoAttend ? 'Attended' : 'Pending',
@@ -280,17 +281,25 @@ export async function handoverToSalesman(
             (salesmanData as any)?.branch ||
             ''
         ).trim();
-        const existingStore = String(customerData?.store || customerData?.storeName || '').trim();
-        const nextStore = salesmanStore || existingStore;
+        const existingStore = String(
+            customerData?.originStoreName ||
+            customerData?.createdByStore ||
+            customerData?.store ||
+            customerData?.storeName ||
+            ''
+        ).trim();
+        const canonicalStore = existingStore || salesmanStore;
+        const nextAssignedStore = salesmanStore || canonicalStore;
 
         await customerRef.update({
             status: 'Handed Over',
             salesmanId: salesman.id,
             salesmanName: salesman.name,
             salesmanStore: salesmanStore || null,
-            store: nextStore || null,
-            storeName: nextStore || null,
-            assignedStoreName: nextStore || null,
+            store: canonicalStore || null,
+            storeName: canonicalStore || null,
+            originStoreName: canonicalStore || null,
+            assignedStoreName: nextAssignedStore || null,
             assignedOwnerType: 'SALESMAN',
             assignedOwnerId: salesman.id,
             assignmentReason: 'ADMIN_OVERRIDE',

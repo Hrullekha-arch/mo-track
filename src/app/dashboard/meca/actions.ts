@@ -26,6 +26,7 @@ export interface MecaOrderProgressRow {
   orderId: string;
   orderNo: string;
   dealId?: string;
+  walkinId?: string;
   customerName: string;
   salesmanId: string;
   salesmanName: string;
@@ -336,6 +337,17 @@ const resolveOrderAmount = (order: RawDoc): number => {
     return sum + toPositiveNumber(row.totalAmount);
   }, 0);
   return fromItems > 0 ? fromItems : 0;
+};
+
+const resolveOrderWalkinId = (order: RawDoc): string | undefined => {
+  const instantMeta = asRecord(order.instantQuotationMeta);
+  return (
+    asNonEmptyString(order.walkinId) ??
+    asNonEmptyString(order.leadId) ??
+    asNonEmptyString(order.leadDocId) ??
+    asNonEmptyString(instantMeta.walkinId) ??
+    asNonEmptyString(instantMeta.leadId)
+  );
 };
 
 const isWalkinMeetingAttended = (walkin: RawDoc): boolean => {
@@ -662,6 +674,7 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
           asNonEmptyString(order.orderId) ??
           doc.id,
         dealId,
+        walkinId: resolveOrderWalkinId(order),
         customerName: asNonEmptyString(order.customerName) ?? "Unknown",
         salesmanId: salesman.id,
         salesmanName: salesman.name,

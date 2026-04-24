@@ -19,6 +19,7 @@ import { VisitFormValues } from '@/components/features/customer/VisitForm';
 import { CpdFormValues } from '@/components/features/customer/CpdForm';
 import { getNextSequenceValue } from '@/lib/id-sequence';
 import { upsertVasStockItemsAction } from '@/app/dashboard/inventory/actions';
+import { upsertSalesmanIncentiveOrderEntry } from '@/lib/server/salesman-incentive';
 
 
 // This function sends an SMS using the Fast2SMS API.
@@ -399,7 +400,7 @@ export async function createQuotationAction(customerId: string, dealId: string, 
         quotationNo,
         ...values,
         createdAt: new Date().toISOString(),
-        status: 'Pending Approval', // Initially pending
+        status: 'Approved', // Already approved since it goes directly to order creation
         totalAmount: totalAmount,
         cpdId: values.selectedCpdId || "No CPD ID",
     };
@@ -521,12 +522,15 @@ export async function createDealOrderAction(
     const dealData = dealSnap.data() as Deal;
 
     let salesmanName = 'N/A';
+    let salesmanCode: string | undefined;
     const representativeId = dealData.assignedSalesPerson?.id || dealData.representativeId;
     if (representativeId) {
         const salesmanRef = adminDb.collection('users').doc(representativeId);
         const salesmanSnap = await salesmanRef.get();
         if (salesmanSnap.exists) {
             salesmanName = salesmanSnap.data()?.name || 'N/A';
+            salesmanCode =
+              String(salesmanSnap.data()?.salesmanCode || '').trim() || undefined;
         }
     }
 
@@ -714,13 +718,20 @@ export async function createDealOrderAction(
       statusAtConversion: quotation.status,
     });
 
-    const legacyFabricDetails = rawNormalItems.map((item: any) => ({
-      fabricName: item.bcn ?? item.collectionBrand ?? item.description ?? "N/A",
-      quantity: String(item.qty ?? item.quantity ?? 0),
-      status: "pending for po",
-      rate: coerceNumber(item.exclusiveRate ?? item.rate),
-      discountPercent: coerceNumber(item.discountPercent),
-    }));
+    const legacyFabricDetails = rawNormalItems.map((item: any, index: number) => {
+      const bcn = item.bcn ?? item.collectionBrand ?? item.description ?? "N/A";
+      return {
+        lineId: String(item.lineId || item.itemId || `line-${index + 1}`),
+        bcn,
+        itemName: item.description ?? item.salesDescription ?? bcn,
+        fabricName: bcn,
+        quantity: String(item.qty ?? item.quantity ?? 0),
+        status: "pending for po",
+        isInStock: null,
+        rate: coerceNumber(item.exclusiveRate ?? item.rate),
+        discountPercent: coerceNumber(item.discountPercent),
+      };
+    });
 
     const legacyVasDetails = (quotation.vasDetails && quotation.vasDetails.length > 0)
       ? quotation.vasDetails
@@ -826,6 +837,23 @@ export async function createDealOrderAction(
     });
 
     await batch.commit();
+
+    try {
+      await upsertSalesmanIncentiveOrderEntry({
+        order: newOrder,
+        salesman: {
+          id: representativeId,
+          name: salesmanName,
+          salesmanCode,
+        },
+        source: "CUSTOMER_DEAL_ORDER_CONVERSION",
+      });
+    } catch (incentiveError) {
+      console.error(
+        `[salesman-incentive] Failed to persist incentive snapshot for order ${newOrder.id}:`,
+        incentiveError
+      );
+    }
 
     return {
       success: true,

@@ -3,7 +3,7 @@
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
-import { Order, O2DStatus, Quotation } from "@/lib/types";
+import { FabricDetail, Order, O2DStatus, Quotation } from "@/lib/types";
 import { dedupeO2DMilestones, upsertO2DMilestone } from "@/lib/o2d-milestones";
 
 
@@ -41,11 +41,16 @@ export async function approveOrderAndCreatePurchaseRequest(
         const derivedFabricDetails =
             (orderData.fabricDetails && orderData.fabricDetails.length > 0)
                 ? orderData.fabricDetails
-                : (orderData.sections?.NORMAL?.items || []).map(item => ({
+                : (orderData.sections?.NORMAL?.items || []).map((item, index) => ({
+                    lineId: String((item as any)?.lineId || (item as any)?.itemId || `line-${index + 1}`),
+                    bcn: item.bcn || item.description || "N/A",
+                    itemName: item.description || item.bcn || "N/A",
                     fabricName: item.bcn || item.description || "N/A",
                     quantity: String(item.qty ?? 0),
                     rate: Number(item.exclusiveRate ?? item.rate) || 0,
                     discountPercent: 0,
+                    status: "pending for po",
+                    isInStock: null,
                 }));
             console.log(orderData.sections?.NORMAL?.items)
             console.log(derivedFabricDetails);
@@ -54,24 +59,49 @@ export async function approveOrderAndCreatePurchaseRequest(
         const approvedStockRef = adminDb.collection('approvedStock');
         const createdAt = new Date().toISOString();
 
+        const updatedFabricDetails: FabricDetail[] = [];
+
         if (derivedFabricDetails.length > 0) {
-            for (const item of derivedFabricDetails) {
+            for (let index = 0; index < derivedFabricDetails.length; index++) {
+                const item = derivedFabricDetails[index];
                 const newDocRef = approvedStockRef.doc(); // Auto-generate ID
+                const approvedStockId = newDocRef.id;
+                const lineId = String(item.lineId || `line-${index + 1}`);
+                const bcn = String(item.bcn || item.fabricName || "").trim() || undefined;
+                const itemName =
+                  String(item.itemName || item.fabricName || bcn || "N/A").trim() || "N/A";
+                const normalizedItemDetail: FabricDetail = {
+                  ...item,
+                  lineId,
+                  bcn,
+                  itemName,
+                  approvedStockId,
+                  status: "pending for po",
+                  isInStock: false,
+                };
                 const stockItem = {
                     orderId: orderId,
                     crmOrderNo: orderData.crmOrderNo,
                     dealId: orderData.dealId,
+                    lineId,
                     customerName: orderData.customerName,
                     salesPerson: orderData.salesPerson,
-                    fabricName: item.fabricName,
+                    fabricName: item.fabricName || bcn || itemName,
                     quantity: item.quantity,
                     status: 'Pending Stock Verification',
                     createdAt: createdAt,
                     createdBy: approver,
-                    itemDetail: item,
+                    itemDetail: normalizedItemDetail,
                 };
                 batch.set(newDocRef, stockItem);
+                updatedFabricDetails.push(normalizedItemDetail);
             }
+        }
+
+        if (updatedFabricDetails.length > 0) {
+            batch.update(orderRef, {
+                fabricDetails: updatedFabricDetails,
+            });
         }
 
         await batch.commit();

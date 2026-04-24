@@ -99,6 +99,7 @@ export async function addWalkinCustomer(
             store: resolvedStore || null,
             storeName: resolvedStore || null,
             createdByStore: creatorStore || null,
+            originStoreName: resolvedStore || null,
             assignedStoreName: resolvedStore || null,
             createdAt: createdAtIso,
             status: autoAttend ? 'Attended' : 'Pending',
