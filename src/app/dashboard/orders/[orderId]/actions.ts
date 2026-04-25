@@ -3,7 +3,7 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Order, OrderWorkflowStatus, Stock, StockTransaction, O2DStatus, FabricDetail } from '@/lib/types';
+import { Order, OrderWorkflowStatus, Stock, StockTransaction, O2DStatus, FabricDetail, PurchaseRequest } from '@/lib/types';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import {
   buildWorkflowFromLegacyMilestones,
@@ -63,6 +63,62 @@ const parseFirestoreTimestamp = (value: unknown): Date | null => {
         if (!isNaN(parsed.getTime())) return parsed;
     }
     return null;
+};
+
+const normalizeToken = (value: unknown) =>
+  String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    .replace(/[^A-Z0-9]/g, '');
+
+const isInstantSaleOrder = (order: (Order & Record<string, unknown>) | null): boolean => {
+  if (!order) return false;
+
+  const instantMeta =
+    typeof (order as any).instantQuotationMeta === 'object' && (order as any).instantQuotationMeta !== null
+      ? ((order as any).instantQuotationMeta as Record<string, unknown>)
+      : {};
+  const instantSource = String(instantMeta.source || '').trim().toLowerCase();
+  const instantDealName = String(instantMeta.dealName || '').trim().toLowerCase();
+  const saleFlowType = String((order as any).saleFlowType || '').trim().toLowerCase();
+  const updateActions = Array.isArray((order as any).updates)
+    ? (order as any).updates.map((entry: any) => String(entry?.action || '').trim().toLowerCase())
+    : [];
+
+  return (
+    instantSource === 'quotation-builder' ||
+    instantDealName.includes('cashsale') ||
+    instantDealName.includes('walkin') ||
+    saleFlowType.includes('cashsale') ||
+    saleFlowType.includes('walkin-sale') ||
+    updateActions.some((action: string) => action.includes('instant_quotation_created') || action.includes('instant-sale'))
+  );
+};
+
+type SelectedOrderPrItem = {
+  lineId?: string;
+  bcn?: string;
+  itemName: string;
+  quantity: string;
+};
+
+const toPositiveQtyString = (value: unknown): string => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return '';
+  return parsed.toFixed(2).replace(/\.?0+$/, '');
+};
+
+const getOrderLineKey = (line: {
+  lineId?: string;
+  bcn?: string;
+  itemName?: string;
+  fabricName?: string;
+}) => {
+  const lineId = String(line.lineId || '').trim();
+  if (lineId) return `line:${lineId}`;
+  const token = normalizeToken(line.bcn || line.itemName || line.fabricName);
+  return token ? `name:${token}` : '';
 };
 
 
@@ -532,6 +588,200 @@ export async function getOrderAllocations(orderId: string): Promise<any[]> {
     }
 }
 //////////////////////////////////////////////test///////////////////////////////////////
+
+export async function createPurchaseRequestForOrderItemsAction(payload: {
+  orderId: string;
+  items: SelectedOrderPrItem[];
+  actor: { id: string; name: string };
+}): Promise<{ success: boolean; message: string; createdRequestId?: string; createdItems: number; skippedItems: number }> {
+  try {
+    const orderId = String(payload?.orderId || '').trim();
+    const actorId = String(payload?.actor?.id || '').trim();
+
+    if (!orderId) {
+      return { success: false, message: 'Order ID is required.', createdItems: 0, skippedItems: 0 };
+    }
+    if (!actorId) {
+      return { success: false, message: 'Missing user context.', createdItems: 0, skippedItems: 0 };
+    }
+
+    const rawItems = Array.isArray(payload?.items) ? payload.items : [];
+    if (!rawItems.length) {
+      return { success: false, message: 'Select at least one item.', createdItems: 0, skippedItems: 0 };
+    }
+
+    const actorSnap = await adminDb.collection('users').doc(actorId).get();
+    const actorRole = String(actorSnap.data()?.role || '').trim().toLowerCase();
+    if (actorRole !== 'admin') {
+      return { success: false, message: 'Only admin can create PR from order items.', createdItems: 0, skippedItems: rawItems.length };
+    }
+
+    const orderRef = adminDb.collection('orders').doc(orderId);
+    const orderSnap = await orderRef.get();
+    if (!orderSnap.exists) {
+      return { success: false, message: 'Order not found.', createdItems: 0, skippedItems: rawItems.length };
+    }
+
+    const orderData = { id: orderSnap.id, ...(orderSnap.data() as Omit<Order, 'id'>) } as Order & Record<string, unknown>;
+    if (isInstantSaleOrder(orderData)) {
+      return {
+        success: false,
+        message: 'PR creation is disabled for instant sale orders.',
+        createdItems: 0,
+        skippedItems: rawItems.length,
+      };
+    }
+
+    const dealId = String(orderData.crmOrderNo || orderData.dealId || orderData.id || orderId).trim();
+    if (!dealId) {
+      return { success: false, message: 'Deal/quotation reference not found for this order.', createdItems: 0, skippedItems: rawItems.length };
+    }
+
+    const existingRequestsSnap = await adminDb
+      .collection('purchaseRequests')
+      .where('dealId', '==', dealId)
+      .get();
+
+    const existingLineKeys = new Set<string>();
+    existingRequestsSnap.docs.forEach((requestDoc) => {
+      const requestData = requestDoc.data() as PurchaseRequest;
+      if (String(requestData.status || '').trim().toLowerCase() === 'cancelled') return;
+
+      (requestData.fabricDetails || []).forEach((line) => {
+        const lineKey = getOrderLineKey({
+          lineId: line.lineId,
+          bcn: line.bcn,
+          itemName: line.itemName,
+          fabricName: line.fabricName,
+        });
+        if (lineKey) existingLineKeys.add(lineKey);
+
+        const nameKey = getOrderLineKey({ fabricName: line.fabricName });
+        if (nameKey) existingLineKeys.add(nameKey);
+      });
+    });
+
+    const uniqueIncoming = new Map<string, SelectedOrderPrItem>();
+    let skippedItems = 0;
+
+    rawItems.forEach((rawItem) => {
+      const itemName = String(rawItem?.itemName || '').trim();
+      const lineId = String(rawItem?.lineId || '').trim() || undefined;
+      const bcn =
+        String(rawItem?.bcn || '').trim() || itemName.split(' - ')[0]?.trim() || undefined;
+      const quantity = toPositiveQtyString(rawItem?.quantity);
+
+      if (!itemName || !quantity) {
+        skippedItems += 1;
+        return;
+      }
+
+      const itemKey = getOrderLineKey({ lineId, bcn, itemName, fabricName: itemName });
+      if (!itemKey) {
+        skippedItems += 1;
+        return;
+      }
+      if (uniqueIncoming.has(itemKey)) {
+        skippedItems += 1;
+        return;
+      }
+
+      const itemNameKey = getOrderLineKey({ fabricName: itemName });
+      if (existingLineKeys.has(itemKey) || (itemNameKey && existingLineKeys.has(itemNameKey))) {
+        skippedItems += 1;
+        return;
+      }
+
+      uniqueIncoming.set(itemKey, { lineId, bcn, itemName, quantity });
+    });
+
+    const linesToCreate: FabricDetail[] = Array.from(uniqueIncoming.values()).map((item) => ({
+      lineId: item.lineId,
+      bcn: item.bcn,
+      itemName: item.itemName,
+      fabricName: item.itemName,
+      quantity: item.quantity,
+      status: 'pending for po',
+      isInStock: false,
+      unit: 'Mtr',
+    }));
+
+    if (!linesToCreate.length) {
+      return {
+        success: false,
+        message: 'Selected item(s) already have PR or are invalid.',
+        createdItems: 0,
+        skippedItems,
+      };
+    }
+
+    const createdAt = new Date().toISOString();
+    const createdByName = String(payload?.actor?.name || actorSnap.data()?.name || 'Admin').trim() || 'Admin';
+    const prRef = adminDb.collection('purchaseRequests').doc();
+
+    const requestPayload: PurchaseRequest = {
+      id: prRef.id,
+      dealId,
+      quotationNo: String(orderData.crmOrderNo || orderData.quotationNo || dealId).trim() || dealId,
+      customerName: String(orderData.customerName || (orderData as any)?.customerSnapshot?.name || 'Unknown').trim() || 'Unknown',
+      promiseDeliveryDate: '',
+      salesman: String(orderData.salesPerson || '').trim() || '-',
+      type: 'fabric',
+      fabricDetails: linesToCreate,
+      createdAt,
+      createdBy: {
+        id: actorId,
+        name: createdByName,
+      },
+      milestones: [],
+      vendorType: 'undecided',
+      status: 'Approved',
+      customerSnapshot: {
+        name: String((orderData as any)?.customerSnapshot?.name || orderData.customerName || '').trim() || undefined,
+        phone: String((orderData as any)?.customerSnapshot?.phone || orderData.customerPhone || '').trim() || undefined,
+        address: String(orderData.customerAddress || '').trim() || undefined,
+        customerId: String(orderData.customerId || '').trim() || undefined,
+      },
+      dealSnapshot: {
+        dealId: String(orderData.dealId || dealId).trim() || undefined,
+        quotationNo: String(orderData.quotationNo || orderData.crmOrderNo || '').trim() || undefined,
+        orderId: String(orderData.id || '').trim() || undefined,
+        crmOrderNo: String(orderData.crmOrderNo || '').trim() || undefined,
+      },
+      orderSnapshot: {
+        id: String(orderData.id || '').trim() || undefined,
+        crmOrderNo: String(orderData.crmOrderNo || '').trim() || undefined,
+        orderNo: String(orderData.orderNo || orderData.orderId || '').trim() || undefined,
+        orderType: String(orderData.orderType || '').trim() || undefined,
+        status: String(orderData.status || '').trim() || undefined,
+        createdAt: String(orderData.createdAt || '').trim() || undefined,
+        totalAmount: typeof orderData.totalAmount === 'number' ? orderData.totalAmount : undefined,
+      },
+      assignedSalesman: {
+        id: String(orderData.representativeId || '').trim() || undefined,
+        name: String(orderData.salesPerson || '').trim() || undefined,
+      },
+    };
+
+    await prRef.set(requestPayload);
+
+    return {
+      success: true,
+      message: `PR created for ${linesToCreate.length} item(s).`,
+      createdRequestId: prRef.id,
+      createdItems: linesToCreate.length,
+      skippedItems,
+    };
+  } catch (error: any) {
+    console.error('Error creating purchase request from selected order items:', error);
+    return {
+      success: false,
+      message: error?.message || 'Failed to create PR from selected items.',
+      createdItems: 0,
+      skippedItems: 0,
+    };
+  }
+}
 
 export async function debugGetDiscountPercent(orderId: string, bcn: string, lengthId: string) {
   try {

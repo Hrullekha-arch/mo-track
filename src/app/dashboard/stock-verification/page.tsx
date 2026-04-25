@@ -82,7 +82,7 @@ export default function StockVerificationPage() {
 
             if (result.success) {
                 setItems(prev => prev.filter(row => row.id !== item.id));
-                toast({ title: 'Success', description: `Purchase Request created for ${item.fabricName}.` });
+                toast({ title: 'Success', description: result.message || `Processed ${item.fabricName}.` });
             } else {
                 toast({ variant: 'destructive', title: 'Error', description: result.message });
             }

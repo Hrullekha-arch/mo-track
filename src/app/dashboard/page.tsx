@@ -31,8 +31,11 @@ import {
   ShoppingBag,
   Users,
   RotateCcw,
+  TrendingUp,
+  XCircle,
 } from "lucide-react";
 import { useEffect, useState, useMemo, useRef, use, useCallback } from "react";
+import { DateRange } from "react-day-picker";
 import {
   collection,
   onSnapshot,
@@ -62,7 +65,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { InboundRequest, Order, Quotation, PurchaseRequest, Walkin_Customer } from "@/lib/types";
 import { getFollowUpItems } from "./po-tracking/actions";
 import { useAuth } from "@/context/AuthContext";
-import { format, formatDistanceToNow } from "date-fns";
+import { endOfDay, format, formatDistanceToNow, startOfDay, subDays } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import CrmDashboard from "@/components/features/dashboard/CrmDashboard";
@@ -78,7 +81,17 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { getNormalizedOrderMilestones, isOrderComplete as isOrderWorkflowComplete } from "@/lib/order-workflow";
+import {
+  getMecaData,
+  type MecaOrderProgressRow,
+  type MecaResponse,
+  type MecaSalesmanMetric,
+  type MecaVisitRow,
+} from "./meca/actions";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 type DashboardOrderRisk = "critical" | "watch" | "stable";
 
@@ -128,6 +141,20 @@ interface TimesheetHourEntry {
 }
 
 const normalizeText = (value?: string) => String(value || "").trim().toLowerCase();
+
+const normalizeCustomerNameKey = (value: unknown): string | undefined => {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  if (!normalized || normalized === "customer" || normalized === "unknown") return undefined;
+  return normalized;
+};
+
+const normalizeLookupKey = (value: unknown): string | undefined => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized || undefined;
+};
 
 const toDateSafe = (value: unknown): Date | null => {
   if (!value) return null;
@@ -320,17 +347,28 @@ function StatCard({
   accent?: string;
   icon: React.ElementType;
 }) {
+  const isRed = accent?.includes("red");
+  const isGreen = accent?.includes("emerald");
+  const isOrange = accent?.includes("orange");
+
   return (
-    <div className={`rounded-2xl border bg-white px-4 py-3 shadow-sm flex items-center gap-3 ${accent || "border-slate-200"}`}>
-      <div className={`h-9 w-9 rounded-xl flex items-center justify-center flex-shrink-0 ${accent ? accent.replace("border-", "bg-").replace("-200", "-50") : "bg-slate-50"}`}>
-        <Icon className={`h-4 w-4 ${accent ? accent.replace("border-", "text-").replace("-200", "-600") : "text-slate-500"}`} />
+    <div className={`flex items-center gap-3 rounded-xl border p-3 bg-white ${accent || "border-slate-200"}`}>
+      <div className={`h-8 w-8 flex-shrink-0 rounded-lg flex items-center justify-center ${
+        isRed ? "bg-red-100 text-red-600" :
+        isGreen ? "bg-emerald-100 text-emerald-600" :
+        isOrange ? "bg-orange-100 text-orange-600" :
+        "bg-slate-100 text-slate-600"
+      }`}>
+        <Icon className="h-3.5 w-3.5" />
       </div>
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+      <div className="min-w-0">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 truncate">{label}</p>
         {loading ? (
-          <Skeleton className="h-6 w-10 mt-0.5" />
+          <Skeleton className="h-5 w-10 mt-0.5" />
         ) : (
-          <p className="text-xl font-bold text-slate-900 leading-tight">{value}</p>
+          <p className={`text-base font-bold leading-tight ${
+            isRed ? "text-red-700" : isGreen ? "text-emerald-700" : isOrange ? "text-orange-700" : "text-slate-900"
+          }`}>{value}</p>
         )}
       </div>
     </div>
@@ -341,13 +379,12 @@ function StatCard({
 
 function QuickAction({ title, href, icon: Icon, accent }: { title: string; href: string; icon: React.ElementType; accent: string }) {
   return (
-    <Link href={href} className="group block">
-      <div className={`flex items-center justify-between rounded-2xl border bg-white px-4 py-3.5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${accent}`}>
-        <div className="flex items-center gap-2.5">
-          <Icon className="h-4 w-4 text-orange-600" />
-          <span className="text-sm font-semibold text-slate-800">{title}</span>
+    <Link href={href} className="group flex-1 min-w-[72px]">
+      <div className="flex flex-col items-center gap-1.5 rounded-xl border border-slate-200 bg-white p-3 text-center transition-all hover:border-orange-200 hover:bg-orange-50 group-hover:-translate-y-0.5 group-hover:shadow-sm">
+        <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center group-hover:bg-orange-100 transition-colors">
+          <Icon className="h-4 w-4 text-slate-600 group-hover:text-orange-600 transition-colors" />
         </div>
-        <ChevronRight className="h-4 w-4 text-slate-400 transition-transform group-hover:translate-x-0.5" />
+        <span className="text-[11px] font-semibold text-slate-700 leading-tight">{title}</span>
       </div>
     </Link>
   );
@@ -373,81 +410,82 @@ function LeadCard({
   const isReturning = lead.customerType === "Returning-Customer";
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-orange-200 hover:shadow transition-all">
-      {/* Header row */}
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className={`h-10 w-10 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0 ${isReturning ? "bg-blue-50 text-blue-600" : "bg-orange-50 text-orange-600"}`}>
-            {(lead.firstName || "?")[0].toUpperCase()}
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <p className="font-semibold text-slate-900 truncate">{lead.firstName} {lead.familyName}</p>
-              <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${isReturning ? "bg-blue-100 text-blue-700" : "bg-orange-100 text-orange-700"}`}>
-                {isReturning ? "Returning" : "New"}
-              </span>
-            </div>
-            <p className="text-xs text-slate-500">{lead.mobile}</p>
-          </div>
+    <div className="relative flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-orange-200 hover:shadow transition-all">
+      <div className={`absolute left-0 top-4 bottom-4 w-[3px] rounded-r-full ${isReturning ? "bg-blue-400" : "bg-orange-400"}`} />
+
+      {/* Header */}
+      <div className="flex items-start gap-3 pl-3">
+        <div className={`h-9 w-9 flex-shrink-0 rounded-xl flex items-center justify-center text-sm font-bold ${isReturning ? "bg-blue-100 text-blue-700" : "bg-orange-100 text-orange-700"}`}>
+          {(lead.firstName || "?")[0].toUpperCase()}
         </div>
-
-        {/* Action buttons */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" className="h-8 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs px-3 shadow-sm">
-                Actions
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="rounded-xl border-slate-200 shadow-xl w-48">
-              <DropdownMenuGroup>
-                <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-400">Main</DropdownMenuLabel>
-                <DropdownMenuItem onClick={onInstantSale} className="rounded-lg text-sm gap-2">
-                  <Zap className="h-3.5 w-3.5 text-orange-500" /> Instant Sale
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onCreateDeal} disabled={isCreatingDeal} className="rounded-lg text-sm gap-2">
-                  <Briefcase className="h-3.5 w-3.5 text-indigo-500" /> Create Deal
-                </DropdownMenuItem>
-
-                {isReturning && (
-                  <>
-                    <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-400 mt-1">Payment</DropdownMenuLabel>
-                    {PAYMENT_TYPES.map((t) => (
-                      <DropdownMenuItem key={t} onClick={() => onReturnAction(t)} className="rounded-lg text-sm gap-2">
-                        <CreditCard className="h-3.5 w-3.5 text-emerald-500" /> {t}
-                      </DropdownMenuItem>
-                    ))}
-                    <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-400 mt-1">Fabric</DropdownMenuLabel>
-                    {FABRIC_TYPES.map((t) => (
-                      <DropdownMenuItem key={t} onClick={() => onReturnAction(t)} className="rounded-lg text-sm gap-2">
-                        <Layers className="h-3.5 w-3.5 text-violet-500" /> {t}
-                      </DropdownMenuItem>
-                    ))}
-                    <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-400 mt-1">Collection</DropdownMenuLabel>
-                    {COLLECTION_TYPES.map((t) => (
-                      <DropdownMenuItem key={t} onClick={() => onReturnAction(t)} className="rounded-lg text-sm gap-2">
-                        <Package className="h-3.5 w-3.5 text-blue-500" /> {t}
-                      </DropdownMenuItem>
-                    ))}
-                  </>
-                )}
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <Button size="sm" variant="outline" onClick={onClose} className="h-8 rounded-xl border-slate-200 text-slate-600 text-xs px-3">
-            <X className="h-3.5 w-3.5" />
-          </Button>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className="font-semibold text-slate-900 text-sm truncate">{lead.firstName} {lead.familyName}</p>
+            <span className={`flex-shrink-0 text-[9px] font-bold uppercase tracking-wider rounded-full px-1.5 py-0.5 ${isReturning ? "bg-blue-100 text-blue-700" : "bg-orange-100 text-orange-700"}`}>
+              {isReturning ? "Returning" : "New"}
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-0.5 tabular-nums">{lead.mobile}</p>
+          {lead.lookingFor && (
+            <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+              <span className="font-medium text-slate-600">{lead.lookingFor}</span>
+            </p>
+          )}
         </div>
       </div>
 
-      {/* Info row */}
-      {lead.lookingFor && (
-        <div className="flex items-center gap-1.5 mt-1">
-          <Search className="h-3 w-3 text-slate-400" />
-          <p className="text-xs text-slate-500 truncate">Looking for: <span className="font-medium text-slate-700">{lead.lookingFor}</span></p>
-        </div>
-      )}
+      {/* Actions */}
+      <div className="flex items-center gap-1.5 flex-wrap pl-3">
+        <button
+          type="button"
+          onClick={onInstantSale}
+          className="flex items-center gap-1 rounded-lg border border-orange-200 bg-orange-50 px-2 py-1.5 text-[11px] font-semibold text-orange-700 hover:bg-orange-100 transition-colors"
+        >
+          <Zap className="h-3 w-3" /> Instant Sale
+        </button>
+        <button
+          type="button"
+          onClick={onCreateDeal}
+          disabled={isCreatingDeal}
+          className="flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors disabled:opacity-50"
+        >
+          <Briefcase className="h-3 w-3" /> Deal
+        </button>
+        {isReturning && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <RotateCcw className="h-3 w-3" /> Return
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="rounded-xl border-slate-200 shadow-xl w-44">
+              <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-400">Payment</DropdownMenuLabel>
+              {PAYMENT_TYPES.map((t) => (
+                <DropdownMenuItem key={t} onClick={() => onReturnAction(t)} className="rounded-lg text-xs gap-2">
+                  <CreditCard className="h-3 w-3 text-emerald-500" /> {t}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-400">Fabric / Collection</DropdownMenuLabel>
+              {[...FABRIC_TYPES, ...COLLECTION_TYPES].map((t) => (
+                <DropdownMenuItem key={t} onClick={() => onReturnAction(t)} className="rounded-lg text-xs gap-2">
+                  <Package className="h-3 w-3 text-blue-500" /> {t}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          className="ml-auto flex items-center justify-center h-7 w-7 rounded-lg border border-rose-200 bg-rose-50 text-rose-500 hover:bg-rose-100 transition-colors"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -501,6 +539,12 @@ const  SalesmanDashboardV2 =() => {
   const [selectedOrders, setSelectedOrders] = useState<any[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [mecaData, setMecaData] = useState<MecaResponse | null>(null);
+  const [mecaLoading, setMecaLoading] = useState(false);
+  const [mecaDateRange, setMecaDateRange] = useState<DateRange | undefined>({
+    from: startOfDay(subDays(new Date(), 29)),
+    to: endOfDay(new Date()),
+  });
 
   // ── Full reset for return customer dialog ──
   const resetReturnDialog = useCallback(() => {
@@ -786,6 +830,41 @@ const  SalesmanDashboardV2 =() => {
       .finally(() => setLoadingOrders(false));
   }, [selectedDeals]);
 
+  // ── Fetch salesman MeCA snapshot (last 30 days) ──
+  useEffect(() => {
+    if (!user?.id) {
+      setMecaData(null);
+      setMecaLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const loadMeca = async () => {
+      setMecaLoading(true);
+      try {
+        const response = await getMecaData({
+          salesmanId: user.id,
+          from: mecaDateRange?.from
+            ? startOfDay(mecaDateRange.from).toISOString()
+            : undefined,
+          to: mecaDateRange?.to
+            ? endOfDay(mecaDateRange.to).toISOString()
+            : undefined,
+        });
+        if (!cancelled) setMecaData(response);
+      } catch {
+        if (!cancelled) setMecaData(null);
+      } finally {
+        if (!cancelled) setMecaLoading(false);
+      }
+    };
+
+    loadMeca();
+    return () => {
+      cancelled = true;
+    };
+  }, [mecaDateRange?.from, mecaDateRange?.to, user?.id]);
+
   // ── Deal creation ──
   const openDealCreationDialog = (lead: any) => {
     if (isCreatingDeal) return;
@@ -1035,6 +1114,100 @@ const  SalesmanDashboardV2 =() => {
     );
   }, [walkinLeads, leadSearch]);
 
+  const mecaSalesman = useMemo<MecaSalesmanMetric | null>(() => {
+    if (!mecaData?.salesmen?.length) return null;
+    return mecaData.salesmen.find((row) => row.salesmanId === user?.id) ?? mecaData.salesmen[0] ?? null;
+  }, [mecaData?.salesmen, user?.id]);
+
+  const mecaConvertedOrders = useMemo<MecaOrderProgressRow[]>(() => {
+    const salesmanId = mecaSalesman?.salesmanId;
+    if (!salesmanId || !mecaData?.convertedOrders?.length) return [];
+    return mecaData.convertedOrders.filter((row) => row.salesmanId === salesmanId);
+  }, [mecaData?.convertedOrders, mecaSalesman?.salesmanId]);
+
+  const nonConvertedWalkinRows = useMemo<MecaVisitRow[]>(() => {
+    const visits = mecaSalesman?.visits ?? [];
+    if (visits.length === 0) return [];
+
+    const meetingConvertedOrders = mecaConvertedOrders.filter(
+      (order) => order.conversionSource === "meeting"
+    );
+
+    const visitsByWalkinId = new Map<string, number[]>();
+    const visitsByCustomer = new Map<string, number[]>();
+
+    visits.forEach((visit, index) => {
+      const walkinKey = normalizeLookupKey(visit.visitId);
+      if (walkinKey) {
+        const bucket = visitsByWalkinId.get(walkinKey) ?? [];
+        bucket.push(index);
+        visitsByWalkinId.set(walkinKey, bucket);
+      }
+
+      const customerKey = normalizeCustomerNameKey(visit.customerName);
+      if (customerKey) {
+        const bucket = visitsByCustomer.get(customerKey) ?? [];
+        bucket.push(index);
+        visitsByCustomer.set(customerKey, bucket);
+      }
+    });
+
+    const matchedVisitIndexes = new Set<number>();
+    const pendingCustomerMatchOrders: MecaOrderProgressRow[] = [];
+
+    const matchNextUnclaimedVisit = (indexes: number[] | undefined): number | undefined => {
+      if (!indexes?.length) return undefined;
+      while (indexes.length > 0) {
+        const index = indexes.shift();
+        if (index === undefined) return undefined;
+        if (!matchedVisitIndexes.has(index)) return index;
+      }
+      return undefined;
+    };
+
+    meetingConvertedOrders.forEach((order) => {
+      const walkinKey = normalizeLookupKey(order.walkinId);
+      const matchedByWalkin = matchNextUnclaimedVisit(
+        walkinKey ? visitsByWalkinId.get(walkinKey) : undefined
+      );
+      if (matchedByWalkin !== undefined) {
+        matchedVisitIndexes.add(matchedByWalkin);
+        return;
+      }
+      pendingCustomerMatchOrders.push(order);
+    });
+
+    pendingCustomerMatchOrders.forEach((order) => {
+      const customerKey = normalizeCustomerNameKey(order.customerName);
+      const matchedByCustomer = matchNextUnclaimedVisit(
+        customerKey ? visitsByCustomer.get(customerKey) : undefined
+      );
+      if (matchedByCustomer !== undefined) {
+        matchedVisitIndexes.add(matchedByCustomer);
+      }
+    });
+
+    return visits.filter((_, index) => !matchedVisitIndexes.has(index));
+  }, [mecaConvertedOrders, mecaSalesman?.visits]);
+
+  const mecaMeetingsTotal = mecaSalesman
+    ? mecaSalesman.meetings + mecaSalesman.convertedOutsideMeetings
+    : 0;
+  const mecaConvertedTotal = mecaSalesman?.convertedOrders ?? 0;
+  const mecaNonConvertedTotal = Math.max(mecaMeetingsTotal - mecaConvertedTotal, 0);
+  const mecaWalkinNonConverted = Math.max(
+    (mecaSalesman?.meetings ?? 0) - (mecaSalesman?.convertedFromMeetings ?? 0),
+    0
+  );
+  const mecaOutsideNonConverted = Math.max(
+    mecaNonConvertedTotal - mecaWalkinNonConverted,
+    0
+  );
+  const mecaNonConvertedMappingGap = Math.max(
+    mecaWalkinNonConverted - nonConvertedWalkinRows.length,
+    0
+  );
+
   const criticalCount = activeOrderRows.filter((r) => r.risk === "critical").length;
   const completedCount = Math.max(0, orderRows.length - activeOrderRows.length);
   const avgProgress = activeOrderRows.length ? Math.round(activeOrderRows.reduce((s, r) => s + r.progress, 0) / activeOrderRows.length) : 0;
@@ -1052,6 +1225,14 @@ const  SalesmanDashboardV2 =() => {
   const timesheetStatValue = timesheetEnabled
     ? `${requiredTimesheetFilledCount}/${requiredTimesheetCount || 0}`
     : "Off";
+  const mecaBusy = loading || mecaLoading;
+  const mecaRangeLabel = useMemo(() => {
+    if (!mecaDateRange?.from) return "All time";
+    if (mecaDateRange.to) {
+      return `${format(mecaDateRange.from, "dd MMM")} - ${format(mecaDateRange.to, "dd MMM yyyy")}`;
+    }
+    return format(mecaDateRange.from, "dd MMM yyyy");
+  }, [mecaDateRange?.from, mecaDateRange?.to]);
 
   // ── Return dialog type colors ──
   const rtColor = returnTypeColor(returnCustomerType);
@@ -1126,6 +1307,169 @@ const  SalesmanDashboardV2 =() => {
             />
           </div>
 
+          {/* ── Salesman MeCA Snapshot (3 items only) ── */}
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-indigo-50/60 to-rose-50/50">
+              <h2 className="text-base font-bold text-slate-900">MeCA Snapshot</h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Meetings, converted, and non-converted follow-up for your last 30 days.
+              </p>
+            </div>
+
+            <div className="p-4 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Card className="border-slate-200">
+                  <CardContent className="p-4">
+                    {mecaBusy ? (
+                      <div className="space-y-2">
+                        <Skeleton className="h-3 w-20" />
+                        <Skeleton className="h-8 w-16" />
+                        <Skeleton className="h-3 w-36" />
+                      </div>
+                    ) : (
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                            Meetings
+                          </p>
+                          <p className="text-4xl font-bold text-slate-900 mt-1 tabular-nums">
+                            {mecaMeetingsTotal}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {mecaSalesman?.meetings ?? 0} from walk-in |{" "}
+                            {mecaSalesman?.convertedOutsideMeetings ?? 0} outside
+                          </p>
+                        </div>
+                        <div className="h-10 w-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                          <Users className="h-5 w-5" />
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card className="border-slate-200">
+                  <CardContent className="p-4">
+                    {mecaBusy ? (
+                      <div className="space-y-2">
+                        <Skeleton className="h-3 w-20" />
+                        <Skeleton className="h-8 w-16" />
+                        <Skeleton className="h-3 w-36" />
+                      </div>
+                    ) : (
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                            Converted
+                          </p>
+                          <p className="text-4xl font-bold text-slate-900 mt-1 tabular-nums">
+                            {mecaConvertedTotal}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {mecaSalesman?.convertedFromMeetings ?? 0} from meetings |{" "}
+                            {mecaSalesman?.convertedOutsideMeetings ?? 0} outside
+                          </p>
+                        </div>
+                        <div className="h-10 w-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                          <TrendingUp className="h-5 w-5" />
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Tabs defaultValue="not_converted">
+                <TabsList className="h-9 bg-slate-50 border border-slate-200">
+                  <TabsTrigger value="not_converted" className="flex items-center gap-1.5">
+                    <XCircle className="h-3.5 w-3.5" /> Not Converted
+                    <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                      {mecaBusy ? "-" : mecaNonConvertedTotal}
+                    </Badge>
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="not_converted" className="mt-3">
+                  <Card className="border-slate-200">
+                    <CardContent className="p-0">
+                      <div className="flex items-center justify-end px-4 py-3 border-b border-slate-100">
+                        <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-rose-600">
+                          <XCircle className="h-4 w-4" />
+                          {mecaBusy ? "-" : `${mecaNonConvertedTotal} pending`}
+                        </span>
+                      </div>
+
+                      {mecaBusy ? (
+                        <div className="p-4 space-y-2">
+                          {[...Array(4)].map((_, i) => (
+                            <Skeleton key={i} className="h-10 w-full" />
+                          ))}
+                        </div>
+                      ) : nonConvertedWalkinRows.length === 0 ? (
+                        <div className="p-8 text-center text-sm text-slate-500">
+                          No non-converted walk-in follow-up rows.
+                        </div>
+                      ) : (
+                        <div className="max-h-[320px] overflow-y-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="bg-slate-50 sticky top-0">
+                                <TableHead>Type</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead className="text-center">Date</TableHead>
+                                <TableHead className="text-center">Follow-up</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {nonConvertedWalkinRows.map((row, idx) => (
+                                <TableRow key={`${row.visitId}-${idx}`}>
+                                  <TableCell>
+                                    <Badge variant="outline" className="text-xs">
+                                      {row.visitType || "Walk-In"}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="text-sm text-slate-600">
+                                    {row.status || "-"}
+                                  </TableCell>
+                                  <TableCell className="text-center text-sm text-slate-500">
+                                    {row.scheduledDate && row.scheduledDate !== new Date(0).toISOString()
+                                      ? format(new Date(row.scheduledDate), "dd MMM yy")
+                                      : "-"}
+                                  </TableCell>
+                                  <TableCell className="text-center">
+                                    <Badge className="bg-rose-100 text-rose-700 border border-rose-300 hover:bg-rose-100">
+                                      Pending
+                                    </Badge>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-slate-100 bg-slate-50 text-xs">
+                        <span className="text-slate-600">
+                          Walk-in: <strong>{mecaBusy ? "-" : mecaWalkinNonConverted}</strong> | Outside:{" "}
+                          <strong>{mecaBusy ? "-" : mecaOutsideNonConverted}</strong>
+                        </span>
+                        <span className="font-semibold text-slate-700">
+                          Total: {mecaBusy ? "-" : mecaNonConvertedTotal}
+                        </span>
+                      </div>
+
+                      {!mecaBusy && mecaNonConvertedMappingGap > 0 ? (
+                        <p className="px-4 pb-3 text-[11px] text-slate-500">
+                          {mecaNonConvertedMappingGap} non-converted walk-in(s) are not fully mapped to detail rows.
+                        </p>
+                      ) : null}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
+            </div>
+          </div>
+
           {/* ── PRIORITY: Active Leads (full width, top) ── */}
           <div className="rounded-2xl border border-orange-200 bg-white shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-orange-100 bg-gradient-to-r from-orange-50 to-amber-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -1184,205 +1528,238 @@ const  SalesmanDashboardV2 =() => {
           </div>
 
           {/* ── Lower: Orders + Timesheet ── */}
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-            {/* Order Queue */}
-            <div className="xl:col-span-2 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="h-7 w-7 rounded-lg bg-slate-800 flex items-center justify-center">
-                    <ListOrdered className="h-4 w-4 text-white" />
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+  {/* Order Queue - Roadmap Style (Compact) */}
+  <div className="xl:col-span-8 rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+    <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+      <div className="flex items-center gap-3">
+        <div className="h-8 w-8 rounded-2xl bg-slate-900 flex items-center justify-center">
+          <ListOrdered className="h-4.5 w-4.5 text-white" />
+        </div>
+        <div>
+          <h2 className="font-semibold text-slate-900">Order Queue</h2>
+          <p className="text-xs text-slate-500">Production Roadmap • Live</p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        {criticalCount > 0 && (
+          <div className="flex items-center gap-1.5 bg-red-100 text-red-700 text-xs font-semibold px-3 py-1 rounded-full">
+            <div className="w-2 h-2 bg-red-600 rounded-full animate-pulse" />
+            {criticalCount} Critical
+          </div>
+        )}
+
+        <div className="relative w-72">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Input
+            value={orderSearch}
+            onChange={(e) => setOrderSearch(e.target.value)}
+            placeholder="Search orders, customers..."
+            className="pl-10 h-9 bg-white border-slate-200 rounded-full text-sm"
+          />
+        </div>
+      </div>
+    </div>
+
+    <ScrollArea className="h-[620px]">
+      <div className="p-5 space-y-4">
+        {loading ? (
+          [...Array(5)].map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-2xl" />)
+        ) : filteredOrderRows.length > 0 ? (
+          filteredOrderRows.map((row) => {
+            const fabricSummary = getOrderFabricSummary(row.order);
+            const isCritical = row.risk === "high";
+
+            return (
+              <div
+                key={row.order.id}
+                className={`group relative rounded-2xl border bg-white p-5 hover:shadow-lg transition-all duration-200 overflow-hidden ${riskContainerClassMap[row.risk]}`}
+              >
+                {/* Roadmap Progress Line */}
+                <div className="absolute left-6 top-8 bottom-8 w-0.5 bg-slate-100 group-hover:bg-slate-200 transition-colors" />
+                
+                <div className="flex gap-6">
+                  {/* Progress Circle */}
+                  <div className="relative flex-shrink-0 pt-1">
+                    <div className="relative z-10">
+                      <div className="h-11 w-11 rounded-full border-4 border-white shadow-sm flex items-center justify-center bg-white">
+                        <div className={`h-8 w-8 rounded-full flex items-center justify-center ${isCritical ? 'bg-red-100' : 'bg-emerald-100'}`}>
+                          <span className="text-xl font-semibold text-slate-700">{Math.round(row.progress)}%</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <h2 className="text-base font-bold text-slate-900">Order Queue</h2>
-                  {criticalCount > 0 && (
-                    <span className="rounded-full bg-red-100 text-red-700 text-[11px] font-bold px-2 py-0.5">
-                      {criticalCount} critical
-                    </span>
-                  )}
-                </div>
-                <div className="relative w-full sm:w-60">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                  <Input
-                    value={orderSearch}
-                    onChange={(e) => setOrderSearch(e.target.value)}
-                    placeholder="Search order, customer…"
-                    className="pl-8 h-8 rounded-xl border-slate-200 text-sm"
-                  />
-                </div>
-              </div>
 
-              <ScrollArea className="h-[28rem]">
-                <div className="p-4 space-y-3">
-                  {loading ? (
-                    [...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-2xl" />)
-                  ) : filteredOrderRows.length ? (
-                    filteredOrderRows.map((row) => {
-                      const fabricSummary = getOrderFabricSummary(row.order);
-                      return (
-                      <div key={row.order.id} className={`rounded-2xl border p-4 ${riskContainerClassMap[row.risk]}`}>
-                        <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <p className="font-semibold text-slate-900">{row.order.customerName || "—"}</p>
-                              <Badge variant="secondary" className="text-[10px]">{row.order.orderType || "—"}</Badge>
-                            </div>
-                            <p className="text-xs text-slate-500 mt-0.5">
-                              Order #{row.order.crmOrderNo || row.order.id} · Deal #{row.order.dealId || "—"}
-                            </p>
-                          </div>
-                          <Badge variant="outline" className={riskBadgeClassMap[row.risk]}>{riskLabelMap[row.risk]}</Badge>
-                        </div>
-                        <Progress value={row.progress} className="h-1.5 mb-2" />
-                        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500 mb-3">
-                          <span>Now: <span className="font-semibold text-slate-800">{row.currentStep}</span></span>
-                          <span>Next: <span className="font-semibold text-slate-800">{row.nextStep}</span></span>
-                          <span>Age: <span className="font-semibold text-slate-800">{row.ageDays}d</span></span>
-                        </div>
-                        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 mb-3">
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-3 gap-y-1">
-                            <p className="text-xs text-slate-500">
-                              Total Fabric Count: <span className="font-semibold text-slate-800">{fabricSummary.totalFabricCount}</span>
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              In Stock: <span className="font-semibold text-emerald-700">{fabricSummary.inStockFabricCount}</span>
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              For PR: <span className="font-semibold text-amber-700">{fabricSummary.prFabricCount}</span>
-                            </p>
-                          </div>
-                          {fabricSummary.prItems.length > 0 ? (
-                            <div className="mt-2 space-y-1">
-                              {fabricSummary.prItems.slice(0, 3).map((item, index) => {
-                                const expectedDateLabel = formatFabricDate(item.expectedDeliveryDate);
-                                return (
-                                  <p key={`${row.order.id}-${item.fabricName}-${index}`} className="text-[11px] text-slate-500 leading-relaxed">
-                                    <span className="font-medium text-slate-700">{item.fabricName}</span>:{" "}
-                                    {item.received
-                                      ? `Received at ${item.receivedLocation || "Inventory"}`
-                                      : expectedDateLabel
-                                        ? `Expected by ${expectedDateLabel}`
-                                        : item.poNumber
-                                          ? `PR ${item.poNumber} in process`
-                                          : "PR pending"}
-                                  </p>
-                                );
-                              })}
-                              {fabricSummary.prItems.length > 3 && (
-                                <p className="text-[11px] text-slate-400">
-                                  +{fabricSummary.prItems.length - 3} more PR item(s)
-                                </p>
-                              )}
-                            </div>
-                          ) : (
-                            <p className="text-[11px] text-slate-400 mt-2">No fabrics waiting on PR.</p>
-                          )}
-                        </div>
-                        <div className="flex justify-end">
-                          <Button asChild size="sm" variant="outline" className="rounded-xl h-7 text-xs border-slate-200">
-                            <Link href={`/dashboard/orders/${row.order.id}`}>Open Order</Link>
-                          </Button>
-                        </div>
-                      </div>
-                      );
-                    })
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
-                      <CheckCircle2 className="h-8 w-8 opacity-30" />
-                      <p className="text-sm">No active orders in queue.</p>
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
-            </div>
-
-            {/* Timesheet */}
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
-                <div className="h-7 w-7 rounded-lg bg-slate-100 flex items-center justify-center">
-                  <Clock3 className="h-4 w-4 text-slate-600" />
-                </div>
-                <h2 className="text-base font-bold text-slate-900">Timesheet Update</h2>
-                <span className="rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold px-1.5 py-0.5 ml-auto">
-                  {format(new Date(), "dd MMM")}
-                </span>
-              </div>
-              <ScrollArea className="h-[28rem]">
-                <div className="p-4 space-y-3">
-                  {loading || timesheetLoading ? (
-                    [...Array(3)].map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)
-                  ) : !timesheetEnabled ? (
-                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
-                      Timesheet is not enabled for your user.
-                    </div>
-                  ) : !timesheetConfigValid ? (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-                      Duty time is not configured. Ask admin to set start and end time.
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Duty Window</p>
-                        <p className="mt-1 text-sm font-medium text-slate-800">
-                          {timesheetDutyStart} - {timesheetDutyEnd}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          Required filled: {requiredTimesheetFilledCount}/{requiredTimesheetCount || 0}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          Total filled slots: {totalTimesheetFilledCount}/{timesheetEntries.length}
-                        </p>
-                        {firstPendingTimesheetSlot && (
-                          <p className="mt-1 text-xs text-amber-700">
-                            Pending hour: {firstPendingTimesheetSlot.slotLabel}
+                  {/* Main Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-3">
+                          <p className="font-semibold text-base text-slate-900 truncate">
+                            {row.order.customerName}
                           </p>
-                        )}
+                          <Badge variant="secondary" className="text-xs">
+                            {row.order.orderType}
+                          </Badge>
+                          <Badge
+                            variant="outline"
+                            className={`text-xs font-medium ${riskBadgeClassMap[row.risk]}`}
+                          >
+                            {riskLabelMap[row.risk]}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          #{row.order.crmOrderNo} • Deal #{row.order.dealId} • {row.ageDays}d old
+                        </p>
                       </div>
 
-                      {timesheetEntries.map((entry) => {
-                        const relativeUpdatedAt = formatRelativeTimeSafe(entry.updatedAt);
-                        return (
-                          <div key={`${entry.slotStart}-${entry.slotEnd}`} className="rounded-xl border border-slate-200 p-3">
-                            <p className="text-xs font-semibold text-slate-700">{entry.slotLabel}</p>
-                            <Textarea
-                              value={entry.workDetail}
-                              onChange={(event) => handleTimesheetEntryChange(entry.slotStart, event.target.value)}
-                              placeholder="Write work details for this hour..."
-                              className="mt-2 min-h-[74px] text-sm"
-                            />
-                            {relativeUpdatedAt && (
-                              <p className="mt-1 text-[10px] text-slate-400">
-                                Updated {relativeUpdatedAt}
-                              </p>
-                            )}
-                          </div>
-                        );
-                      })}
-
-                      <div className="rounded-xl border border-slate-200 p-3">
-                        <p className="text-xs font-semibold text-slate-700">Remark</p>
-                        <Textarea
-                          value={timesheetRemark}
-                          onChange={(event) => setTimesheetRemark(event.target.value)}
-                          placeholder="Any summary or blocker for today..."
-                          className="mt-2 min-h-[84px] text-sm"
-                        />
-                      </div>
-
-                      <Button onClick={() => void handleSaveTimesheet()} disabled={timesheetSaving} className="w-full">
-                        {timesheetSaving ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Saving...
-                          </>
-                        ) : (
-                          "Save Timesheet"
-                        )}
+                      <Button asChild size="sm" variant="outline" className="rounded-xl h-8 text-xs border-slate-200 hover:bg-slate-50">
+                        <Link href={`/dashboard/orders/${row.order.id}`}>Open</Link>
                       </Button>
                     </div>
-                  )}
+
+                    {/* Current & Next Step */}
+                    <div className="mt-4 flex items-center gap-8 text-sm">
+                      <div>
+                        <span className="text-slate-500 text-xs block">CURRENT</span>
+                        <span className="font-medium text-slate-900">{row.currentStep}</span>
+                      </div>
+                      <div className="text-slate-300">→</div>
+                      <div>
+                        <span className="text-slate-500 text-xs block">NEXT</span>
+                        <span className="font-medium text-slate-900">{row.nextStep}</span>
+                      </div>
+                    </div>
+
+                    {/* Compact Fabric Summary */}
+                    <div className="mt-5 bg-slate-50 rounded-xl p-4 border border-slate-100">
+                      <div className="flex justify-between text-xs mb-3 text-slate-500">
+                        <span>Fabrics • {fabricSummary.totalFabricCount} total</span>
+                        <span className="text-emerald-700">{fabricSummary.inStockFabricCount} in stock</span>
+                        <span className="text-amber-700">{fabricSummary.prFabricCount} for PR</span>
+                      </div>
+
+                      {fabricSummary.prItems.length > 0 && (
+                        <div className="space-y-1 text-xs">
+                          {fabricSummary.prItems.slice(0, 2).map((item, idx) => (
+                            <div key={idx} className="flex items-center gap-2 text-slate-600">
+                              <span className="font-medium truncate">{item.fabricName}</span>
+                              <span className="text-slate-400">•</span>
+                              <span>
+                                {item.received ? "✓ Received" : item.expectedDeliveryDate ? `Exp: ${formatFabricDate(item.expectedDeliveryDate)}` : "PR Pending"}
+                              </span>
+                            </div>
+                          ))}
+                          {fabricSummary.prItems.length > 2 && (
+                            <p className="text-slate-400 text-[10px]">+{fabricSummary.prItems.length - 2} more</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </ScrollArea>
+              </div>
+            );
+          })
+        ) : (
+          <div className="py-20 text-center">
+            <CheckCircle2 className="mx-auto h-12 w-12 text-slate-300" />
+            <p className="mt-4 text-slate-500">All orders are moving smoothly</p>
+          </div>
+        )}
+      </div>
+    </ScrollArea>
+  </div>
+
+  {/* Timesheet - Compact Sidebar */}
+  <div className="xl:col-span-4 rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden flex flex-col h-fit">
+    <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center gap-3">
+      <div className="h-8 w-8 rounded-2xl bg-emerald-100 flex items-center justify-center">
+        <Clock3 className="h-4.5 w-4.5 text-emerald-700" />
+      </div>
+      <div className="flex-1">
+        <h2 className="font-semibold text-slate-900">Timesheet</h2>
+        <p className="text-xs text-slate-500">{format(new Date(), "EEEE, dd MMM")}</p>
+      </div>
+      <div className="text-xs bg-white px-3 py-1 rounded-full border border-slate-200 font-mono text-slate-500">
+        {timesheetDutyStart}–{timesheetDutyEnd}
+      </div>
+    </div>
+
+    <ScrollArea className="flex-1 p-5 space-y-5">
+      {loading || timesheetLoading ? (
+        [...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-2xl" />)
+      ) : !timesheetEnabled || !timesheetConfigValid ? (
+        <div className="rounded-2xl bg-amber-50 border border-amber-200 p-6 text-center text-amber-700 text-sm">
+          Timesheet configuration needed
+        </div>
+      ) : (
+        <>
+          {/* Quick Stats */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+              <p className="text-xs text-slate-500">Filled</p>
+              <p className="text-2xl font-semibold text-slate-900 mt-1">
+                {totalTimesheetFilledCount}/{timesheetEntries.length}
+              </p>
+            </div>
+            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+              <p className="text-xs text-slate-500">Required</p>
+              <p className="text-2xl font-semibold text-slate-900 mt-1">
+                {requiredTimesheetFilledCount}
+              </p>
             </div>
           </div>
+
+          {/* Time Slots - Compact */}
+          {timesheetEntries.map((entry, index) => (
+            <div key={index} className="space-y-2">
+              <div className="flex justify-between text-xs font-medium text-slate-600 px-1">
+                <span>{entry.slotLabel}</span>
+                {formatRelativeTimeSafe(entry.updatedAt) && (
+                  <span className="text-slate-400">updated just now</span>
+                )}
+              </div>
+              <Textarea
+                value={entry.workDetail}
+                onChange={(e) => handleTimesheetEntryChange(entry.slotStart, e.target.value)}
+                placeholder="Work done in this slot..."
+                className="min-h-[68px] text-sm rounded-2xl border-slate-200 focus-visible:ring-1"
+              />
+            </div>
+          ))}
+
+          {/* Remark */}
+          <div>
+            <p className="text-xs font-medium text-slate-600 px-1 mb-2">Remark / Blockers</p>
+            <Textarea
+              value={timesheetRemark}
+              onChange={(e) => setTimesheetRemark(e.target.value)}
+              placeholder="Any important notes for today..."
+              className="min-h-[88px] text-sm rounded-2xl border-slate-200"
+            />
+          </div>
+
+          <Button
+            onClick={() => void handleSaveTimesheet()}
+            disabled={timesheetSaving}
+            className="w-full h-11 rounded-2xl font-medium shadow-sm"
+          >
+            {timesheetSaving ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              "Save Timesheet"
+            )}
+          </Button>
+        </>
+      )}
+    </ScrollArea>
+  </div>
+</div>
         </div>
       </div>
 

@@ -17,6 +17,49 @@ const normalizeToken = (value: unknown) =>
     .replace(/\s+/g, '')
     .replace(/[^A-Z0-9]/g, '');
 
+const isInstantSaleOrder = (order: (Order & Record<string, unknown>) | null): boolean => {
+  if (!order) return false;
+
+  const instantMeta =
+    typeof order.instantQuotationMeta === 'object' && order.instantQuotationMeta !== null
+      ? (order.instantQuotationMeta as Record<string, unknown>)
+      : {};
+  const instantSource = String(instantMeta.source || '').trim().toLowerCase();
+  const instantDealName = String(instantMeta.dealName || '').trim().toLowerCase();
+  const saleFlowType = String((order as any).saleFlowType || '').trim().toLowerCase();
+  const updateActions = Array.isArray(order.updates)
+    ? order.updates.map((entry) => String(entry?.action || '').trim().toLowerCase())
+    : [];
+
+  return (
+    instantSource === 'quotation-builder' ||
+    instantDealName.includes('cashsale') ||
+    instantDealName.includes('walkin') ||
+    saleFlowType.includes('cashsale') ||
+    saleFlowType.includes('walkin-sale') ||
+    updateActions.some((action) => action.includes('instant_quotation_created') || action.includes('instant-sale'))
+  );
+};
+
+const removeUndefinedDeep = <T>(value: T): T => {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => removeUndefinedDeep(item))
+      .filter((item) => item !== undefined) as T;
+  }
+
+  if (value && typeof value === 'object') {
+    const cleaned: Record<string, unknown> = {};
+    Object.entries(value as Record<string, unknown>).forEach(([key, nestedValue]) => {
+      if (nestedValue === undefined) return;
+      cleaned[key] = removeUndefinedDeep(nestedValue);
+    });
+    return cleaned as T;
+  }
+
+  return value;
+};
+
 const updateOrderFabricDetailsStockState = (params: {
   fabricDetails: FabricDetail[];
   approvedStockId: string;
@@ -159,8 +202,10 @@ export async function markAsInStockAction(
           isInStock: true,
         });
 
+        const sanitizedFabricDetails = removeUndefinedDeep(updatedFabricDetails);
+
         tx.update(orderRef, {
-          fabricDetails: updatedFabricDetails,
+          fabricDetails: sanitizedFabricDetails,
         });
       }
     });
@@ -243,12 +288,22 @@ export async function createPurchaseRequestFromOutOfStockAction(
       String(itemDetail?.itemName || approvedStockData?.itemDetail?.itemName || itemDetail?.fabricName || '').trim() ||
       undefined;
 
+    let skippedForInstantSale = false;
     await adminDb.runTransaction(async (tx: any) => {
-      const approvedStockTxSnap = await tx.get(approvedStockRef);
+      const orderRef = orderId ? adminDb.collection('orders').doc(orderId) : null;
+
+      // Firestore transaction rule: complete all reads before writes.
+      const [approvedStockTxSnap, orderSnap] = await Promise.all([
+        tx.get(approvedStockRef),
+        orderRef ? tx.get(orderRef) : Promise.resolve(null),
+      ]);
+
       if (!approvedStockTxSnap.exists) {
         throw new Error('Approved stock item not found.');
       }
 
+      const orderData = orderSnap?.exists ? ((orderSnap.data() as Order) as Order & Record<string, unknown>) : null;
+      skippedForInstantSale = isInstantSaleOrder(orderData);
       const prRef = adminDb.collection('purchaseRequests').doc(`PR-${approvedStockId}`);
 
       tx.update(approvedStockRef, {
@@ -256,34 +311,30 @@ export async function createPurchaseRequestFromOutOfStockAction(
         updatedAt: createdAt,
       });
 
-      if (orderId) {
-        const orderRef = adminDb.collection('orders').doc(orderId);
-        const orderSnap = await tx.get(orderRef);
+      if (orderRef && orderSnap?.exists) {
+        const fabricDetails = Array.isArray(orderData?.fabricDetails)
+          ? orderData.fabricDetails
+          : [];
 
-        if (orderSnap.exists) {
-          const orderData = orderSnap.data() as Order;
-          const fabricDetails = Array.isArray(orderData.fabricDetails)
-            ? orderData.fabricDetails
-            : [];
+        const { updatedFabricDetails } = updateOrderFabricDetailsStockState({
+          fabricDetails,
+          approvedStockId,
+          lineId: stockLineId,
+          bcn: stockBcn,
+          fabricName: itemDetail.fabricName,
+          itemName: stockItemName,
+          status: 'pending for po',
+          isInStock: false,
+        });
 
-          const { updatedFabricDetails } = updateOrderFabricDetailsStockState({
-            fabricDetails,
-            approvedStockId,
-            lineId: stockLineId,
-            bcn: stockBcn,
-            fabricName: itemDetail.fabricName,
-            itemName: stockItemName,
-            status: 'pending for po',
-            isInStock: false,
-          });
+        const sanitizedFabricDetails = removeUndefinedDeep(updatedFabricDetails);
 
-          tx.update(orderRef, {
-            fabricDetails: updatedFabricDetails,
-          });
-        }
+        tx.update(orderRef, {
+          fabricDetails: sanitizedFabricDetails,
+        });
       }
 
-      const normalizedItemDetail: FabricDetail = {
+      const normalizedItemDetail = removeUndefinedDeep<FabricDetail>({
         ...itemDetail,
         lineId: itemDetail.lineId || stockLineId,
         approvedStockId,
@@ -292,9 +343,9 @@ export async function createPurchaseRequestFromOutOfStockAction(
         quantity: String(quantity),
         status: 'pending for po',
         isInStock: false,
-      };
+      });
 
-      const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
+      const newPurchaseRequest = removeUndefinedDeep<Omit<PurchaseRequest, 'id'>>({
         dealId,
         quotationNo: crmOrderNo,
         customerName,
@@ -307,9 +358,11 @@ export async function createPurchaseRequestFromOutOfStockAction(
         status: 'Approved',
         promiseDeliveryDate: '',
         milestones: [],
-      };
+      });
 
-      tx.set(prRef, newPurchaseRequest);
+      if (!skippedForInstantSale) {
+        tx.set(prRef, newPurchaseRequest);
+      }
     });
 
     try {
@@ -328,6 +381,13 @@ export async function createPurchaseRequestFromOutOfStockAction(
         `[salesman-incentive] Failed to sync OUT_OF_STOCK for order ${orderId} and approvedStock ${approvedStockId}:`,
         incentiveError
       );
+    }
+
+    if (skippedForInstantSale) {
+      return {
+        success: true,
+        message: 'Instant sale order detected. PR creation skipped.',
+      };
     }
 
     return {
