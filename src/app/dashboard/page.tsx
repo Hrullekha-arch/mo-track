@@ -1522,6 +1522,9 @@ const  SalesmanDashboardV2 =() => {
                         <p className="text-sm font-semibold text-slate-900">{deal.dealName || deal.title || "Unnamed Deal"}</p>
                         <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-indigo-400 transition-colors" />
                       </div>
+                      <p className="mt-1 text-[11px] font-mono text-slate-500">
+                        Deal ID: <span className="font-semibold text-slate-700">{deal.dealId || deal.id || "-"}</span>
+                      </p>
                       <div className="flex flex-wrap gap-x-3 mt-1 text-xs text-slate-500">
                         <span>Status: <span className="font-medium text-slate-700">{deal.status || "—"}</span></span>
                         <span>Amount: <span className="font-medium text-slate-700">₹{deal.dealAmount || "N/A"}</span></span>
