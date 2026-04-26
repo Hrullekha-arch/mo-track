@@ -5,7 +5,7 @@ export const normalizePmsItemKey = (value?: string) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
-export const PMS_EXCLUDED_ITEM_KEYS = new Set([
+const PMS_EXCLUDED_ITEM_VALUES = [
   "wallpaper-laying-charges",
   "installation",
   "installatation-charges",
@@ -30,7 +30,22 @@ export const PMS_EXCLUDED_ITEM_KEYS = new Set([
   "sofa-cover-stitching-charges",
   "stitching-charges",
   "valance-stitching-charges",
-]);
+  "wall-panneling-charges",
+  "dining-chair-stitching",
+  "chair-stitching-charges",
+  "sofa-combed-stitching-charges",
+  "laying",
+  "stitching-matterial",
+  "couche-stitching-charges",
+  "loose-cover-stitching-charges",
+  "motorized-channel-installation-charges",
+  "sofa-cushion-stitching-charges",
+  "stitching-material",
+];
+
+export const PMS_EXCLUDED_ITEM_KEYS = new Set(
+  PMS_EXCLUDED_ITEM_VALUES.map((value) => normalizePmsItemKey(value))
+);
 
 export const isPmsExcludedItem = (...values: Array<unknown>) =>
   values.some((value) => PMS_EXCLUDED_ITEM_KEYS.has(normalizePmsItemKey(String(value ?? ""))));

@@ -15,6 +15,7 @@ type Props = {
   onSaveDetails?: () => void;
   onSubmit: () => void;
   showSaveDetailsButton?: boolean;
+  saveDetailsLabel?: string;
   submitLabel?: string;
   emptyMessage?: string;
 };
@@ -29,8 +30,9 @@ export function EmbellishmentEditor({
   onSaveDetails,
   onSubmit,
   showSaveDetailsButton = true,
+  saveDetailsLabel = "Save Details",
   submitLabel = "Save & Create Jobs",
-  emptyMessage = "Choose a VAS item from the dashboard list to open the Embelshment form.",
+  emptyMessage = "Choose a VAS item from the dashboard list to open the Additional VAS form.",
 }: Props) {
   if (!createJobDialog.row) {
     return (
@@ -42,6 +44,8 @@ export function EmbellishmentEditor({
 
   const row = createJobDialog.row;
   const isSaving = creatingJobKey === row.key;
+  const embellishmentRequired = Boolean(row.requiresEmbellishment);
+  const embellishmentEnabled = embellishmentRequired || createJobDialog.embellishmentEnabled;
 
   return (
     <>
@@ -73,13 +77,16 @@ export function EmbellishmentEditor({
 
       <div className="flex items-center justify-between rounded-lg border p-4">
         <div className="space-y-1">
-          <div className="font-medium">Embelshment work</div>
+          <div className="font-medium">Additional VAS work</div>
           <p className="text-sm text-muted-foreground">
-            Enable this condition to fill the dashboard form.
+            {embellishmentRequired
+              ? "This product includes an Additional VAS step in routing, so PMS will start after this form is completed."
+              : "Turn this on only when hand work is required before PMS starts."}
           </p>
         </div>
         <Switch
-          checked={createJobDialog.embellishmentEnabled}
+          checked={embellishmentEnabled}
+          disabled={embellishmentRequired}
           onCheckedChange={(checked) =>
             setCreateJobDialog((prev: any) => ({
               ...prev,
@@ -90,7 +97,7 @@ export function EmbellishmentEditor({
         />
       </div>
 
-      {createJobDialog.embellishmentEnabled ? (
+      {embellishmentEnabled ? (
         <>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
@@ -117,7 +124,7 @@ export function EmbellishmentEditor({
               />
             </div>
             <div className="space-y-2">
-              <Label>Number of Panel</Label>
+              <Label>Number of Panels</Label>
               <Input
                 type="number"
                 min="0"
@@ -126,14 +133,14 @@ export function EmbellishmentEditor({
               />
             </div>
             <div className="space-y-2">
-              <Label>Embelshment Barcode</Label>
+              <Label>Additional VAS Barcode</Label>
               <Input
                 value={createJobDialog.form.embellishmentBarcode}
                 onChange={(event) => onFieldChange("embellishmentBarcode", event.target.value)}
               />
             </div>
             <div className="space-y-2">
-              <Label>Steaching Per Panel (min)</Label>
+              <Label>Stitching Per Panel (min)</Label>
               <Input
                 type="number"
                 min="0"
@@ -210,7 +217,7 @@ export function EmbellishmentEditor({
             {showSaveDetailsButton && onSaveDetails && (
               <Button variant="outline" onClick={onSaveDetails} disabled={isSaving}>
                 {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Save Details
+                {saveDetailsLabel}
               </Button>
             )}
             <Button
@@ -224,7 +231,7 @@ export function EmbellishmentEditor({
         </>
       ) : (
         <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-          Turn on <span className="font-medium text-foreground">Embelshment work</span> to show the form fields here.
+          Turn on <span className="font-medium text-foreground">Additional VAS work</span> to show the form fields here.
         </div>
       )}
     </>

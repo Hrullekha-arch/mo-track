@@ -20,6 +20,7 @@ import type {
   LiveVasRow,
 } from "../types/pms";
 import { isPmsExcludedItem } from "@/lib/pms/filters";
+import { isPmsSkillEligible } from "@/lib/pms/category-match";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -42,7 +43,7 @@ export const REQUIRED_ROUTING_FINISH_STEPS = [
   "Packaging",
 ] as const;
 export const ROUTING_QUICK_ADD_STEPS = [
-  "Embelshment work",
+  "Embellishment work",
   "Q&Q",
   "Final Complete Kitting",
   "Packaging",
@@ -86,6 +87,37 @@ export const normalizeText = (value?: string): string =>
 export const getOptionalDisplayText = (value?: string): string => {
   const text = String(value || "").trim();
   return text && text !== "-" ? text : "";
+};
+
+export const hasMeaningfulText = (value?: unknown): boolean => {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  const normalized = normalizeText(text);
+  return normalized !== "n/a" && normalized !== "na" && normalized !== "-" && normalized !== "null";
+};
+
+export const getDisplayCustomerName = (
+  order?: any,
+  fallbackCustomer?: string
+): string => {
+  const candidates = [
+    order?.customerSnapshot?.name,
+    order?.customerName,
+    fallbackCustomer,
+  ];
+
+  const match = candidates.find((value) => hasMeaningfulText(value));
+  return String(match || "N/A").trim() || "N/A";
+};
+
+export const getDisplaySmName = (order?: any): string => {
+  const candidates = [
+    order?.salesPerson,
+    order?.createdBy?.name,
+  ];
+
+  const match = candidates.find((value) => hasMeaningfulText(value));
+  return String(match || "N/A").trim() || "N/A";
 };
 
 export const formatInr = (value: number | string | undefined): string => {
@@ -166,6 +198,10 @@ export const isEmbellishmentProcess = (process?: string): boolean =>
       .trim()
       .toLowerCase()
   );
+
+export const hasEmbellishmentRoutingStep = (
+  steps?: Array<Pick<PmsRouting, "process">> | null
+): boolean => Array.isArray(steps) && steps.some((step) => isEmbellishmentProcess(step.process));
 
 export const appendRoutingProcesses = (
   rows: PmsRouting[],
@@ -370,7 +406,6 @@ export const explainNoPlan = (
   machines: PmsMachine[],
   skills: PmsSkill[]
 ): string => {
-  if (!invoiceReady) return "Invoice not generated";
   if (!productId) return "No PMS product match";
   if (!hasJobs) return "Jobs not created";
   if (waitingJob && prevJob && prevJob.status !== "DONE") {
@@ -401,13 +436,16 @@ export const explainNoPlan = (
   if (eligibleMachines.length === 0) return "No machine for process";
 
   const machineIds = new Set(eligibleMachines.map((m) => m.id));
-  const categoryKey = normalizeText(product.category);
   const skillMatch = skills.some(
     (skill) =>
       skill.allowed &&
       machineIds.has(skill.machineId) &&
       normalizeText(skill.process) === processKey &&
-      normalizeText(skill.category) === categoryKey
+      isPmsSkillEligible({
+        process: waitingJob?.process || steps[0]?.process,
+        productCategory: product.category,
+        skillCategory: skill.category,
+      })
   );
   if (!skillMatch) return "No skill match";
 
@@ -432,11 +470,17 @@ export const isOrderClosedForPms = (order?: any): boolean => {
   const workflowStatus = String(order?.workflow?.status || "")
     .trim()
     .toUpperCase();
-  if (workflowStatus === "COMPLETED" || workflowStatus === "CANCELLED") return true;
+  if (workflowStatus === "COMPLETED" || workflowStatus === "CANCELLED") {
+    return true;
+  }
   const status = String(order?.status || "")
     .trim()
     .toUpperCase();
   return (
+    status === "DISPATCHED" ||
+    status === "OUT FOR DELIVERY/INSTALLATION" ||
+    status === "DELIVERED" ||
+    status === "DELIVERY DONE" ||
     status === "INSTALLATION DONE" ||
     status === "COMPLETED" ||
     status === "CANCELLED"

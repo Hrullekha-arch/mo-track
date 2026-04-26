@@ -83,7 +83,9 @@ export function PmsWorkDetailTab({ ctx }: Props) {
                       (row.resetJobIds.length > 0 || row.resetPlanDocIds.length > 0) &&
                       row.status !== "IN_PROGRESS";
                     const canManualDone =
-                      row.isFinalStep && row.status === "IN_PROGRESS" && Boolean(row.currentJobId);
+                      (row.isFirstStep || row.isManualStep) &&
+                      row.status !== "DONE" &&
+                      Boolean(row.currentJobId);
                     const isExpanded = Boolean(ctx.expandedWorkRows?.[row.key]);
 
                     return (
@@ -102,7 +104,7 @@ export function PmsWorkDetailTab({ ctx }: Props) {
                                 )}
                                 {row.embellishment?.enabled && (
                                   <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
-                                    Embelshment work
+                                    Additional VAS work
                                   </Badge>
                                 )}
                               </div>
@@ -139,6 +141,9 @@ export function PmsWorkDetailTab({ ctx }: Props) {
                               <div className="text-xs text-muted-foreground">
                                 End: {formatPmsDateTime(row.nextPlannedEnd)}
                               </div>
+                              <div className="text-xs text-muted-foreground">
+                                Person: {row.nextPerson || "-"}
+                              </div>
                             </div>
                           </TableCell>
                           <TableCell>{row.person || "TBD"}</TableCell>
@@ -164,7 +169,7 @@ export function PmsWorkDetailTab({ ctx }: Props) {
                                   <Button
                                     size="icon"
                                     variant="outline"
-                                    className="h-10 w-10"
+                                    className="h-9 w-9 border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-700"
                                     onClick={() =>
                                       ctx.setExpandedWorkRows((prev: Record<string, boolean>) => ({
                                         ...prev,
@@ -186,8 +191,8 @@ export function PmsWorkDetailTab({ ctx }: Props) {
                                 <TooltipTrigger asChild>
                                   <Button
                                     size="icon"
-                                    variant="default"
-                                    className="h-10 w-10"
+                                    variant="secondary"
+                                    className="h-9 w-9 bg-slate-500 text-white hover:bg-slate-600"
                                     disabled={
                                       !canManualDone ||
                                       ctx.manualDoneSaving ||
@@ -198,19 +203,19 @@ export function PmsWorkDetailTab({ ctx }: Props) {
                                       Boolean(ctx.priorityUpdatingOrderId)
                                     }
                                     onClick={() => ctx.handleOpenManualDoneDialog(row)}
-                                    aria-label="Manual done"
+                                    aria-label="Done"
                                   >
                                     <Check className="h-4 w-4" />
                                   </Button>
                                 </TooltipTrigger>
-                                <TooltipContent>Manual Done</TooltipContent>
+                                <TooltipContent>Done</TooltipContent>
                               </Tooltip>
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <Button
                                     size="icon"
                                     variant="destructive"
-                                    className="h-10 w-10"
+                                    className="h-9 w-9 border border-rose-200 bg-rose-200 text-white hover:bg-rose-300"
                                     disabled={
                                       !canDeletePlan ||
                                       ctx.deletingPlanKey === row.key ||
@@ -244,7 +249,7 @@ export function PmsWorkDetailTab({ ctx }: Props) {
                                 {row.embellishment?.enabled && (
                                   <div className="rounded-lg border bg-white p-4">
                                     <div className="mb-3 flex items-center justify-between">
-                                      <div className="text-sm font-medium">Embelshment Details</div>
+                                      <div className="text-sm font-medium">Additional VAS Details</div>
                                       <div className="flex items-center gap-2">
                                         {ctx.role === "admin" && (
                                           <Tooltip>
@@ -254,12 +259,12 @@ export function PmsWorkDetailTab({ ctx }: Props) {
                                                 variant="outline"
                                                 className="h-8 w-8"
                                                 onClick={() => ctx.handleEditWorkDetailEmbellishment(row)}
-                                                aria-label="Edit embellishment"
+                                                aria-label="Edit Additional VAS"
                                               >
                                                 <Edit2 className="h-4 w-4" />
                                               </Button>
                                             </TooltipTrigger>
-                                            <TooltipContent>Edit Embellishment</TooltipContent>
+                                            <TooltipContent>Edit Additional VAS</TooltipContent>
                                           </Tooltip>
                                         )}
                                         <Badge variant="outline">Configured</Badge>
@@ -271,7 +276,7 @@ export function PmsWorkDetailTab({ ctx }: Props) {
                                       <WorkMetric label="Windows" value={row.embellishment.numberOfWindows || 0} />
                                       <WorkMetric label="Panels" value={row.embellishment.numberOfPanels || 0} />
                                       <WorkMetric label="Barcode" value={row.embellishment.embellishmentBarcode || "-"} />
-                                      <WorkMetric label="Steaching / Panel (min)" value={`${row.embellishment.stitchingPerPanel || 0} min`} />
+                                      <WorkMetric label="Stitching / Panel (min)" value={`${row.embellishment.stitchingPerPanel || 0} min`} />
                                       <WorkMetric label="Design Time (min)" value={`${row.embellishment.designTime || 0} min`} />
                                       <WorkMetric label="Hand Work Time (min)" value={`${row.embellishment.handWorkTime || 0} min`} />
                                       <WorkMetric label="Total Time (min)" value={`${row.embellishment.totalTime || 0} min`} />

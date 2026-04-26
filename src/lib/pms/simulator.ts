@@ -1,4 +1,5 @@
 import { buildCapacityMap, CapacityMap } from "./capacity";
+import { getCanonicalPlans } from "./plan-utils";
 import { scheduleJobs, SchedulerJob } from "./scheduler";
 import { maxIso } from "./time";
 import { WorkingHoursConfig } from "./working-hours";
@@ -23,6 +24,14 @@ type ProductLike = {
   category: string;
 };
 
+type PersonLike = {
+  id: string;
+  active?: boolean | null;
+  leaveFrom?: string | null;
+  leaveTo?: string | null;
+  leaveReason?: string | null;
+};
+
 type PlanLike = {
   machineId: string;
   personId: string;
@@ -45,6 +54,7 @@ export const simulateScheduleForOrder = ({
   machines,
   skills,
   products,
+  people,
   plans,
   downtimes,
   orderPriorityMap,
@@ -56,18 +66,23 @@ export const simulateScheduleForOrder = ({
   machines: MachineLike[];
   skills: SkillLike[];
   products: ProductLike[];
+  people?: PersonLike[];
   plans: PlanLike[];
   downtimes: DowntimeLike[];
   orderPriorityMap: Record<string, number | undefined>;
   now: string;
   workingHours?: WorkingHoursConfig;
 }) => {
+  const canonicalPlans = getCanonicalPlans(
+    plans as Array<PlanLike & { id?: string }>
+  ).plans as PlanLike[];
+  const peopleById = Object.fromEntries((people || []).map((person) => [person.id, person]));
   const peopleIds = Array.from(new Set(skills.map((skill) => skill.personId)));
   const capacityMap = buildCapacityMap({
     machines,
     peopleIds,
     skills,
-    plans,
+    plans: canonicalPlans,
     downtimes,
     now,
   });
@@ -103,6 +118,7 @@ export const simulateScheduleForOrder = ({
     orderPriorityMap,
     now: lastFixedEnd || now,
     workingHours,
+    peopleById,
   });
 
   const lastPlannedEnd = planned.reduce(

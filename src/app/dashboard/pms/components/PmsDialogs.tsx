@@ -109,7 +109,9 @@ export function PmsDialogs({ ctx }: Props) {
           <DialogHeader>
             <DialogTitle>Create PMS Jobs</DialogTitle>
             <DialogDescription>
-              Review the VAS item and enable the Embelshment work condition when hand work is required.
+              {ctx.createJobDialog.row?.requiresEmbellishment
+                ? "This PMS product includes Additional VAS work in routing, so complete the form first and PMS will start right after."
+                : "This PMS product can start directly. Open the form only when Additional VAS work is required."}
             </DialogDescription>
           </DialogHeader>
 
@@ -150,7 +152,11 @@ export function PmsDialogs({ ctx }: Props) {
               onFieldChange={ctx.handleCreateJobDialogFieldChange}
               onSubmit={ctx.handleSubmitCreateJobs}
               showSaveDetailsButton={false}
-              submitLabel="Save & Create Jobs"
+              submitLabel={
+                ctx.createJobDialog.row?.requiresEmbellishment
+                  ? "Complete Additional VAS Form & Start PMS"
+                  : "Start PMS"
+              }
               emptyMessage="Select a VAS item to continue."
             />
           </div>
@@ -179,11 +185,21 @@ export function PmsDialogs({ ctx }: Props) {
           }
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+          <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Manual Final Step Completion</DialogTitle>
+            <DialogTitle>
+              {ctx.manualDoneDialog.row?.isFinalStep
+                ? "Manual Final Step Completion"
+                : ctx.manualDoneDialog.row?.isManualCompletionStep
+                ? "Manual Finish Step Completion"
+                : "Confirm Step Done"}
+            </DialogTitle>
             <DialogDescription>
-              Confirm final-step completion after Q&amp;Q, Final Complete Kitting, and Packaging are ready.
+              {ctx.manualDoneDialog.row?.isFinalStep
+                ? "Confirm final-step completion after Q&Q, Final Complete Kitting, and Packaging are ready."
+                : ctx.manualDoneDialog.row?.isManualCompletionStep
+                ? "This finish step must be marked done manually before PMS moves to the next finish step."
+                : "Confirm this step is done and verify the next assigned tailor/person before continuing."}
             </DialogDescription>
           </DialogHeader>
 
@@ -199,13 +215,22 @@ export function PmsDialogs({ ctx }: Props) {
                   <span className="font-medium">{ctx.manualDoneDialog.row.customer}</span>
                 </div>
                 <div>
+                  <span className="text-muted-foreground">SM Name:</span>{" "}
+                  <span className="font-medium">{ctx.manualDoneDialog.row.smName || "N/A"}</span>
+                </div>
+                <div>
                   <span className="text-muted-foreground">VAS:</span>{" "}
                   <span className="font-medium">{ctx.manualDoneDialog.row.vasName}</span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Step:</span>{" "}
+                  <span className="text-muted-foreground">Current Person:</span>{" "}
+                  <span className="font-medium">{ctx.manualDoneDialog.row.person || "TBD"}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">This Step:</span>{" "}
                   <span className="font-medium">
-                    {ctx.manualDoneDialog.row.stepNo || "-"} / {ctx.manualDoneDialog.row.totalSteps}
+                    {ctx.manualDoneDialog.row.stepNo || "-"} / {ctx.manualDoneDialog.row.totalSteps} -{" "}
+                    {ctx.manualDoneDialog.row.process || "-"}
                   </span>
                 </div>
                 <div>
@@ -214,32 +239,66 @@ export function PmsDialogs({ ctx }: Props) {
                 </div>
               </div>
 
-              <div className="rounded-lg border bg-muted/30 p-3">
-                <div className="text-sm font-medium">Ready Checklist</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <Badge variant="outline">Q&amp;Q Ready</Badge>
-                  <Badge variant="outline">Final Complete Kitting Ready</Badge>
-                  <Badge variant="outline">Packaging Ready</Badge>
+              {ctx.manualDoneDialog.row.nextProcess && (
+                <div className="rounded-lg border bg-blue-50/60 p-3 text-sm">
+                  <div className="font-medium text-blue-700">Second Step</div>
+                  <div className="mt-2 space-y-1 text-slate-700">
+                    <div>
+                      <span className="text-muted-foreground">Step:</span>{" "}
+                      <span className="font-medium">
+                        {ctx.manualDoneDialog.row.stepNo
+                          ? `${Number(ctx.manualDoneDialog.row.stepNo) + 1} / ${ctx.manualDoneDialog.row.totalSteps} - ${ctx.manualDoneDialog.row.nextProcess}`
+                          : ctx.manualDoneDialog.row.nextProcess}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Tailor / Person:</span>{" "}
+                      <span className="font-medium">{ctx.manualDoneDialog.row.nextPerson || "TBD"}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Machine:</span>{" "}
+                      <span className="font-medium">{ctx.manualDoneDialog.row.nextMachine || "TBD"}</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <div className="space-y-2">
-                <Label>Are all your steps ready?</Label>
-                <Select
-                  value={ctx.manualDoneAllQtyReady}
-                  onValueChange={(value) => ctx.setManualDoneAllQtyReady(value === "no" ? "no" : "yes")}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select readiness" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="yes">Yes, all steps are ready</SelectItem>
-                    <SelectItem value="no">No, some step or qty is pending</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {ctx.manualDoneDialog.row.isFinalStep ? (
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="text-sm font-medium">Ready Checklist</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Badge variant="outline">Q&amp;Q Ready</Badge>
+                    <Badge variant="outline">Final Complete Kitting Ready</Badge>
+                    <Badge variant="outline">Packaging Ready</Badge>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border bg-amber-50/70 p-3 text-sm text-amber-800">
+                  {ctx.manualDoneDialog.row.isManualCompletionStep
+                    ? "After you click done, PMS will move this work to the next finish step."
+                    : "After you click done, PMS will move this work to the person shown above."}
+                </div>
+              )}
 
-              {ctx.manualDoneAllQtyReady === "no" && (
+              {ctx.manualDoneDialog.row.isFinalStep && (
+                <div className="space-y-2">
+                  <Label>Are all your steps ready?</Label>
+                  <Select
+                    value={ctx.manualDoneAllQtyReady}
+                    onValueChange={(value) => ctx.setManualDoneAllQtyReady(value === "no" ? "no" : "yes")}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select readiness" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="yes">Yes, all steps are ready</SelectItem>
+                      <SelectItem value="no">No, some step or qty is pending</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {ctx.manualDoneDialog.row.isFinalStep && ctx.manualDoneAllQtyReady === "no" && (
                 <div className="space-y-3">
                   <div className="space-y-2">
                     <Label>Remaining Qty</Label>
@@ -269,7 +328,11 @@ export function PmsDialogs({ ctx }: Props) {
             </Button>
             <Button onClick={ctx.handleSubmitManualDone} disabled={ctx.manualDoneSaving}>
               {ctx.manualDoneSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save & Mark Done
+              {ctx.manualDoneDialog.row?.isFinalStep
+                ? "Save & Mark Done"
+                : ctx.manualDoneDialog.row?.nextPerson
+                ? `Done & Send to ${ctx.manualDoneDialog.row.nextPerson}`
+                : "Done & Continue"}
             </Button>
           </DialogFooter>
         </DialogContent>

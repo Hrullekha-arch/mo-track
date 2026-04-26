@@ -9,6 +9,11 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import {
+  isPmsPersonActive,
+  isPmsPersonOnLeaveAt,
+  isPmsPersonWeekOffAt,
+} from "@/lib/pms/person-availability";
 import type {
   DeleteDialogState,
   ImportState,
@@ -374,6 +379,11 @@ export const usePmsAdminActions = ({
     await addDoc(collection(db, "people"), {
       name: newPerson.name.trim(),
       role: newPerson.role.trim() || null,
+      active: true,
+      leaveFrom: null,
+      leaveTo: null,
+      leaveReason: null,
+      weekOffDay: null,
       createdAt: new Date().toISOString(),
     });
     setNewPerson({ name: "", role: "" });
@@ -543,7 +553,16 @@ export const usePmsAdminActions = ({
         if (!id || !name) return Promise.resolve();
         return setDoc(
           doc(db, "people", id),
-          { name, role: item.role || null, updatedAt: new Date().toISOString() },
+          {
+            name,
+            role: item.role || null,
+            active: item.active !== false,
+            leaveFrom: item.leaveFrom || null,
+            leaveTo: item.leaveTo || null,
+            leaveReason: item.leaveReason || null,
+            weekOffDay: item.weekOffDay || null,
+            updatedAt: new Date().toISOString(),
+          },
           { merge: true }
         );
       })
@@ -731,6 +750,7 @@ export const usePmsAdminActions = ({
   );
 
   const getGroupedSkills = useCallback(() => {
+    const now = new Date().toISOString();
     const pairs = Array.from(
       new Set(
         skills.filter((skill) => skill.allowed).map((skill) => `${skill.machineId}-${skill.personId}`)
@@ -747,9 +767,14 @@ export const usePmsAdminActions = ({
       const matchesSearch = normalizeText(matchText).includes(normalizeText(skillSearch));
       if (!matchesSearch) return false;
       if (viewFilter === "active") {
-        return skills.some(
+        return (
+          isPmsPersonActive(person) &&
+          !isPmsPersonOnLeaveAt(person, now) &&
+          !isPmsPersonWeekOffAt(person, now) &&
+          skills.some(
           (skill) =>
             skill.machineId === pair.machineId && skill.personId === pair.personId && skill.allowed
+          )
         );
       }
       return true;

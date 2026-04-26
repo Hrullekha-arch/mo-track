@@ -29,6 +29,11 @@ export type PmsPerson = {
   id: string;
   name: string;
   role?: string;
+  active?: boolean;
+  leaveFrom?: string | null;
+  leaveTo?: string | null;
+  leaveReason?: string | null;
+  weekOffDay?: string | null;
 };
 
 export type PmsSkill = {
@@ -128,6 +133,21 @@ export type PmsEmbellishmentRecord = StoredEmbellishment & {
   };
 };
 
+export type PmsVasOverride = {
+  id: string;
+  orderId: string;
+  vasIndex: number;
+  vasName?: string;
+  productId?: string;
+  productName?: string;
+  updatedAt?: string;
+  updatedBy?: {
+    id?: string | null;
+    name?: string | null;
+    role?: string | null;
+  };
+};
+
 export type CreateJobDialogRow = {
   key: string;
   orderId: string;
@@ -142,6 +162,7 @@ export type CreateJobDialogRow = {
   invoiceReady: boolean;
   hasJobsForProduct: boolean;
   vasIndex: number;
+  requiresEmbellishment?: boolean;
   embellishment?: StoredEmbellishment;
 };
 
@@ -182,6 +203,7 @@ export type LiveVasRow = {
   lastUpdate?: string;
   matchedProductId?: string;
   matchedProductName?: string;
+  hasProductOverride?: boolean;
   hasJobsForProduct: boolean;
   noPlanReason: string;
   invoiceReady: boolean;
@@ -189,6 +211,7 @@ export type LiveVasRow = {
   priorityLabel: string;
   isEmergency: boolean;
   hasRouting?: boolean;
+  requiresEmbellishment?: boolean;
   embellishment?: PmsEmbellishmentRecord;
   vasIndex?: number;
 };
@@ -262,6 +285,19 @@ export type LiveVasStats = {
   emergency: number;
 };
 
+export type PmsNextDayPlanRow = {
+  key: string;
+  orderNo: string;
+  customer: string;
+  vasName: string;
+  process: string;
+  person: string;
+  machine: string;
+  plannedStart?: string;
+  plannedEnd?: string;
+  qty: number;
+};
+
 export type PmsStats = {
   products: number;
   activeMachines: number;
@@ -295,13 +331,21 @@ export type ManualDoneDialogRow = {
   orderId: string;
   orderNo: string;
   customer: string;
+  smName?: string;
   vasName: string;
   process: string;
+  person?: string;
   qty: number;
   stepNo?: number;
   totalSteps: number;
+  isFinalStep?: boolean;
   plannedStart?: string;
   plannedEnd?: string;
+  nextProcess?: string;
+  nextPerson?: string;
+  nextMachine?: string;
+  nextPlannedStart?: string;
+  nextPlannedEnd?: string;
 };
 
 export type ManualDoneDialogState = {

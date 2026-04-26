@@ -43,7 +43,9 @@ export default function PmsDashboardClient() {
     jobs: core.jobs,
     plans: core.plans,
     embellishmentRecords: core.embellishmentRecords,
+    vasOverrides: core.vasOverrides,
     createJobDialog: core.createJobDialog,
+    workingHours: core.workingHours,
     productSearch: core.productSearch,
     machineSearch: core.machineSearch,
     personSearch: core.personSearch,
@@ -63,12 +65,15 @@ export default function PmsDashboardClient() {
     embellishmentRecords: core.embellishmentRecords,
     workDetailSearch: core.workDetailSearch,
     statusSearch: core.statusSearch,
+    statusQuickFilter: core.statusQuickFilter,
   });
 
   const jobActions = usePmsJobActions({
     role,
     user,
     toast,
+    products: core.products,
+    routing: core.routing,
     liveVasRowsAll: liveData.liveVasRowsAll,
     createJobDialog: core.createJobDialog,
     setCreateJobDialog: core.setCreateJobDialog,
@@ -97,6 +102,8 @@ export default function PmsDashboardClient() {
     setManualDoneReason: core.setManualDoneReason,
     setActiveTab: core.setActiveTab,
     setSelectedProductId: core.setSelectedProductId,
+    updatingLiveRowKey: core.updatingLiveRowKey,
+    setUpdatingLiveRowKey: core.setUpdatingLiveRowKey,
   });
 
   const adminActions = usePmsAdminActions({
@@ -155,8 +162,8 @@ export default function PmsDashboardClient() {
       if (!matchedRow) {
         toast({
           variant: "destructive",
-          title: "Unable to open embellishment editor",
-          description: "This PMS row could not be matched to an editable embellishment item.",
+          title: "Unable to open Additional VAS editor",
+          description: "This PMS row could not be matched to an editable Additional VAS item.",
         });
         return;
       }

@@ -1,28 +1,33 @@
 // /src/lib/pms/autopilot.ts
+import { getCanonicalPlans } from "./plan-utils";
+import { isManualCompletionProcess } from "./process-rules";
+import { isPmsSkillEligible } from "./category-match";
+import {
+  getPmsPersonLeaveWindow,
+  getPmsPersonWeekOffConflict,
+  isPmsPersonActive,
+} from "./person-availability";
 import { getWorkingSchedule, WorkingHoursConfig } from "./working-hours";
-// ✅ FIXED: No overlapping across orders (machine/person busy seeded from ALL plans)
-// ✅ Chained steps inside group (Step-2 starts after Step-1 ends)
-// ✅ Respects machine/person busy + downtime
-// ✅ Works even if some planned jobs are not in the "jobs" input
 
 export type AutopilotArgs = {
   jobs: any[];
   machines: any[];
   skills: any[];
   products: any[];
+  peopleById?: Record<string, any>;
   plans: any[];
   downtimes: any[];
   orderPriorityMap?: Record<string, number | undefined>;
-  now: string; // ISO
+  now: string;
   workingHours?: WorkingHoursConfig;
 };
 
-const normalize = (v?: string) => String(v ?? "").trim().toLowerCase();
+const normalize = (value?: string) => String(value ?? "").trim().toLowerCase();
 
 const maxIso = (...values: Array<string | undefined | null>) => {
   const valid = values.filter(Boolean) as string[];
   if (!valid.length) return new Date().toISOString();
-  return new Date(Math.max(...valid.map((d) => new Date(d).getTime()))).toISOString();
+  return new Date(Math.max(...valid.map((value) => new Date(value).getTime()))).toISOString();
 };
 
 const overlaps = (startIso: string, endIso: string, block: { from: string; to: string }) => {
@@ -42,7 +47,7 @@ const buildScheduleWithDowntime = (
   let candidate = startIso;
   while (true) {
     const schedule = getWorkingSchedule(candidate, durationMins, workingHours);
-    const conflict = blocks.find((b) => overlaps(schedule.start, schedule.end, b));
+    const conflict = blocks.find((block) => overlaps(schedule.start, schedule.end, block));
     if (!conflict) return schedule;
     candidate = conflict.to;
   }
@@ -51,14 +56,14 @@ const buildScheduleWithDowntime = (
 function pickLatestPlanByJobId(plans: any[]) {
   const map = new Map<string, any>();
 
-  for (const p of plans || []) {
-    if (!p?.jobId) continue;
+  for (const plan of plans || []) {
+    if (!plan?.jobId) continue;
 
-    const prev = map.get(p.jobId);
+    const prev = map.get(plan.jobId);
     const prevT = new Date(prev?.plannedEnd || prev?.plannedStart || 0).getTime();
-    const nextT = new Date(p?.plannedEnd || p?.plannedStart || 0).getTime();
+    const nextT = new Date(plan?.plannedEnd || plan?.plannedStart || 0).getTime();
 
-    if (!prev || nextT >= prevT) map.set(p.jobId, p);
+    if (!prev || nextT >= prevT) map.set(plan.jobId, plan);
   }
 
   return map;
@@ -67,10 +72,10 @@ function pickLatestPlanByJobId(plans: any[]) {
 function buildDowntimeByMachine(downtimes: any[]) {
   const map = new Map<string, Array<{ from: string; to: string }>>();
 
-  for (const d of downtimes || []) {
-    const machineId = d?.machineId;
-    const from = d?.from;
-    const to = d?.to;
+  for (const downtime of downtimes || []) {
+    const machineId = downtime?.machineId;
+    const from = downtime?.from;
+    const to = downtime?.to;
     if (!machineId || !from || !to) continue;
 
     if (!map.has(machineId)) map.set(machineId, []);
@@ -84,7 +89,6 @@ function groupKeyOf(job: any) {
   return job?.jobGroupId || (job?.productId ? `${job?.orderId}_${job?.productId}` : job?.orderId);
 }
 
-// ✅ NEW: seed busy maps from ALL plans (source of truth)
 function seedBusyFromPlans(plans: any[], jobs: any[]) {
   const machineBusyUntil = new Map<string, string>();
   const personBusyUntil = new Map<string, string>();
@@ -95,17 +99,17 @@ function seedBusyFromPlans(plans: any[], jobs: any[]) {
     statusByJobId.set(String(job.id), String(job?.status || "").toUpperCase());
   }
 
-  for (const p of plans || []) {
-    const jobId = String(p?.jobId || "");
+  for (const plan of plans || []) {
+    const jobId = String(plan?.jobId || "");
     if (!jobId || !statusByJobId.has(jobId)) continue;
     const status = statusByJobId.get(jobId);
     if (status !== "IN_PROGRESS" && status !== "PLANNED") continue;
 
-    const end = p?.plannedEnd;
+    const end = plan?.plannedEnd;
     if (!end) continue;
 
-    const machineId = p?.machineId;
-    const personId = p?.personId;
+    const machineId = plan?.machineId;
+    const personId = plan?.personId;
 
     if (machineId) machineBusyUntil.set(machineId, maxIso(machineBusyUntil.get(machineId), end));
     if (personId) personBusyUntil.set(personId, maxIso(personBusyUntil.get(personId), end));
@@ -120,6 +124,7 @@ export function runAutopilot(args: AutopilotArgs) {
     machines,
     skills,
     products,
+    peopleById = {},
     plans,
     downtimes,
     orderPriorityMap = {},
@@ -127,85 +132,75 @@ export function runAutopilot(args: AutopilotArgs) {
     workingHours,
   } = args;
 
-  const productById = new Map((products || []).map((p: any) => [p.id, p]));
-  const planByJobId = pickLatestPlanByJobId(plans || []);
+  const canonicalPlans = getCanonicalPlans(plans || []).plans;
+  const productById = new Map((products || []).map((product: any) => [product.id, product]));
+  const planByJobId = pickLatestPlanByJobId(canonicalPlans);
   const downtimeByMachine = buildDowntimeByMachine(downtimes || []);
-  const activeMachines = (machines || []).filter((m: any) => m?.active !== false);
+  const activeMachines = (machines || []).filter((machine: any) => machine?.active !== false);
+  const { machineBusyUntil, personBusyUntil } = seedBusyFromPlans(canonicalPlans, jobs || []);
 
-  // Seed busy maps from plans tied to current scheduling jobs only.
-  const { machineBusyUntil, personBusyUntil } = seedBusyFromPlans(plans || [], jobs || []);
-
-  // ✅ Group jobs (only jobs we are allowed to schedule are in "jobs" input)
   const groups = new Map<string, any[]>();
-  for (const j of jobs || []) {
-    if (!j?.orderId) continue;
-    const k = groupKeyOf(j);
-    if (!k) continue;
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k)!.push(j);
+  for (const job of jobs || []) {
+    if (!job?.orderId) continue;
+    const key = groupKeyOf(job);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(job);
   }
 
-  // ✅ Sort groups by order priority
-  const sortedGroupKeys = Array.from(groups.keys()).sort((a, b) => {
-    const aj = groups.get(a)?.[0];
-    const bj = groups.get(b)?.[0];
-    const ap = orderPriorityMap[aj?.orderId] ?? 999;
-    const bp = orderPriorityMap[bj?.orderId] ?? 999;
-    if (ap !== bp) return ap - bp;
-    return String(aj?.orderId || "").localeCompare(String(bj?.orderId || ""));
+  const sortedGroupKeys = Array.from(groups.keys()).sort((left, right) => {
+    const leftJob = groups.get(left)?.[0];
+    const rightJob = groups.get(right)?.[0];
+    const leftPriority = orderPriorityMap[leftJob?.orderId] ?? 999;
+    const rightPriority = orderPriorityMap[rightJob?.orderId] ?? 999;
+    if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+    return String(leftJob?.orderId || "").localeCompare(String(rightJob?.orderId || ""));
   });
 
   const planned: any[] = [];
   const updatedJobs: any[] = [];
 
-  for (const gk of sortedGroupKeys) {
-    const groupJobs = groups.get(gk) || [];
+  for (const groupKey of sortedGroupKeys) {
+    const groupJobs = groups.get(groupKey) || [];
     if (!groupJobs.length) continue;
 
-    // ✅ Sort by stepNo (1,2,3,4...)
-    const steps = [...groupJobs].sort((a, b) => (a?.stepNo || 0) - (b?.stepNo || 0));
+    const steps = [...groupJobs].sort((left, right) => (left?.stepNo || 0) - (right?.stepNo || 0));
 
-    // ✅ Anchor: latest end among already-done/planned steps in this group
-    // (no lexicographic issues; we compute by date)
     let anchor = now;
-    for (const j of steps) {
-      const status = String(j?.status || "").toUpperCase();
+    for (const job of steps) {
+      const status = String(job?.status || "").toUpperCase();
       if (status !== "DONE" && status !== "IN_PROGRESS" && status !== "PLANNED") {
         continue;
       }
-      const p = planByJobId.get(j.id);
-      const end = j?.actualEnd || j?.plannedEnd || p?.plannedEnd;
+      const plan = planByJobId.get(job.id);
+      const end = job?.actualEnd || job?.plannedEnd || plan?.plannedEnd;
       if (end) anchor = maxIso(anchor, end);
     }
 
     for (const job of steps) {
       const plan = planByJobId.get(job.id);
 
-      // DONE -> advance anchor and skip
       if (job?.status === "DONE") {
         const doneEnd = job?.actualEnd || job?.plannedEnd || plan?.plannedEnd;
         if (doneEnd) anchor = maxIso(anchor, doneEnd);
         continue;
       }
 
-      // IN_PROGRESS -> advance anchor and skip
       if (job?.status === "IN_PROGRESS") {
-        const ipEnd = job?.plannedEnd || plan?.plannedEnd;
-        if (ipEnd) anchor = maxIso(anchor, ipEnd);
+        const inProgressEnd = job?.plannedEnd || plan?.plannedEnd;
+        if (inProgressEnd) anchor = maxIso(anchor, inProgressEnd);
         continue;
       }
 
-      // PLANNED -> advance anchor and skip
       if (job?.status === "PLANNED") {
-        const pe = job?.plannedEnd || plan?.plannedEnd;
-        if (pe) anchor = maxIso(anchor, pe);
+        const plannedEnd = job?.plannedEnd || plan?.plannedEnd;
+        if (plannedEnd) anchor = maxIso(anchor, plannedEnd);
         continue;
       }
 
-      // only schedule WAITING
       if (job?.status !== "WAITING") continue;
+      if (isManualCompletionProcess(job?.process)) break;
 
-      // required minutes
       const required = Number(job?.requiredMinutes || job?.durationMinutes || 0);
       if (!Number.isFinite(required) || required <= 0) continue;
 
@@ -215,61 +210,71 @@ export function runAutopilot(args: AutopilotArgs) {
       const product = job?.productId ? productById.get(job.productId) : null;
       const categoryKey = normalize(product?.category);
 
-      // eligible machines by process
       const eligibleMachines = activeMachines.filter(
-        (m: any) => normalize(m?.process) === processKey
+        (machine: any) => normalize(machine?.process) === processKey
       );
       if (!eligibleMachines.length) continue;
 
-      // eligible machine-person pairs from skills
       const eligiblePairs: Array<{ machineId: string; personId: string }> = [];
-      for (const m of eligibleMachines) {
-        const machineSkills = (skills || []).filter((s: any) => {
-          if (!s?.allowed) return false;
-          if (s?.machineId !== m.id) return false;
-          if (normalize(s?.process) !== processKey) return false;
+      for (const machine of eligibleMachines) {
+        const machineSkills = (skills || []).filter((skill: any) => {
+          if (!skill?.allowed) return false;
+          if (skill?.machineId !== machine.id) return false;
+          if (normalize(skill?.process) !== processKey) return false;
 
-          // if you don't use category in skills, remove this condition
-          const skillCat = normalize(s?.category);
-          if (categoryKey && skillCat && skillCat !== categoryKey) return false;
-
-          return Boolean(s?.personId);
+          return isPmsSkillEligible({
+            process: job?.process,
+            productCategory: categoryKey,
+            skillCategory: skill?.category,
+          });
         });
 
-        for (const s of machineSkills) {
-          eligiblePairs.push({ machineId: m.id, personId: s.personId });
+        for (const skill of machineSkills) {
+          const personId = String(skill?.personId || "");
+          if (!personId) continue;
+          const person = peopleById[personId];
+          if (person && !isPmsPersonActive(person)) continue;
+          eligiblePairs.push({ machineId: machine.id, personId });
         }
       }
       if (!eligiblePairs.length) continue;
 
-      // choose earliest possible start (respects anchor + busy + downtime)
-      let best:
-        | { machineId: string; personId: string; start: string; end: string }
-        | null = null;
+      let best: { machineId: string; personId: string; start: string; end: string } | null = null;
 
-        for (const pair of eligiblePairs) {
-          const busyM = machineBusyUntil.get(pair.machineId);
-          const busyP = personBusyUntil.get(pair.personId);
+      for (const pair of eligiblePairs) {
+        const busyMachineUntil = machineBusyUntil.get(pair.machineId);
+        const busyPersonUntil = personBusyUntil.get(pair.personId);
+        let baseStart = maxIso(anchor, busyMachineUntil, busyPersonUntil);
 
-          // ✅ CRITICAL: start must be >= anchor AND >= machine/person availability
-          const baseStart = maxIso(anchor, busyM, busyP);
-
-          // ✅ apply downtime + working hours window
-          const blocks = downtimeByMachine.get(pair.machineId) || [];
-          const schedule = buildScheduleWithDowntime(
-            baseStart,
-            required,
-            blocks,
-            workingHours
-          );
-
-          const start = schedule.start;
-          const end = schedule.end;
-
-          if (!best || new Date(start).getTime() < new Date(best.start).getTime()) {
-            best = { ...pair, start, end };
-          }
+        const blocks = [...(downtimeByMachine.get(pair.machineId) || [])];
+        const person = peopleById[String(pair.personId || "")];
+        const leaveWindow = getPmsPersonLeaveWindow(person);
+        if (leaveWindow) {
+          blocks.push({ from: leaveWindow.from, to: leaveWindow.to });
         }
+
+        let schedule = buildScheduleWithDowntime(baseStart, required, blocks, workingHours);
+        let guard = 0;
+        while (guard < 7) {
+          const weekOffConflict = getPmsPersonWeekOffConflict(
+            person,
+            schedule.start,
+            schedule.end,
+            workingHours?.timezoneOffsetMinutes
+          );
+          if (!weekOffConflict) break;
+          baseStart = weekOffConflict.to;
+          schedule = buildScheduleWithDowntime(baseStart, required, blocks, workingHours);
+          guard += 1;
+        }
+
+        const start = schedule.start;
+        const end = schedule.end;
+
+        if (!best || new Date(start).getTime() < new Date(best.start).getTime()) {
+          best = { ...pair, start, end };
+        }
+      }
 
       if (!best) continue;
 
@@ -294,11 +299,8 @@ export function runAutopilot(args: AutopilotArgs) {
         requiredMinutes: required,
       });
 
-      // ✅ update busy maps so next jobs (even other orders) cannot overlap
       machineBusyUntil.set(best.machineId, best.end);
       personBusyUntil.set(best.personId, best.end);
-
-      // ✅ chain next step inside same group
       anchor = best.end;
     }
   }

@@ -2,6 +2,10 @@ import {
   formatDateTimeInZone,
   IST_TIME_ZONE,
 } from "@/lib/pms/time";
+export {
+  isPmsExcludedItem,
+  normalizePmsItemKey,
+} from "@/lib/pms/filters";
 
 export type PmsProduct = {
   id: string;
@@ -30,6 +34,11 @@ export type PmsPerson = {
   id: string;
   name: string;
   role?: string;
+  active?: boolean;
+  leaveFrom?: string | null;
+  leaveTo?: string | null;
+  leaveReason?: string | null;
+  weekOffDay?: string | null;
 };
 
 export type PmsSkill = {
@@ -183,24 +192,6 @@ export const normalizeText = (value?: string) =>
   String(value || "")
     .trim()
     .toLowerCase();
-
-export const normalizePmsItemKey = (value?: string) =>
-  String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-const PMS_EXCLUDED_ITEM_KEYS = new Set([
-  "wallpaper-laying-charges",
-  "installation",
-  "installatation-charges",
-  "sofa-stitching-charges",
-  "loose-material",
-]);
-
-export const isPmsExcludedItem = (...values: Array<unknown>) =>
-  values.some((value) => PMS_EXCLUDED_ITEM_KEYS.has(normalizePmsItemKey(String(value ?? ""))));
 
 export const matchesPmsSearch = (search: string, values: unknown[]) => {
   const query = normalizeText(search);

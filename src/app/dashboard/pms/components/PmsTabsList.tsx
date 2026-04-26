@@ -18,7 +18,7 @@ export function PmsTabsList() {
       </TabsTrigger>
       <TabsTrigger value="embellishment" className="gap-1.5 px-2 py-2 text-xs sm:text-sm">
         <Check className="h-4 w-4" />
-        Embelshment
+        Additional VAS
       </TabsTrigger>
       <TabsTrigger value="routing" className="gap-1.5 px-2 py-2 text-xs sm:text-sm">
         <Package className="h-4 w-4" />

@@ -1,16 +1,27 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
-import { buildJobsFromRouting, EmbellishmentWorkPayload } from "@/lib/pms/routing";
+import {
+  buildJobsFromRouting,
+  EmbellishmentWorkPayload,
+  hasEmbellishmentRoutingStep,
+} from "@/lib/pms/routing";
 import { simulateScheduleForOrder } from "@/lib/pms/simulator";
+import { isOrderClosedForPms } from "@/app/dashboard/pms/utils/pmsHelpers";
 
 const IST_TIMEZONE_OFFSET_MINUTES = 330;
 
-const isOrderClosedForPms = (order?: any) => {
-  if (!order) return false;
-  const workflowStatus = String(order?.workflow?.status || "").trim().toUpperCase();
-  if (workflowStatus === "COMPLETED" || workflowStatus === "CANCELLED") return true;
-  const status = String(order?.status || "").trim().toUpperCase();
-  return status === "INSTALLATION DONE" || status === "COMPLETED" || status === "CANCELLED";
+const hasCompletedEmbellishment = (embellishment?: EmbellishmentWorkPayload) => {
+  if (!embellishment?.enabled) return false;
+  return Boolean(
+    String(embellishment.customerName || "").trim() &&
+      String(embellishment.customerPhone || "").trim() &&
+      Number(embellishment.numberOfWindows || 0) > 0 &&
+      Number(embellishment.numberOfPanels || 0) > 0 &&
+      String(embellishment.embellishmentBarcode || "").trim() &&
+      Number(embellishment.stitchingPerPanel || 0) > 0 &&
+      Number(embellishment.hourlyCharge || 0) > 0 &&
+      Number(embellishment.totalTime || 0) > 0
+  );
 };
 
 export async function POST(request: Request) {
@@ -69,21 +80,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const invoiceRequired = orderDataSnapshot?.invoicing?.invoiceRequired !== false;
-    const invoicingStatus = orderDataSnapshot?.invoicing?.status;
-    const invoiceCount = Array.isArray(orderDataSnapshot?.invoicing?.invoices)
-      ? orderDataSnapshot.invoicing.invoices.length
-      : 0;
-    const hasInvoice = invoiceRequired
-      ? Boolean((invoicingStatus && invoicingStatus !== "NOT_INVOICED") || invoiceCount > 0)
-      : true;
-    if (!hasInvoice) {
-      return NextResponse.json(
-        { success: false, message: "Invoice not generated for this order yet." },
-        { status: 400 }
-      );
-    }
-
     const routingSnap = await adminDb
       .collection("routing")
       .where("productId", "==", productId)
@@ -92,6 +88,23 @@ export async function POST(request: Request) {
     if (routingSnap.empty) {
       return NextResponse.json(
         { success: false, message: "Routing is not created for this PMS product yet." },
+        { status: 400 }
+      );
+    }
+
+    const routingSteps = routingSnap.docs.map((doc) => ({
+      id: doc.id,
+      ...(doc.data() as any),
+    }));
+
+    const requiresEmbellishment = hasEmbellishmentRoutingStep(routingSteps);
+    if (requiresEmbellishment && !hasCompletedEmbellishment(embellishment)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "This PMS routing includes Embellishment work. Complete and save the Embellishment form before starting PMS.",
+        },
         { status: 400 }
       );
     }
@@ -106,11 +119,6 @@ export async function POST(request: Request) {
     }
 
     await orderRef.set(orderData, { merge: true });
-
-    const routingSteps = routingSnap.docs.map((doc) => ({
-      id: doc.id,
-      ...(doc.data() as any),
-    }));
 
     const jobs = buildJobsFromRouting(orderId, productId, qty, routingSteps, {
       priority,
@@ -127,6 +135,7 @@ export async function POST(request: Request) {
 
     const [
       machinesSnap,
+      peopleSnap,
       skillsSnap,
       productsSnap,
       plansSnap,
@@ -134,6 +143,7 @@ export async function POST(request: Request) {
       workingHoursSnap,
     ] = await Promise.all([
       adminDb.collection("machines").where("active", "==", true).get(),
+      adminDb.collection("people").get(),
       adminDb.collection("machineSkills").where("allowed", "==", true).get(),
       adminDb.collection("products").get(),
       adminDb.collection("plan").get(),
@@ -152,6 +162,7 @@ export async function POST(request: Request) {
       orderId,
       jobs: jobs.map((job) => ({ ...job })),
       machines: machinesSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })),
+      people: peopleSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })),
       skills: skillsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })),
       products: productsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })),
       plans: plansSnap.docs.map((doc) => doc.data() as any),

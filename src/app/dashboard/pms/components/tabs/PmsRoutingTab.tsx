@@ -204,7 +204,7 @@ export function PmsRoutingTab({ ctx }: Props) {
                 </CardDescription>
                 {ctx.selectedProductId && (
                   <p className="mt-2 text-xs text-muted-foreground">
-                    Embelshment work is optional. Q&amp;Q, Final Complete Kitting, and Packaging will be included in all routings.
+                    Additional VAS work is optional. Q&amp;Q, Final Complete Kitting, and Packaging will be included in all routings.
                   </p>
                 )}
               </div>
@@ -241,11 +241,11 @@ export function PmsRoutingTab({ ctx }: Props) {
                     <Button
                       key={process}
                       size="sm"
-                      variant={process === "Embelshment work" ? "secondary" : "outline"}
+                      variant={process === "Embellishment work" ? "secondary" : "outline"}
                       onClick={() => ctx.handleQuickAddRoutingProcesses([process])}
                     >
-                      {process === "Embelshment work" && <Plus className="mr-2 h-4 w-4" />}
-                      {process}
+                      {process === "Embellishment work" && <Plus className="mr-2 h-4 w-4" />}
+                      {process === "Embellishment work" ? "Additional VAS work" : process}
                     </Button>
                   ))}
                   <Button

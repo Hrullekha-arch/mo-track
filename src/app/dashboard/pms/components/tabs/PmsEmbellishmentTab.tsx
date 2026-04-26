@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { EmbellishmentEditor } from "../EmbellishmentEditor";
-import { getOptionalDisplayText } from "../../utils/pmsHelpers";
+import { formatInr, getOptionalDisplayText } from "../../utils/pmsHelpers";
 import {
   PMS_CARD_DESCRIPTION_CLASS,
   PMS_CARD_HEADER_CLASS,
@@ -27,9 +27,9 @@ export function PmsEmbellishmentTab({ ctx }: Props) {
       <div className="grid gap-6 xl:grid-cols-[1.1fr_1fr]">
         <Card className={PMS_SECTION_CARD_CLASS}>
           <CardHeader className={PMS_CARD_HEADER_CLASS}>
-            <CardTitle className={PMS_CARD_TITLE_CLASS}>Embelshment Dashboard</CardTitle>
+            <CardTitle className={PMS_CARD_TITLE_CLASS}>Additional VAS Dashboard</CardTitle>
             <CardDescription className={PMS_CARD_DESCRIPTION_CLASS}>
-              Select a VAS item and fill the Embelshment work form directly from the PMS dashboard.
+              All VAS items appear here. Saved Additional VAS details, total time, and charge amount are shown here, and PMS starts after the form is completed for items that require Additional VAS work.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -51,6 +51,8 @@ export function PmsEmbellishmentTab({ ctx }: Props) {
                     <TableHead className={PMS_TABLE_HEAD_CLASS}>Customer</TableHead>
                     <TableHead className={PMS_TABLE_HEAD_CLASS}>VAS Item</TableHead>
                     <TableHead className={PMS_TABLE_HEAD_CLASS}>PMS Product</TableHead>
+                    <TableHead className={PMS_TABLE_HEAD_CLASS}>Total Time</TableHead>
+                    <TableHead className={PMS_TABLE_HEAD_CLASS}>Charge Amount</TableHead>
                     <TableHead className={PMS_TABLE_HEAD_CLASS}>Status</TableHead>
                     <TableHead className={`${PMS_TABLE_HEAD_CLASS} min-w-[260px] text-right`}>Action</TableHead>
                   </TableRow>
@@ -58,8 +60,8 @@ export function PmsEmbellishmentTab({ ctx }: Props) {
                 <TableBody>
                   {ctx.filteredEmbellishmentRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                        No VAS items available for Embelshment work.
+                      <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                        No VAS items found.
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -84,8 +86,17 @@ export function PmsEmbellishmentTab({ ctx }: Props) {
                           </TableCell>
                           <TableCell>{row.matchedProductName || "No match"}</TableCell>
                           <TableCell>
+                            {row.embellishment?.enabled ? `${row.embellishment.totalTime || 0} min` : "-"}
+                          </TableCell>
+                          <TableCell>
+                            {row.embellishment?.enabled ? formatInr(row.embellishment.chargeAmount || 0) : "-"}
+                          </TableCell>
+                          <TableCell>
                             <div className="flex flex-wrap gap-2">
                               <Badge variant="secondary">{row.status}</Badge>
+                              {row.requiresEmbellishment && (
+                                <Badge variant="outline">Required</Badge>
+                              )}
                               {row.embellishment?.enabled && <Badge variant="outline">Filled</Badge>}
                             </div>
                           </TableCell>
@@ -96,7 +107,7 @@ export function PmsEmbellishmentTab({ ctx }: Props) {
                               onClick={() => ctx.handleSelectEmbellishmentRow(row)}
                               disabled={!row.matchedProductId}
                             >
-                              {isSelected ? "Selected" : "Open Form"}
+                              {isSelected ? "Selected" : "Open Additional VAS"}
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -111,10 +122,10 @@ export function PmsEmbellishmentTab({ ctx }: Props) {
 
         <Card className={PMS_SECTION_CARD_CLASS}>
           <CardHeader className={PMS_CARD_HEADER_CLASS}>
-            <CardTitle className={PMS_CARD_TITLE_CLASS}>Embelshment Form</CardTitle>
+            <CardTitle className={PMS_CARD_TITLE_CLASS}>Additional VAS Form</CardTitle>
             <CardDescription className={PMS_CARD_DESCRIPTION_CLASS}>
               {ctx.createJobDialog.row
-                ? `Fill the form for ${ctx.createJobDialog.row.vasName} and save it on the dashboard.`
+                ? `Fill the form for ${ctx.createJobDialog.row.vasName}. PMS will start after this form is completed when the routing requires Additional VAS work.`
                 : "Select a VAS item from the left side to open the form."}
             </CardDescription>
           </CardHeader>
@@ -129,6 +140,9 @@ export function PmsEmbellishmentTab({ ctx }: Props) {
               onSaveDetails={ctx.handleSaveEmbellishmentDetails}
               onSubmit={ctx.handleSubmitCreateJobs}
               showSaveDetailsButton
+              saveDetailsLabel="Save Details & Start PMS"
+              submitLabel="Start PMS"
+              emptyMessage="Choose a VAS item from the dashboard list to open the Additional VAS form."
             />
           </CardContent>
         </Card>
