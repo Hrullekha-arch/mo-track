@@ -545,6 +545,7 @@ const  SalesmanDashboardV2 =() => {
     from: startOfDay(subDays(new Date(), 29)),
     to: endOfDay(new Date()),
   });
+  const [mecaNonConvertedTab, setMecaNonConvertedTab] = useState<"all" | "walkin" | "outside">("all");
 
   // ── Full reset for return customer dialog ──
   const resetReturnDialog = useCallback(() => {
@@ -1190,6 +1191,27 @@ const  SalesmanDashboardV2 =() => {
     return visits.filter((_, index) => !matchedVisitIndexes.has(index));
   }, [mecaConvertedOrders, mecaSalesman?.visits]);
 
+  const isOutsideVisitType = useCallback((visitType?: string) => {
+    const normalizedType = normalizeText(visitType);
+    return normalizedType.includes("outside");
+  }, []);
+
+  const nonConvertedWalkinOnlyRows = useMemo<MecaVisitRow[]>(
+    () => nonConvertedWalkinRows.filter((row) => !isOutsideVisitType(row.visitType)),
+    [isOutsideVisitType, nonConvertedWalkinRows]
+  );
+
+  const nonConvertedOutsideRows = useMemo<MecaVisitRow[]>(
+    () => nonConvertedWalkinRows.filter((row) => isOutsideVisitType(row.visitType)),
+    [isOutsideVisitType, nonConvertedWalkinRows]
+  );
+
+  const nonConvertedVisibleRows = useMemo<MecaVisitRow[]>(() => {
+    if (mecaNonConvertedTab === "walkin") return nonConvertedWalkinOnlyRows;
+    if (mecaNonConvertedTab === "outside") return nonConvertedOutsideRows;
+    return nonConvertedWalkinRows;
+  }, [mecaNonConvertedTab, nonConvertedOutsideRows, nonConvertedWalkinOnlyRows, nonConvertedWalkinRows]);
+
   const mecaMeetingsTotal = mecaSalesman
     ? mecaSalesman.meetings + mecaSalesman.convertedOutsideMeetings
     : 0;
@@ -1309,11 +1331,16 @@ const  SalesmanDashboardV2 =() => {
 
           {/* ── Salesman MeCA Snapshot (3 items only) ── */}
           <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-indigo-50/60 to-rose-50/50">
-              <h2 className="text-base font-bold text-slate-900">MeCA Snapshot</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Meetings, converted, and non-converted follow-up for your last 30 days.
-              </p>
+            <div className="px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-indigo-50/60 to-rose-50/50 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">MeCA Snapshot</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Meetings, converted, and non-converted follow-up for {mecaRangeLabel}.
+                </p>
+              </div>
+              <div className="shrink-0">
+                <DateRangePicker date={mecaDateRange} onDateChange={setMecaDateRange} />
+              </div>
             </div>
 
             <div className="p-4 space-y-4">
@@ -1379,94 +1406,128 @@ const  SalesmanDashboardV2 =() => {
                 </Card>
               </div>
 
-              <Tabs defaultValue="not_converted">
-                <TabsList className="h-9 bg-slate-50 border border-slate-200">
-                  <TabsTrigger value="not_converted" className="flex items-center gap-1.5">
+              <Tabs
+                value={mecaNonConvertedTab}
+                onValueChange={(value) => setMecaNonConvertedTab(value as "all" | "walkin" | "outside")}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-800">
                     <XCircle className="h-3.5 w-3.5" /> Not Converted
                     <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
                       {mecaBusy ? "-" : mecaNonConvertedTotal}
                     </Badge>
-                  </TabsTrigger>
-                </TabsList>
+                  </span>
 
-                <TabsContent value="not_converted" className="mt-3">
-                  <Card className="border-slate-200">
-                    <CardContent className="p-0">
-                      <div className="flex items-center justify-end px-4 py-3 border-b border-slate-100">
-                        <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-rose-600">
-                          <XCircle className="h-4 w-4" />
-                          {mecaBusy ? "-" : `${mecaNonConvertedTotal} pending`}
-                        </span>
-                      </div>
-
-                      {mecaBusy ? (
-                        <div className="p-4 space-y-2">
-                          {[...Array(4)].map((_, i) => (
-                            <Skeleton key={i} className="h-10 w-full" />
-                          ))}
-                        </div>
-                      ) : nonConvertedWalkinRows.length === 0 ? (
-                        <div className="p-8 text-center text-sm text-slate-500">
-                          No non-converted walk-in follow-up rows.
-                        </div>
-                      ) : (
-                        <div className="max-h-[320px] overflow-y-auto">
-                          <Table>
-                            <TableHeader>
-                              <TableRow className="bg-slate-50 sticky top-0">
-                                <TableHead>Type</TableHead>
-                                <TableHead>Status</TableHead>
-                                <TableHead className="text-center">Date</TableHead>
-                                <TableHead className="text-center">Follow-up</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {nonConvertedWalkinRows.map((row, idx) => (
-                                <TableRow key={`${row.visitId}-${idx}`}>
-                                  <TableCell>
-                                    <Badge variant="outline" className="text-xs">
-                                      {row.visitType || "Walk-In"}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell className="text-sm text-slate-600">
-                                    {row.status || "-"}
-                                  </TableCell>
-                                  <TableCell className="text-center text-sm text-slate-500">
-                                    {row.scheduledDate && row.scheduledDate !== new Date(0).toISOString()
-                                      ? format(new Date(row.scheduledDate), "dd MMM yy")
-                                      : "-"}
-                                  </TableCell>
-                                  <TableCell className="text-center">
-                                    <Badge className="bg-rose-100 text-rose-700 border border-rose-300 hover:bg-rose-100">
-                                      Pending
-                                    </Badge>
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      )}
-
-                      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-slate-100 bg-slate-50 text-xs">
-                        <span className="text-slate-600">
-                          Walk-in: <strong>{mecaBusy ? "-" : mecaWalkinNonConverted}</strong> | Outside:{" "}
-                          <strong>{mecaBusy ? "-" : mecaOutsideNonConverted}</strong>
-                        </span>
-                        <span className="font-semibold text-slate-700">
-                          Total: {mecaBusy ? "-" : mecaNonConvertedTotal}
-                        </span>
-                      </div>
-
-                      {!mecaBusy && mecaNonConvertedMappingGap > 0 ? (
-                        <p className="px-4 pb-3 text-[11px] text-slate-500">
-                          {mecaNonConvertedMappingGap} non-converted walk-in(s) are not fully mapped to detail rows.
-                        </p>
-                      ) : null}
-                    </CardContent>
-                  </Card>
-                </TabsContent>
+                  <TabsList className="h-9 bg-slate-50 border border-slate-200">
+                    <TabsTrigger value="all" className="flex items-center gap-1.5">
+                      All
+                      <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                        {mecaBusy ? "-" : mecaNonConvertedTotal}
+                      </Badge>
+                    </TabsTrigger>
+                    <TabsTrigger value="walkin" className="flex items-center gap-1.5">
+                      Walk-in
+                      <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                        {mecaBusy ? "-" : mecaWalkinNonConverted}
+                      </Badge>
+                    </TabsTrigger>
+                    <TabsTrigger value="outside" className="flex items-center gap-1.5">
+                      Outside
+                      <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                        {mecaBusy ? "-" : mecaOutsideNonConverted}
+                      </Badge>
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
               </Tabs>
+
+              <Card className="border-slate-200">
+                <CardContent className="p-0">
+                  <div className="flex items-center justify-end px-4 py-3 border-b border-slate-100">
+                    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-rose-600">
+                      <XCircle className="h-4 w-4" />
+                      {mecaBusy ? "-" : `${mecaNonConvertedTotal} pending`}
+                    </span>
+                  </div>
+
+                  {mecaBusy ? (
+                    <div className="p-4 space-y-2">
+                      {[...Array(4)].map((_, i) => (
+                        <Skeleton key={i} className="h-10 w-full" />
+                      ))}
+                    </div>
+                  ) : nonConvertedVisibleRows.length === 0 ? (
+                    <div className="p-8 text-center text-sm text-slate-500">
+                      {mecaNonConvertedTab === "outside"
+                        ? "No non-converted outside follow-up rows."
+                        : mecaNonConvertedTab === "walkin"
+                          ? "No non-converted walk-in follow-up rows."
+                          : "No non-converted follow-up rows."}
+                    </div>
+                  ) : (
+                    <div className="max-h-[320px] overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-slate-50 sticky top-0">
+                            <TableHead>CustomerName</TableHead>
+                            <TableHead>WalkInId</TableHead>
+                            <TableHead>Type</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead className="text-center">Date</TableHead>
+                            <TableHead className="text-center">Follow-up</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {nonConvertedVisibleRows.map((row, idx) => (
+                            <TableRow key={`${row.visitId}-${idx}`}>
+                              <TableCell className="text-sm font-medium text-slate-800">
+                                {row.customerName || "-"}
+                              </TableCell>
+                              <TableCell className="font-mono text-xs text-slate-500">
+                                {row.visitId || "-"}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="text-xs">
+                                  {row.visitType || "Walk-In"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-sm text-slate-600">
+                                {row.status || "-"}
+                              </TableCell>
+                              <TableCell className="text-center text-sm text-slate-500">
+                                {row.scheduledDate && row.scheduledDate !== new Date(0).toISOString()
+                                  ? format(new Date(row.scheduledDate), "dd MMM yy")
+                                  : "-"}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <Badge className="bg-rose-100 text-rose-700 border border-rose-300 hover:bg-rose-100">
+                                  Pending
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-slate-100 bg-slate-50 text-xs">
+                    <span className="text-slate-600">
+                      Walk-in: <strong>{mecaBusy ? "-" : mecaWalkinNonConverted}</strong> | Outside:{" "}
+                      <strong>{mecaBusy ? "-" : mecaOutsideNonConverted}</strong>
+                    </span>
+                    <span className="font-semibold text-slate-700">
+                      Total: {mecaBusy ? "-" : mecaNonConvertedTotal}
+                    </span>
+                  </div>
+
+                  {!mecaBusy && mecaNonConvertedMappingGap > 0 ? (
+                    <p className="px-4 pb-3 text-[11px] text-slate-500">
+                      {mecaNonConvertedMappingGap} non-converted walk-in(s) are not fully mapped to detail rows.
+                    </p>
+                  ) : null}
+                </CardContent>
+              </Card>
             </div>
           </div>
 

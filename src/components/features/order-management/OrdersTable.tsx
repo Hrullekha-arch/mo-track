@@ -919,18 +919,17 @@ export function OrdersTable() {
     if (normalizedOrderNo) {
       constraints.push(where("crmOrderNo", "==", normalizedOrderNo));
     } else {
-      // Always apply date range — default to today, or custom range if set
-      const rangeStart = serverFilters.dateRange?.from
-        ? startOfDay(serverFilters.dateRange.from)
-        : startOfDay(new Date());
-      const rangeEnd = serverFilters.dateRange?.to
-        ? endOfDay(serverFilters.dateRange.to)
-        : serverFilters.dateRange?.from
-        ? endOfDay(serverFilters.dateRange.from)
-        : endOfDay(new Date());
+      const selectedFromDate = serverFilters.dateRange?.from;
+      const selectedToDate = serverFilters.dateRange?.to;
+      const hasDateFilter = Boolean(selectedFromDate || selectedToDate);
 
-      constraints.push(where("createdAt", ">=", rangeStart.toISOString()));
-      constraints.push(where("createdAt", "<=", rangeEnd.toISOString()));
+      if (hasDateFilter) {
+        const rangeStart = startOfDay(selectedFromDate ?? selectedToDate!);
+        const rangeEnd = endOfDay(selectedToDate ?? selectedFromDate!);
+
+        constraints.push(where("createdAt", ">=", rangeStart.toISOString()));
+        constraints.push(where("createdAt", "<=", rangeEnd.toISOString()));
+      }
     }
 
     // Store filter
