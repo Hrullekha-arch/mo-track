@@ -86,7 +86,6 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { getNormalizedOrderMilestones, isOrderComplete as isOrderWorkflowComplete } from "@/lib/order-workflow";
 import {
   getMecaData,
-  type MecaOrderProgressRow,
   type MecaResponse,
   type MecaSalesmanMetric,
   type MecaVisitRow,
@@ -141,20 +140,6 @@ interface TimesheetHourEntry {
 }
 
 const normalizeText = (value?: string) => String(value || "").trim().toLowerCase();
-
-const normalizeCustomerNameKey = (value: unknown): string | undefined => {
-  const normalized = String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-  if (!normalized || normalized === "customer" || normalized === "unknown") return undefined;
-  return normalized;
-};
-
-const normalizeLookupKey = (value: unknown): string | undefined => {
-  const normalized = String(value ?? "").trim().toLowerCase();
-  return normalized || undefined;
-};
 
 const toDateSafe = (value: unknown): Date | null => {
   if (!value) return null;
@@ -1120,91 +1105,27 @@ const  SalesmanDashboardV2 =() => {
     return mecaData.salesmen.find((row) => row.salesmanId === user?.id) ?? mecaData.salesmen[0] ?? null;
   }, [mecaData?.salesmen, user?.id]);
 
-  const mecaConvertedOrders = useMemo<MecaOrderProgressRow[]>(() => {
-    const salesmanId = mecaSalesman?.salesmanId;
-    if (!salesmanId || !mecaData?.convertedOrders?.length) return [];
-    return mecaData.convertedOrders.filter((row) => row.salesmanId === salesmanId);
-  }, [mecaData?.convertedOrders, mecaSalesman?.salesmanId]);
+  const isOutsideVisitType = useCallback((visitType?: string) => {
+    const normalizedType = normalizeText(visitType);
+    return normalizedType.includes("outside");
+  }, []);
 
   const nonConvertedWalkinRows = useMemo<MecaVisitRow[]>(() => {
     const visits = mecaSalesman?.visits ?? [];
     if (visits.length === 0) return [];
 
-    const meetingConvertedOrders = mecaConvertedOrders.filter(
-      (order) => order.conversionSource === "meeting"
-    );
-
-    const visitsByWalkinId = new Map<string, number[]>();
-    const visitsByCustomer = new Map<string, number[]>();
-
-    visits.forEach((visit, index) => {
-      const walkinKey = normalizeLookupKey(visit.visitId);
-      if (walkinKey) {
-        const bucket = visitsByWalkinId.get(walkinKey) ?? [];
-        bucket.push(index);
-        visitsByWalkinId.set(walkinKey, bucket);
-      }
-
-      const customerKey = normalizeCustomerNameKey(visit.customerName);
-      if (customerKey) {
-        const bucket = visitsByCustomer.get(customerKey) ?? [];
-        bucket.push(index);
-        visitsByCustomer.set(customerKey, bucket);
-      }
+    return visits.filter((visit) => {
+      if (isOutsideVisitType(visit.visitType)) return false;
+      return !visit.converted;
     });
-
-    const matchedVisitIndexes = new Set<number>();
-    const pendingCustomerMatchOrders: MecaOrderProgressRow[] = [];
-
-    const matchNextUnclaimedVisit = (indexes: number[] | undefined): number | undefined => {
-      if (!indexes?.length) return undefined;
-      while (indexes.length > 0) {
-        const index = indexes.shift();
-        if (index === undefined) return undefined;
-        if (!matchedVisitIndexes.has(index)) return index;
-      }
-      return undefined;
-    };
-
-    meetingConvertedOrders.forEach((order) => {
-      const walkinKey = normalizeLookupKey(order.walkinId);
-      const matchedByWalkin = matchNextUnclaimedVisit(
-        walkinKey ? visitsByWalkinId.get(walkinKey) : undefined
-      );
-      if (matchedByWalkin !== undefined) {
-        matchedVisitIndexes.add(matchedByWalkin);
-        return;
-      }
-      pendingCustomerMatchOrders.push(order);
-    });
-
-    pendingCustomerMatchOrders.forEach((order) => {
-      const customerKey = normalizeCustomerNameKey(order.customerName);
-      const matchedByCustomer = matchNextUnclaimedVisit(
-        customerKey ? visitsByCustomer.get(customerKey) : undefined
-      );
-      if (matchedByCustomer !== undefined) {
-        matchedVisitIndexes.add(matchedByCustomer);
-      }
-    });
-
-    return visits.filter((_, index) => !matchedVisitIndexes.has(index));
-  }, [mecaConvertedOrders, mecaSalesman?.visits]);
-
-  const isOutsideVisitType = useCallback((visitType?: string) => {
-    const normalizedType = normalizeText(visitType);
-    return normalizedType.includes("outside");
-  }, []);
+  }, [isOutsideVisitType, mecaSalesman?.visits]);
 
   const nonConvertedWalkinOnlyRows = useMemo<MecaVisitRow[]>(
     () => nonConvertedWalkinRows.filter((row) => !isOutsideVisitType(row.visitType)),
     [isOutsideVisitType, nonConvertedWalkinRows]
   );
 
-  const nonConvertedOutsideRows = useMemo<MecaVisitRow[]>(
-    () => nonConvertedWalkinRows.filter((row) => isOutsideVisitType(row.visitType)),
-    [isOutsideVisitType, nonConvertedWalkinRows]
-  );
+  const nonConvertedOutsideRows = useMemo<MecaVisitRow[]>(() => [], []);
 
   const nonConvertedVisibleRows = useMemo<MecaVisitRow[]>(() => {
     if (mecaNonConvertedTab === "walkin") return nonConvertedWalkinOnlyRows;
@@ -1216,19 +1137,10 @@ const  SalesmanDashboardV2 =() => {
     ? mecaSalesman.meetings + mecaSalesman.convertedOutsideMeetings
     : 0;
   const mecaConvertedTotal = mecaSalesman?.convertedOrders ?? 0;
-  const mecaNonConvertedTotal = Math.max(mecaMeetingsTotal - mecaConvertedTotal, 0);
-  const mecaWalkinNonConverted = Math.max(
-    (mecaSalesman?.meetings ?? 0) - (mecaSalesman?.convertedFromMeetings ?? 0),
-    0
-  );
-  const mecaOutsideNonConverted = Math.max(
-    mecaNonConvertedTotal - mecaWalkinNonConverted,
-    0
-  );
-  const mecaNonConvertedMappingGap = Math.max(
-    mecaWalkinNonConverted - nonConvertedWalkinRows.length,
-    0
-  );
+  const mecaWalkinNonConverted = nonConvertedWalkinOnlyRows.length;
+  const mecaOutsideNonConverted = 0;
+  const mecaNonConvertedTotal = mecaWalkinNonConverted + mecaOutsideNonConverted;
+  const mecaNonConvertedMappingGap = 0;
 
   const criticalCount = activeOrderRows.filter((r) => r.risk === "critical").length;
   const completedCount = Math.max(0, orderRows.length - activeOrderRows.length);
@@ -1630,7 +1542,7 @@ const  SalesmanDashboardV2 =() => {
         ) : filteredOrderRows.length > 0 ? (
           filteredOrderRows.map((row) => {
             const fabricSummary = getOrderFabricSummary(row.order);
-            const isCritical = row.risk === "high";
+            const isCritical = row.risk === "critical";
 
             return (
               <div

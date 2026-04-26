@@ -113,10 +113,8 @@ const normalizeCustomerNameKey = (value: unknown): string | undefined => {
   return normalized;
 };
 
-const normalizeLookupKey = (value: unknown): string | undefined => {
-  const normalized = String(value ?? "").trim().toLowerCase();
-  return normalized || undefined;
-};
+const isOutsideVisitType = (value?: string): boolean =>
+  String(value ?? "").trim().toLowerCase().includes("outside");
 
 const EMPTY_SUMMARY: MecaSummary = {
   meetings: 0,
@@ -763,73 +761,14 @@ function SalesmanDetailView({
     (sum, order) => sum + order.totalAmount,
     0
   );
-  const meetingConvertedOrders = useMemo(
-    () => myConvertedOrders.filter((order) => order.conversionSource === "meeting"),
-    [myConvertedOrders]
-  );
   const nonConvertedWalkinVisits = useMemo(() => {
     const visits = sm.visits ?? [];
     if (visits.length === 0) return [] as MecaVisitRow[];
-
-    const visitsByWalkinId = new Map<string, number[]>();
-    const visitsByCustomer = new Map<string, number[]>();
-
-    visits.forEach((visit, index) => {
-      const walkinKey = normalizeLookupKey(visit.visitId);
-      if (walkinKey) {
-        const bucket = visitsByWalkinId.get(walkinKey) ?? [];
-        bucket.push(index);
-        visitsByWalkinId.set(walkinKey, bucket);
-      }
-
-      const customerKey = normalizeCustomerNameKey(visit.customerName);
-      if (customerKey) {
-        const bucket = visitsByCustomer.get(customerKey) ?? [];
-        bucket.push(index);
-        visitsByCustomer.set(customerKey, bucket);
-      }
-    });
-
-    const matchedVisitIndexes = new Set<number>();
-    const pendingCustomerMatchOrders: MecaOrderProgressRow[] = [];
-
-    const matchNextUnclaimedVisit = (indexes: number[] | undefined): number | undefined => {
-      if (!indexes?.length) return undefined;
-      while (indexes.length > 0) {
-        const index = indexes.shift();
-        if (index === undefined) return undefined;
-        if (!matchedVisitIndexes.has(index)) return index;
-      }
-      return undefined;
-    };
-
-    meetingConvertedOrders.forEach((order) => {
-      const walkinKey = normalizeLookupKey(order.walkinId);
-      const matchedByWalkin = matchNextUnclaimedVisit(
-        walkinKey ? visitsByWalkinId.get(walkinKey) : undefined
-      );
-      if (matchedByWalkin !== undefined) {
-        matchedVisitIndexes.add(matchedByWalkin);
-        return;
-      }
-      pendingCustomerMatchOrders.push(order);
-    });
-
-    pendingCustomerMatchOrders.forEach((order) => {
-      const customerKey = normalizeCustomerNameKey(order.customerName);
-      const matchedByCustomer = matchNextUnclaimedVisit(
-        customerKey ? visitsByCustomer.get(customerKey) : undefined
-      );
-      if (matchedByCustomer !== undefined) {
-        matchedVisitIndexes.add(matchedByCustomer);
-      }
-    });
-
-    return visits.filter((_, index) => !matchedVisitIndexes.has(index));
-  }, [meetingConvertedOrders, sm.visits]);
+    return visits.filter((visit) => !isOutsideVisitType(visit.visitType) && !visit.converted);
+  }, [sm.visits]);
   const displayedNonConvertedVisits =
     nonConvertedSourceFilter === "outside" ? [] : nonConvertedWalkinVisits;
-  const nonConvertedMappingGap = walkinNonConvertedCount - nonConvertedWalkinVisits.length;
+  const nonConvertedMappingGap = 0;
   const customerMeetingSummary = useMemo(() => {
     const summaryMap = new Map<
       string,
