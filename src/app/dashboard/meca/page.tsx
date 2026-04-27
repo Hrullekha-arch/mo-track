@@ -745,10 +745,6 @@ function SalesmanDetailView({
   const meetingBaseTotal = sm.meetings + sm.convertedOutsideMeetings;
   const detailConversionRatio =
     meetingBaseTotal > 0 ? (sm.convertedOrders / meetingBaseTotal) * 100 : 0;
-  const walkinNonConvertedCount = Math.max(sm.meetings - sm.convertedFromMeetings, 0);
-  const outsideBaseTotal = Math.max(meetingBaseTotal - sm.meetings, 0);
-  const outsideNonConvertedCount = Math.max(outsideBaseTotal - sm.convertedOutsideMeetings, 0);
-  const nonConvertedTotalCount = walkinNonConvertedCount + outsideNonConvertedCount;
   const [orderSourceFilter, setOrderSourceFilter] = useState<"all" | "meeting" | "outside">("all");
   const [nonConvertedSourceFilter, setNonConvertedSourceFilter] = useState<
     "all" | "walkin" | "outside"
@@ -766,6 +762,9 @@ function SalesmanDetailView({
     if (visits.length === 0) return [] as MecaVisitRow[];
     return visits.filter((visit) => !isOutsideVisitType(visit.visitType) && !visit.converted);
   }, [sm.visits]);
+  const walkinNonConvertedCount = nonConvertedWalkinVisits.length;
+  const outsideNonConvertedCount = 0;
+  const nonConvertedTotalCount = walkinNonConvertedCount + outsideNonConvertedCount;
   const displayedNonConvertedVisits =
     nonConvertedSourceFilter === "outside" ? [] : nonConvertedWalkinVisits;
   const nonConvertedMappingGap = 0;

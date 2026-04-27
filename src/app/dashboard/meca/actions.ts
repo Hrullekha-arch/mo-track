@@ -375,6 +375,16 @@ const shouldSkipWalkinMeeting = (walkin: RawDoc): boolean => {
   return false;
 };
 
+const isWalkinFollowUpClosedStatus = (status: unknown): boolean => {
+  const normalized = normalizeText(status);
+  if (!normalized) return false;
+  if (normalized.includes("completed")) return true;
+  if (normalized.includes("purchased")) return true;
+  if (normalized.includes("installation done")) return true;
+  if (normalized.includes("closed")) return true;
+  return false;
+};
+
 const isOrderClosedStatus = (statusLabel: string): boolean => {
   const normalized = normalizeText(statusLabel);
   if (!normalized) return false;
@@ -653,13 +663,18 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
         (attended ? "Attended" : "Pending");
       const walkinId = asNonEmptyString(walkin.walkinId) ?? doc.id;
       const walkinDealSnapshot = asRecord(walkin.dealSnapshot);
+      const walkinDealRef = asRecord(walkin.dealRef);
+      const walkinCashsale = asRecord(walkin.cashsale);
       const visitDealId =
         asNonEmptyString(walkin.latestDealId) ??
         asNonEmptyString(walkin.dealId) ??
-        asNonEmptyString(walkinDealSnapshot.dealId);
+        asNonEmptyString(walkinDealSnapshot.dealId) ??
+        asNonEmptyString(walkinDealRef.dealId) ??
+        asNonEmptyString(walkinCashsale.dealId);
       const visitDealDocId =
         asNonEmptyString(walkin.latestDealDocId) ??
-        asNonEmptyString(walkinDealSnapshot.dealDocId);
+        asNonEmptyString(walkinDealSnapshot.dealDocId) ??
+        asNonEmptyString(walkinDealRef.dealDocId);
       const outsideVisit = isOutsideVisitType(visitType);
 
       metric.visitRows.push({
@@ -752,11 +767,13 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
           normalizeKey(visit.dealDocId),
         ].filter((key): key is string => Boolean(key));
 
-        const converted = visitKeys.some(
+        const convertedByOrder = visitKeys.some(
           (key) => convertedWalkinKeys.has(key) || convertedDealKeys.has(key)
         );
+        const convertedByClosedStatus = isWalkinFollowUpClosedStatus(visit.status);
+        const converted = convertedByOrder || convertedByClosedStatus;
 
-        if (converted) convertedFromWalkinMeetings += 1;
+        if (convertedByOrder) convertedFromWalkinMeetings += 1;
         return { ...visit, converted };
       });
 
