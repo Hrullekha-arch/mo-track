@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 import { runAutopilot } from "@/lib/pms/autopilot";
+import { getCanonicalPlans } from "@/lib/pms/plan-utils";
+import {
+  isPmsPersonActive,
+  isPmsPersonOnLeaveAt,
+  isPmsPersonWeekOffAt,
+} from "@/lib/pms/person-availability";
+import { requiresManualDoneAfterProcess } from "@/lib/pms/process-rules";
+import { getPmsStartGateMap } from "@/lib/pms/start-gate";
 
 const IST_TIMEZONE_OFFSET_MINUTES = 330;
 
@@ -52,6 +60,11 @@ const chunk = <T,>(items: T[], size: number) => {
   return batches;
 };
 
+const getJobGroupKey = (job?: any) =>
+  String(
+    job?.jobGroupId || (job?.productId ? `${job?.orderId}_${job?.productId}` : job?.orderId || "")
+  ).trim();
+
 const getOrdersByIds = async (ids: string[]) => {
   const orderMap = new Map<string, any>();
   if (ids.length === 0) return orderMap;
@@ -99,26 +112,29 @@ export async function POST() {
       id: doc.id,
       ...(doc.data() as any),
     }));
-    const maxRouteStepByProduct = new Map<string, number>();
+    const peopleById = Object.fromEntries(
+      peopleSnap.docs.map((doc) => [doc.id, { id: doc.id, ...(doc.data() as any) }])
+    );
+    const routingByProduct = new Map<string, any[]>();
     routingSnap.docs.forEach((doc) => {
       const data = doc.data() as any;
       const productId = String(data?.productId || "").trim();
-      const stepNo = Number(data?.stepNo || 0);
-      if (!productId || !Number.isFinite(stepNo) || stepNo <= 0) return;
-      maxRouteStepByProduct.set(
-        productId,
-        Math.max(maxRouteStepByProduct.get(productId) || 0, stepNo)
-      );
+      if (!productId) return;
+      if (!routingByProduct.has(productId)) routingByProduct.set(productId, []);
+      routingByProduct.get(productId)!.push(data);
     });
-    const isFinalRouteStep = (job: any) => {
+    routingByProduct.forEach((steps) =>
+      steps.sort((left, right) => Number(left?.stepNo || 0) - Number(right?.stepNo || 0))
+    );
+
+    const isManualDoneCheckpoint = (job: any) => {
       const productId = String(job?.productId || "").trim();
       const stepNo = Number(job?.stepNo || 0);
-      if (!productId || !Number.isFinite(stepNo) || stepNo <= 0) return false;
-      const maxStep = Number(maxRouteStepByProduct.get(productId) || 0);
-      if (!Number.isFinite(maxStep) || maxStep <= 0) return false;
-      return stepNo >= maxStep;
+      if (!productId || !Number.isFinite(stepNo) || stepNo <= 1) return false;
+      const routingSteps = routingByProduct.get(productId) || [];
+      const previousStep = routingSteps.find((step) => Number(step?.stepNo || 0) === stepNo - 1);
+      return requiresManualDoneAfterProcess(previousStep?.process);
     };
-
     const activeJobs = [...plannedJobs, ...inProgressJobs];
     const planByJob = new Map<
       string,
@@ -154,6 +170,39 @@ export async function POST() {
     const activeOrderIds = Array.from(
       new Set(activeJobs.map((job) => job.orderId).filter(Boolean))
     ) as string[];
+    const activeJobGroupIds = Array.from(
+      new Set(activeJobs.map((job) => String(job?.jobGroupId || "").trim()).filter(Boolean))
+    );
+    const activeFallbackOrderIds = Array.from(
+      new Set(
+        activeJobs
+          .filter((job) => !String(job?.jobGroupId || "").trim())
+          .map((job) => String(job?.orderId || "").trim())
+          .filter(Boolean)
+      )
+    );
+    const groupJobsByKey = new Map<string, any[]>();
+    const relatedJobsMap = new Map<string, any>();
+    for (const batchIds of chunk(activeJobGroupIds, 10)) {
+      const snap = await adminDb.collection("jobs").where("jobGroupId", "in", batchIds).get();
+      snap.docs.forEach((doc) => relatedJobsMap.set(doc.id, { id: doc.id, ...(doc.data() as any) }));
+    }
+    for (const batchIds of chunk(activeFallbackOrderIds, 10)) {
+      const snap = await adminDb.collection("jobs").where("orderId", "in", batchIds).get();
+      snap.docs.forEach((doc) => relatedJobsMap.set(doc.id, { id: doc.id, ...(doc.data() as any) }));
+    }
+    activeJobs.forEach((job) => {
+      if (job?.id) relatedJobsMap.set(job.id, job);
+    });
+    Array.from(relatedJobsMap.values()).forEach((job) => {
+      const groupKey = getJobGroupKey(job);
+      if (!groupKey) return;
+      if (!groupJobsByKey.has(groupKey)) groupJobsByKey.set(groupKey, []);
+      groupJobsByKey.get(groupKey)!.push(job);
+    });
+    groupJobsByKey.forEach((jobs) =>
+      jobs.sort((left, right) => Number(left?.stepNo || 0) - Number(right?.stepNo || 0))
+    );
     const activeOrderDataById = await getOrdersByIds(activeOrderIds);
     const invoicedOrderIds = new Set<string>();
     activeOrderDataById.forEach((data, id) => {
@@ -174,20 +223,30 @@ export async function POST() {
       };
     };
 
+    const hasIncompletePreviousStep = (job: any) => {
+      const groupKey = getJobGroupKey(job);
+      const stepNo = Number(job?.stepNo || 0);
+      if (!groupKey || !Number.isFinite(stepNo) || stepNo <= 1) return false;
+      const groupJobs = groupJobsByKey.get(groupKey) || [];
+      const previousJob = groupJobs.find((candidate) => Number(candidate?.stepNo || 0) === stepNo - 1);
+      if (!previousJob) return false;
+      return String(previousJob?.status || "").toUpperCase() !== "DONE";
+    };
+
     const completedInProgressJobs = inProgressJobs
       .map(getJobTiming)
       .filter(({ job, plannedEndMs }) => {
-        if (!invoicedOrderIds.has(job.orderId)) return false;
-        if (isFinalRouteStep(job)) return false;
+        if (!activeSchedulableOrderIds.has(job.orderId)) return false;
+        if (isManualDoneCheckpoint(job)) return false;
         return plannedEndMs !== undefined && plannedEndMs <= nowMs;
       });
 
     const runningResourceLocks = inProgressJobs
       .map(getJobTiming)
-      .filter(({ job, plannedEndMs }) => {
-        if (!invoicedOrderIds.has(job.orderId)) return false;
+      .filter(({ job }) => {
+        if (!activeSchedulableOrderIds.has(job.orderId)) return false;
         if (completedInProgressJobs.some((entry) => entry.job.id === job.id)) return false;
-        return plannedEndMs === undefined || plannedEndMs > nowMs;
+        return true;
       })
       .map(({ job, plan, plannedEndMs }) => ({
         jobId: job.id as string,
@@ -205,9 +264,10 @@ export async function POST() {
     const readyPlannedJobs = plannedJobs
       .map(getJobTiming)
       .filter(({ job, plannedStartMs, plannedEndMs }) => {
-        if (!invoicedOrderIds.has(job.orderId)) return false;
+        if (!activeSchedulableOrderIds.has(job.orderId)) return false;
+        if (!startEligibleOrderIds.has(job.orderId)) return false;
         if (plannedStartMs === undefined || plannedStartMs > nowMs) return false;
-        if (plannedEndMs !== undefined && plannedEndMs <= nowMs) return false;
+        if (hasIncompletePreviousStep(job)) return false;
         return true;
       })
       .sort((a, b) => {
@@ -352,9 +412,22 @@ export async function POST() {
         if (job?.orderId) schedulingOrderIds.add(job.orderId);
       });
 
-      const schedulingJobs = Array.from(schedulingJobsMap.values())
-        .filter((job) => schedulingOrderIds.has(job.orderId))
-        .map((job) => {
+      const schedulingCandidates = Array.from(schedulingJobsMap.values()).filter((job) =>
+        schedulingOrderIds.has(job.orderId)
+      );
+      const resetPlanJobIds = Array.from(
+        new Set(
+          schedulingCandidates
+            .filter((job) => {
+              const rawStatus = String(job.status || "").toUpperCase();
+              return rawStatus === "WAITING" || rawStatus === "PLANNED";
+            })
+            .map((job) => String(job.id || "").trim())
+            .filter(Boolean)
+        )
+      );
+
+      const schedulingJobs = schedulingCandidates.map((job) => {
           const plan = planByJobId.get(job.id);
           const rawStatus = String(job.status || "").toUpperCase();
           const normalizedStatus = rawStatus === "PLANNED" ? "WAITING" : rawStatus;

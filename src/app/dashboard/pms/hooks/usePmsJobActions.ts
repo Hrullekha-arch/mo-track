@@ -12,8 +12,20 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import type { CreateJobDialogRow, StoredEmbellishment } from "../types/pms";
-import { buildEmbellishmentForm, emptyEmbellishmentForm, toNumber } from "../utils/pmsHelpers";
+import type {
+  CreateJobDialogRow,
+  PmsProduct,
+  PmsRouting,
+  StoredEmbellishment,
+} from "../types/pms";
+import {
+  buildEmbellishmentForm,
+  emptyEmbellishmentForm,
+  hasEmbellishmentRoutingStep,
+  toNumber,
+} from "../utils/pmsHelpers";
+import { canManagePms } from "../utils/pmsAccess";
+import { isManualCompletionProcess } from "@/lib/pms/process-rules";
 
 type Params = {
   role?: string | null;
@@ -129,11 +141,11 @@ export const usePmsJobActions = ({
           variant: "destructive",
           title: "Routing not created",
           description:
-            role === "admin"
+            canManagePms(role as any)
               ? "Create routing for this PMS product first, then create jobs."
-              : "Ask admin to create routing for this PMS product first.",
+              : "Ask an authorized PMS user to create routing for this PMS product first.",
         });
-        if (role === "admin") {
+        if (canManagePms(role as any)) {
           handleOpenRoutingSetup(row.matchedProductId);
         }
         return;
@@ -292,7 +304,138 @@ export const usePmsJobActions = ({
     } finally {
       setCreatingJobKey(null);
     }
-  }, [createJobDialog.row, getValidatedEmbellishmentPayload, persistEmbellishmentForRow, setCreatingJobKey, toast]);
+  }, [
+    createJobDialog.row,
+    getValidatedEmbellishmentPayload,
+    persistEmbellishmentForRow,
+    setCreatingJobKey,
+    startPmsForRow,
+    toast,
+  ]);
+
+  const handleAssignLiveVasProduct = useCallback(
+    async (
+      row: CreateJobDialogRow & {
+        key: string;
+        orderId: string;
+        orderNo: string;
+        qty: number;
+        vasName: string;
+        matchedProductId?: string;
+        matchedProductName?: string;
+        embellishment?: StoredEmbellishment;
+      },
+      productId: string
+    ) => {
+      if (!row?.key || updatingLiveRowKey || runningAutopilot || runningPriorityReplan || resettingAutopilot || priorityUpdatingOrderId || deletingPlanKey) {
+        return;
+      }
+
+      const selectedProductId = productId === "__AUTO__" ? "" : String(productId || "").trim();
+      const selectedProduct = selectedProductId
+        ? products.find((product) => product.id === selectedProductId)
+        : undefined;
+
+      setUpdatingLiveRowKey(row.key);
+      try {
+        if (!selectedProductId) {
+          await deleteDoc(doc(db, "pmsVasOverrides", row.key));
+          toast({
+            title: "Override cleared",
+            description: "PMS will now use the automatic VAS-to-product match for this row.",
+          });
+          return;
+        }
+
+        if (!selectedProduct) {
+          throw new Error("Selected PMS product was not found.");
+        }
+
+        const nowIso = new Date().toISOString();
+        await setDoc(
+          doc(db, "pmsVasOverrides", row.key),
+          {
+            orderId: row.orderId,
+            orderNo: row.orderNo,
+            vasIndex: row.vasIndex,
+            vasName: row.vasName,
+            productId: selectedProduct.id,
+            productName: selectedProduct.name,
+            updatedAt: nowIso,
+            updatedBy: {
+              id: user?.id || null,
+              name: user?.name || null,
+              role: user?.role || null,
+            },
+          },
+          { merge: true }
+        );
+
+        const hasRoutingForProduct = routing.some((step) => step.productId === selectedProduct.id);
+        const routingStepsForProduct = routing.filter((step) => step.productId === selectedProduct.id);
+        const requiresEmbellishment = hasEmbellishmentRoutingStep(routingStepsForProduct);
+        if (!hasRoutingForProduct) {
+          toast({
+            title: "PMS product updated",
+            description:
+              canManagePms(role as any)
+                ? `${selectedProduct.name} was assigned. Create routing next, then PMS can schedule it automatically.`
+                : `${selectedProduct.name} was assigned, but routing is still missing.`,
+          });
+          if (canManagePms(role as any)) {
+            handleOpenRoutingSetup(selectedProduct.id);
+          }
+          return;
+        }
+
+        if (requiresEmbellishment && !row.embellishment?.enabled) {
+          toast({
+            title: "Additional VAS form required",
+            description: `${selectedProduct.name} includes an Additional VAS step. Click + to complete the form before PMS starts.`,
+          });
+          return;
+        }
+
+        if (row.hasJobsForProduct && row.matchedProductId === selectedProduct.id) {
+          toast({
+            title: "PMS product updated",
+            description: `${selectedProduct.name} is already assigned and PMS jobs already exist for this row.`,
+          });
+          return;
+        }
+
+        toast({
+          title: "PMS product updated",
+          description: requiresEmbellishment
+            ? `${selectedProduct.name} was assigned. Click + to open the Additional VAS form and then plan PMS.`
+            : `${selectedProduct.name} was assigned. Click + to plan PMS for ${row.orderNo}.`,
+        });
+      } catch (error) {
+        toast({
+          variant: "destructive",
+          title: "PMS product update failed",
+          description: (error as Error).message,
+        });
+      } finally {
+        setUpdatingLiveRowKey(null);
+      }
+    },
+    [
+      deletingPlanKey,
+      handleOpenRoutingSetup,
+      priorityUpdatingOrderId,
+      products,
+      resettingAutopilot,
+      role,
+      routing,
+      runningAutopilot,
+      runningPriorityReplan,
+      setUpdatingLiveRowKey,
+      toast,
+      updatingLiveRowKey,
+      user,
+    ]
+  );
 
   const handleSubmitCreateJobs = useCallback(async () => {
     const row = createJobDialog.row;

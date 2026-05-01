@@ -20,6 +20,10 @@ import {
   resolveVasInfo,
 } from "../utils/pmsHelpers";
 import { isPmsExcludedItem } from "@/lib/pms/filters";
+import {
+  isManualCompletionProcess,
+  requiresManualDoneAfterProcess,
+} from "@/lib/pms/process-rules";
 
 type Params = {
   jobs: PmsJob[];
@@ -121,11 +125,11 @@ export const usePmsWorkData = ({
         const hasActive = sortedJobs.some((job) => job.status !== "DONE");
         if (!hasActive) return null;
 
+        // Always keep the earliest unfinished step as the current row.
+        // This prevents later planned/running steps from hiding a manual-done
+        // checkpoint that still needs a human completion.
         const currentJob =
-          sortedJobs.find((job) => job.status === "IN_PROGRESS") ||
-          sortedJobs.find((job) => job.status === "PLANNED") ||
-          sortedJobs.find((job) => job.status === "WAITING") ||
-          sortedJobs[0];
+          sortedJobs.find((job) => String(job.status || "").toUpperCase() !== "DONE") || sortedJobs[0];
         if (!currentJob) return null;
 
         const order = lookups.ordersById.get(currentJob.orderId);
@@ -168,11 +172,18 @@ export const usePmsWorkData = ({
 
         const currentStepNo = currentJob.stepNo ?? routingSteps[0]?.stepNo;
         const currentStep = routingSteps.find((step) => step.stepNo === currentStepNo) || routingSteps[0];
+        const previousStep = currentStep
+          ? routingSteps.find((step) => step.stepNo === currentStep.stepNo - 1)
+          : undefined;
         const nextStep = currentStep
           ? routingSteps.find((step) => step.stepNo === currentStep.stepNo + 1)
           : undefined;
         const maxStepNo = routingSteps.reduce((max, step) => Math.max(max, Number(step?.stepNo || 0)), 0);
         const isFinalStep = Boolean(currentStepNo && maxStepNo && Number(currentStepNo) >= maxStepNo);
+        const firstStepNo = routingSteps.length > 0 ? routingSteps[0].stepNo : undefined;
+        const isFirstStep = currentStepNo !== undefined && firstStepNo !== undefined && currentStepNo === firstStepNo;
+        const isManualStep = isManualCompletionProcess(currentJob.process || currentStep?.process || "");
+        const requiresManualDone = requiresManualDoneAfterProcess(previousStep?.process);
         const currentPlan = currentStep ? stepPlanMap.get(currentStep.stepNo) : undefined;
         const nextPlan = nextStep ? stepPlanMap.get(nextStep.stepNo) : undefined;
         const machine = currentPlan?.machineName;
@@ -180,6 +191,18 @@ export const usePmsWorkData = ({
         const currentPlanDoc = lookups.planByJob.get(currentJob.id);
         const currentMachineId = currentPlanDoc?.machineId;
         const currentPersonId = currentPlanDoc?.personId;
+        const rawStatus = String(currentJob.status || "WAITING").toUpperCase();
+        const effectivePlannedStart = currentPlan?.plannedStart ?? currentJob.plannedStart;
+        const effectivePlannedEnd = currentPlan?.plannedEnd ?? currentJob.plannedEnd;
+        const effectiveStartMs = effectivePlannedStart
+          ? new Date(effectivePlannedStart).getTime()
+          : Number.NaN;
+        const isAutoRunningStep =
+          rawStatus === "PLANNED" &&
+          Number.isFinite(effectiveStartMs) &&
+          effectiveStartMs <= nowMs;
+        const displayStatus = isAutoRunningStep ? "IN_PROGRESS" : rawStatus;
+        const isManualDonePinned = requiresManualDone && displayStatus === "IN_PROGRESS";
         const vasInfo = resolveVasInfo(order, product?.name);
         if (isPmsExcludedItem(product?.name, vasInfo.vasName, vasInfo.vasGroup)) return null;
 
@@ -230,12 +253,16 @@ export const usePmsWorkData = ({
           process: currentJob.process || currentStep?.process || "Not scheduled",
           machine,
           person,
-          plannedStart: currentPlan?.plannedStart ?? currentJob.plannedStart,
-          plannedEnd: currentPlan?.plannedEnd ?? currentJob.plannedEnd,
-          status: currentJob.status || "WAITING",
+          plannedStart: effectivePlannedStart,
+          plannedEnd: effectivePlannedEnd,
+          status: displayStatus,
+          isManualDonePinned,
           routingSteps,
           currentStepNo,
           isFinalStep,
+          isFirstStep,
+          isManualStep,
+          requiresManualDone,
           totalSteps: maxStepNo,
           productName: product?.name || currentJob.productId || "Unknown product",
           stepPlanMap,
@@ -254,6 +281,8 @@ export const usePmsWorkData = ({
 
     const statusRank: Record<string, number> = { IN_PROGRESS: 0, PLANNED: 1, WAITING: 2, DONE: 3 };
     return rows.sort((a, b) => {
+      const pinnedDiff = Number(Boolean(b.isManualDonePinned)) - Number(Boolean(a.isManualDonePinned));
+      if (pinnedDiff !== 0) return pinnedDiff;
       const rankDiff = (statusRank[a.status] ?? 99) - (statusRank[b.status] ?? 99);
       if (rankDiff !== 0) return rankDiff;
       const aTime = a.plannedStart ? new Date(a.plannedStart).getTime() : Number.MAX_SAFE_INTEGER;

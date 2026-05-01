@@ -32,6 +32,8 @@ export function EmbellishmentEditor({
   submitLabel = "Save & Create Jobs",
   emptyMessage = "Choose a VAS item from the dashboard list to open the Embelshment form.",
 }: Props) {
+  const canManage = role === "admin" || role === "employee";
+
   if (!createJobDialog.row) {
     return (
       <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
@@ -65,9 +67,9 @@ export function EmbellishmentEditor({
       {row.matchedProductId && !row.hasRouting && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
           Routing is not created for this PMS product yet.
-          {role === "admin"
+          {canManage
             ? " Create routing first, then create jobs."
-            : " Ask admin to create routing first."}
+            : " Ask an authorized PMS user to create routing first."}
         </div>
       )}
 
@@ -79,7 +81,8 @@ export function EmbellishmentEditor({
           </p>
         </div>
         <Switch
-          checked={createJobDialog.embellishmentEnabled}
+          checked={embellishmentEnabled}
+          disabled={embellishmentRequired || !canManage}
           onCheckedChange={(checked) =>
             setCreateJobDialog((prev: any) => ({
               ...prev,
@@ -97,6 +100,7 @@ export function EmbellishmentEditor({
               <Label>Customer&apos;s Name</Label>
               <Input
                 value={createJobDialog.form.customerName}
+                disabled={!canManage}
                 onChange={(event) => onFieldChange("customerName", event.target.value)}
               />
             </div>
@@ -104,6 +108,7 @@ export function EmbellishmentEditor({
               <Label>Customer Phone Number</Label>
               <Input
                 value={createJobDialog.form.customerPhone}
+                disabled={!canManage}
                 onChange={(event) => onFieldChange("customerPhone", event.target.value)}
               />
             </div>
@@ -112,6 +117,7 @@ export function EmbellishmentEditor({
               <Input
                 type="number"
                 min="0"
+                disabled={!canManage}
                 value={createJobDialog.form.numberOfWindows}
                 onChange={(event) => onFieldChange("numberOfWindows", event.target.value)}
               />
@@ -121,6 +127,7 @@ export function EmbellishmentEditor({
               <Input
                 type="number"
                 min="0"
+                disabled={!canManage}
                 value={createJobDialog.form.numberOfPanels}
                 onChange={(event) => onFieldChange("numberOfPanels", event.target.value)}
               />
@@ -129,6 +136,7 @@ export function EmbellishmentEditor({
               <Label>Embelshment Barcode</Label>
               <Input
                 value={createJobDialog.form.embellishmentBarcode}
+                disabled={!canManage}
                 onChange={(event) => onFieldChange("embellishmentBarcode", event.target.value)}
               />
             </div>
@@ -138,6 +146,7 @@ export function EmbellishmentEditor({
                 type="number"
                 min="0"
                 step="0.01"
+                disabled={!canManage}
                 value={createJobDialog.form.stitchingPerPanel}
                 onChange={(event) => onFieldChange("stitchingPerPanel", event.target.value)}
               />
@@ -148,6 +157,7 @@ export function EmbellishmentEditor({
                 type="number"
                 min="0"
                 step="0.01"
+                disabled={!canManage}
                 value={createJobDialog.form.designTime}
                 onChange={(event) => onFieldChange("designTime", event.target.value)}
               />
@@ -158,6 +168,7 @@ export function EmbellishmentEditor({
                 type="number"
                 min="0"
                 step="0.01"
+                disabled={!canManage}
                 value={createJobDialog.form.handWorkTime}
                 onChange={(event) => onFieldChange("handWorkTime", event.target.value)}
               />
@@ -170,11 +181,11 @@ export function EmbellishmentEditor({
                 step="0.01"
                 value={createJobDialog.form.hourlyCharge}
                 onChange={(event) => onFieldChange("hourlyCharge", event.target.value)}
-                disabled={role !== "admin"}
+                disabled={!canManage}
               />
-              {role !== "admin" && (
+              {!canManage && (
                 <div className="text-xs text-muted-foreground">
-                  Only admin can edit the hourly charge.
+                  Only an authorized PMS user can edit the hourly charge.
                 </div>
               )}
             </div>
@@ -208,14 +219,14 @@ export function EmbellishmentEditor({
 
           <div className="flex flex-wrap justify-end gap-2">
             {showSaveDetailsButton && onSaveDetails && (
-              <Button variant="outline" onClick={onSaveDetails} disabled={isSaving}>
+              <Button variant="outline" onClick={onSaveDetails} disabled={isSaving || !canManage}>
                 {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Save Details
               </Button>
             )}
             <Button
               onClick={onSubmit}
-              disabled={isSaving || row.hasJobsForProduct || !row.hasRouting}
+              disabled={isSaving || row.hasJobsForProduct || !row.hasRouting || !canManage}
             >
               {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {row.hasJobsForProduct ? "Jobs Created" : submitLabel}
