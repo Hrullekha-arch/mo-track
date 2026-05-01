@@ -83,9 +83,12 @@ export function PmsWorkDetailTab({ ctx }: Props) {
                       (row.resetJobIds.length > 0 || row.resetPlanDocIds.length > 0) &&
                       row.status !== "IN_PROGRESS";
                     const canManualDone =
-                      (row.isFirstStep || row.isManualStep) &&
-                      row.status !== "DONE" &&
+                      row.requiresManualDone &&
+                      row.status === "IN_PROGRESS" &&
                       Boolean(row.currentJobId);
+                    const manualDoneTooltip = canManualDone
+                      ? "Manual Done"
+                      : "Manual Done is only available for the two checkpoint steps after Cutting and after Assembly.";
                     const isExpanded = Boolean(ctx.expandedWorkRows?.[row.key]);
 
                     return (
@@ -189,26 +192,35 @@ export function PmsWorkDetailTab({ ctx }: Props) {
                               </Tooltip>
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <Button
-                                    size="icon"
-                                    variant="secondary"
-                                    className="h-9 w-9 bg-slate-500 text-white hover:bg-slate-600"
-                                    disabled={
-                                      !canManualDone ||
-                                      ctx.manualDoneSaving ||
-                                      ctx.deletingPlanKey === row.key ||
-                                      ctx.runningAutopilot ||
-                                      ctx.runningPriorityReplan ||
-                                      ctx.resettingAutopilot ||
-                                      Boolean(ctx.priorityUpdatingOrderId)
-                                    }
-                                    onClick={() => ctx.handleOpenManualDoneDialog(row)}
-                                    aria-label="Done"
-                                  >
-                                    <Check className="h-4 w-4" />
-                                  </Button>
+                                  <span className="inline-flex">
+                                    <Button
+                                      size="icon"
+                                      variant="secondary"
+                                      className={cn(
+                                        "h-9 w-9 text-white",
+                                        canManualDone
+                                          ? "bg-emerald-600 hover:bg-emerald-700"
+                                          : "bg-slate-400 hover:bg-slate-400"
+                                      )}
+                                      disabled={
+                                        !canManualDone ||
+                                        ctx.manualDoneSaving ||
+                                        ctx.deletingPlanKey === row.key ||
+                                        ctx.runningAutopilot ||
+                                        ctx.runningPriorityReplan ||
+                                        ctx.resettingAutopilot ||
+                                        Boolean(ctx.priorityUpdatingOrderId)
+                                      }
+                                      onClick={() => ctx.handleOpenManualDoneDialog(row)}
+                                      aria-label={manualDoneTooltip}
+                                    >
+                                      <Check className="h-4 w-4" />
+                                    </Button>
+                                  </span>
                                 </TooltipTrigger>
-                                <TooltipContent>Done</TooltipContent>
+                                <TooltipContent className="max-w-64 text-center">
+                                  {manualDoneTooltip}
+                                </TooltipContent>
                               </Tooltip>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -251,7 +263,7 @@ export function PmsWorkDetailTab({ ctx }: Props) {
                                     <div className="mb-3 flex items-center justify-between">
                                       <div className="text-sm font-medium">Additional VAS Details</div>
                                       <div className="flex items-center gap-2">
-                                        {ctx.role === "admin" && (
+                                        {ctx.canManagePms && (
                                           <Tooltip>
                                             <TooltipTrigger asChild>
                                               <Button

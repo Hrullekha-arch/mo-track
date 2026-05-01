@@ -23,6 +23,7 @@ import {
   hasEmbellishmentRoutingStep,
   toNumber,
 } from "../utils/pmsHelpers";
+import { canManagePms } from "../utils/pmsAccess";
 import { isManualCompletionProcess } from "@/lib/pms/process-rules";
 
 type Params = {
@@ -173,11 +174,11 @@ export const usePmsJobActions = ({
           variant: "destructive",
           title: "Routing not created",
           description:
-            role === "admin"
+            canManagePms(role as any)
               ? "Create routing for this PMS product first, then create jobs."
-              : "Ask admin to create routing for this PMS product first.",
+              : "Ask an authorized PMS user to create routing for this PMS product first.",
         });
-        if (role === "admin") {
+        if (canManagePms(role as any)) {
           handleOpenRoutingSetup(row.matchedProductId);
         }
         return;
@@ -448,11 +449,11 @@ export const usePmsJobActions = ({
           toast({
             title: "PMS product updated",
             description:
-              role === "admin"
+              canManagePms(role as any)
                 ? `${selectedProduct.name} was assigned. Create routing next, then PMS can schedule it automatically.`
                 : `${selectedProduct.name} was assigned, but routing is still missing.`,
           });
-          if (role === "admin") {
+          if (canManagePms(role as any)) {
             handleOpenRoutingSetup(selectedProduct.id);
           }
           return;

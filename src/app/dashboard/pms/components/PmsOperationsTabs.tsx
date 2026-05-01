@@ -881,9 +881,12 @@ export function PmsOperationsTabs({ vm }: PmsOperationsTabsProps) {
                             (row.resetJobIds.length > 0 || row.resetPlanDocIds.length > 0) &&
                             row.status !== "IN_PROGRESS";
                           const canManualDone =
-                            row.isFinalStep &&
+                            row.requiresManualDone &&
                             row.status === "IN_PROGRESS" &&
                             Boolean(row.currentJobId);
+                          const manualDoneLabel = canManualDone
+                            ? "Manual Done"
+                            : "Manual Done only after Cutting / Assembly";
                           return (
                             <Fragment key={row.key}>
                               <TableRow>
@@ -959,6 +962,11 @@ export function PmsOperationsTabs({ vm }: PmsOperationsTabsProps) {
                                     <Button
                                       size="sm"
                                       variant="default"
+                                      className={cn(
+                                        canManualDone
+                                          ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                                          : "bg-slate-400 text-white hover:bg-slate-400"
+                                      )}
                                       disabled={
                                         !canManualDone ||
                                         manualDoneSaving ||
@@ -971,7 +979,7 @@ export function PmsOperationsTabs({ vm }: PmsOperationsTabsProps) {
                                       onClick={() => handleOpenManualDoneDialog(row)}
                                     >
                                       <Check className="mr-2 h-4 w-4" />
-                                      Manual Done
+                                      {manualDoneLabel}
                                     </Button>
                                     <Button
                                       size="sm"

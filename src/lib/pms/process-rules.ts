@@ -10,5 +10,13 @@ const MANUAL_COMPLETION_PROCESS_KEYS = new Set([
   normalizeProcessName("Final Complete Kitting"),
 ]);
 
+const MANUAL_DONE_AFTER_PROCESS_KEYS = new Set([
+  normalizeProcessName("Cutting"),
+  normalizeProcessName("Assembly"),
+]);
+
 export const isManualCompletionProcess = (process?: string) =>
   MANUAL_COMPLETION_PROCESS_KEYS.has(normalizeProcessName(process));
+
+export const requiresManualDoneAfterProcess = (process?: string) =>
+  MANUAL_DONE_AFTER_PROCESS_KEYS.has(normalizeProcessName(process));

@@ -245,6 +245,7 @@ export type WorkDetailRow = {
   currentStepNo?: number;
   isFinalStep: boolean;
   totalSteps: number;
+  requiresManualDone?: boolean;
   productName: string;
   stepPlanMap: Map<number, StepPlanInfo>;
   nextProcess?: string;

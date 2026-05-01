@@ -23,6 +23,7 @@ import { usePmsDashboardCore } from "./hooks/usePmsDashboardCore";
 import { usePmsJobActions } from "./hooks/usePmsJobActions";
 import { usePmsLiveData } from "./hooks/usePmsLiveData";
 import { usePmsWorkData } from "./hooks/usePmsWorkData";
+import { canAccessPms, canManagePms } from "./utils/pmsAccess";
 import { normalizeText } from "./utils/pmsHelpers";
 
 export default function PmsDashboardClient() {
@@ -185,6 +186,7 @@ export default function PmsDashboardClient() {
   const ctx = {
     role,
     user,
+    canManagePms: canManagePms(role),
     ...core,
     ...liveData,
     ...workData,
@@ -193,7 +195,7 @@ export default function PmsDashboardClient() {
     handleEditWorkDetailEmbellishment,
   };
 
-  if (role && role !== "admin") {
+  if (role && !canAccessPms(role)) {
     return <PmsAccessRestricted />;
   }
 

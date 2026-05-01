@@ -262,7 +262,7 @@ export function PmsLiveTab({ ctx }: Props) {
                       <TableCell>{row.qty}</TableCell>
                       <TableCell>
                         <div className="space-y-1">
-                          {ctx.role === "admin" ? (
+                          {ctx.canManagePms ? (
                             <Combobox
                               options={productOptions}
                               value={
@@ -302,7 +302,7 @@ export function PmsLiveTab({ ctx }: Props) {
                           {row.matchedProductId && !row.hasRouting && (
                             <div className="space-y-1">
                               <div className="text-xs font-medium text-amber-600">Routing not created yet</div>
-                              {ctx.role === "admin" && (
+                              {ctx.canManagePms && (
                                 <Button
                                   size="sm"
                                   variant="secondary"
@@ -352,9 +352,9 @@ export function PmsLiveTab({ ctx }: Props) {
                       <TableCell>
                         <div className="space-y-1">
                           <div>{row.noPlanReason || "-"}</div>
-                          {row.matchedProductId && !row.hasRouting && ctx.role === "admin" && (
+                          {row.matchedProductId && !row.hasRouting && ctx.canManagePms && (
                             <div className="text-xs text-amber-600">
-                              Admin suggestion: create routing for this product.
+                              Authorized PMS user suggestion: create routing for this product.
                             </div>
                           )}
                         </div>

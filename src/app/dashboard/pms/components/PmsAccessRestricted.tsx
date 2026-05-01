@@ -13,7 +13,7 @@ export function PmsAccessRestricted() {
           </div>
         </CardHeader>
         <CardContent className="text-muted-foreground">
-          You do not have admin access to the PMS Control Center. Please contact your administrator.
+          You do not have authorized access to the PMS Control Center. Please contact your administrator.
         </CardContent>
       </Card>
     </div>

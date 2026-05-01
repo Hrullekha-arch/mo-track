@@ -105,9 +105,13 @@ export function PmsEmbellishmentTab({ ctx }: Props) {
                               size="sm"
                               variant={isSelected ? "secondary" : "outline"}
                               onClick={() => ctx.handleSelectEmbellishmentRow(row)}
-                              disabled={!row.matchedProductId}
+                              disabled={!row.matchedProductId || !ctx.canManagePms}
                             >
-                              {isSelected ? "Selected" : "Open Additional VAS"}
+                              {ctx.canManagePms
+                                ? isSelected
+                                  ? "Selected"
+                                  : "Open Additional VAS"
+                                : "Authorized Only"}
                             </Button>
                           </TableCell>
                         </TableRow>
