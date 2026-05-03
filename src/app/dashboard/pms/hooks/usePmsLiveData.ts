@@ -8,15 +8,20 @@ import type {
   PmsEmbellishmentRecord,
   PmsJob,
   PmsMachine,
+  PmsNextDayPlanRow,
   PmsPerson,
   PmsPlan,
   PmsProduct,
   PmsRouting,
   PmsSkill,
+  PmsVasOverride,
+  PmsWorkingHours,
 } from "../types/pms";
 import {
   EMBELLISHMENT_HOURLY_CHARGE,
+  compareOrderNo,
   explainNoPlan,
+  hasEmbellishmentRoutingStep,
   isOrderClosedForPms,
   isOrderInvoiced,
   matchProductToVas,
@@ -27,6 +32,9 @@ import {
 } from "../utils/pmsHelpers";
 import { isPmsExcludedItem } from "@/lib/pms/filters";
 import { buildLookups } from "../utils/pmsHelpers";
+import { buildJobsFromRouting } from "@/lib/pms/routing";
+import { buildCapacityMap } from "@/lib/pms/capacity";
+import { scheduleJobs } from "@/lib/pms/scheduler";
 
 type Params = {
   products: PmsProduct[];
@@ -40,7 +48,9 @@ type Params = {
   jobs: PmsJob[];
   plans: PmsPlan[];
   embellishmentRecords: PmsEmbellishmentRecord[];
+  vasOverrides: PmsVasOverride[];
   createJobDialog: CreateJobDialogState;
+  workingHours: PmsWorkingHours;
   productSearch: string;
   machineSearch: string;
   personSearch: string;
@@ -74,7 +84,9 @@ export const usePmsLiveData = ({
   jobs,
   plans,
   embellishmentRecords,
+  vasOverrides,
   createJobDialog,
+  workingHours,
   productSearch,
   machineSearch,
   personSearch,
@@ -160,6 +172,13 @@ export const usePmsLiveData = ({
   const liveVasRowsAll = useMemo(() => {
     const lookups = buildLookups(orders, machines, people, products, routing, plans);
     const embellishmentByRowKey = new Map(embellishmentRecords.map((record) => [record.id, record]));
+    const overrideByRowKey = new Map(vasOverrides.map((override) => [override.id, override]));
+    const activePmsOrderIds = new Set(
+      jobs
+        .filter((job) => String(job.status || "").toUpperCase() !== "DONE")
+        .map((job) => String(job.orderId || "").trim())
+        .filter(Boolean)
+    );
     const jobsByGroup = new Map<
       string,
       { sorted: PmsJob[]; nextJob?: PmsJob; inProgress?: PmsJob; nextPlan?: PmsPlan; etaFromJobs?: string }
@@ -188,8 +207,38 @@ export const usePmsLiveData = ({
         lastTimedJob?.plannedEnd || lastTimedJob?.actualEnd || lastTimedJob?.updatedAt;
     });
 
+    const previewGroupRows = new Map<
+      string,
+      Array<{
+        key: string;
+        orderId: string;
+        orderNo: string;
+        customer: string;
+        customerPhone: string;
+        vasName: string;
+        qty: number;
+        group: string;
+        matchedProductId?: string;
+        matchedProductName?: string;
+        hasProductOverride: boolean;
+        hasRouting: boolean;
+        requiresEmbellishment: boolean;
+        hasJobsForProduct: boolean;
+        invoiceReady: boolean;
+        orderPriority: number;
+        priorityLabel: string;
+        isEmergency: boolean;
+        vasIndex: number;
+        embellishment: any;
+        routingSteps: PmsRouting[];
+      }>
+    >();
+
     const rows = orders
-      .filter((order) => (order.sections?.VAS?.items?.length || 0) > 0 && !isOrderClosedForPms(order))
+      .filter((order) => {
+        if ((order.sections?.VAS?.items?.length || 0) <= 0) return false;
+        return !isOrderClosedForPms(order) || activePmsOrderIds.has(order.id);
+      })
       .flatMap((order) =>
         (order.sections?.VAS?.items || []).flatMap((item, index) => {
           const vasName = item.description || item.group || "VAS";
@@ -201,14 +250,23 @@ export const usePmsLiveData = ({
             embellishmentByRowKey.get(rowKey) ||
             (item as any)?.meta?.embellishment ||
             (item as any)?.embellishment;
+          const override = overrideByRowKey.get(rowKey);
           const searchCandidates = [vasName, item.group, item.roomName, item.type].filter(
             Boolean
           ) as string[];
           const match = matchProductToVas(vasName, searchCandidates, products);
-          const matchedProductId = match?.id;
+          const matchedProductId = override?.productId || match?.id;
+          const matchedProductName =
+            override?.productName ||
+            products.find((product) => product.id === matchedProductId)?.name ||
+            match?.name;
+          const routingSteps = matchedProductId
+            ? lookups.routingByProduct.get(matchedProductId) || []
+            : [];
           const hasRouting = matchedProductId
-            ? (lookups.routingByProduct.get(matchedProductId) || []).length > 0
+            ? routingSteps.length > 0
             : false;
+          const requiresEmbellishment = hasEmbellishmentRoutingStep(routingSteps);
           const groupKey = matchedProductId ? `${order.id}_${matchedProductId}` : `${order.id}_${vasName}`;
           const jobBucket = jobsByGroup.get(groupKey) || { sorted: [] };
           const status = jobBucket.inProgress?.status || jobBucket.nextJob?.status || "WAITING";
@@ -217,7 +275,10 @@ export const usePmsLiveData = ({
           const stepNo = jobBucket.inProgress?.stepNo ?? jobBucket.nextJob?.stepNo;
           const plannedStart = jobBucket.nextPlan?.plannedStart;
           const plannedEnd = jobBucket.nextPlan?.plannedEnd;
-          const eta = (order as any)?.pmsEta || jobBucket.etaFromJobs || plannedEnd;
+          const hasJobsForProduct = matchedProductId
+            ? jobs.some((job) => job.orderId === order.id && job.productId === matchedProductId)
+            : false;
+          const eta = hasJobsForProduct ? jobBucket.etaFromJobs || plannedEnd : undefined;
           const machineName = jobBucket.nextPlan?.machineId
             ? lookups.machineById.get(jobBucket.nextPlan.machineId)?.name
             : undefined;
@@ -225,9 +286,6 @@ export const usePmsLiveData = ({
             ? lookups.personById.get(jobBucket.nextPlan.personId)?.name
             : undefined;
           const invoiceReady = isOrderInvoiced(order);
-          const hasJobsForProduct = match
-            ? jobs.some((job) => job.orderId === order.id && job.productId === match.id)
-            : false;
           const waitingJob = jobBucket.nextJob?.status === "WAITING" ? jobBucket.nextJob : undefined;
           const prevJob =
             waitingJob && waitingJob.stepNo !== undefined
@@ -236,7 +294,7 @@ export const usePmsLiveData = ({
           const noPlanReason =
             status === "WAITING" && !plannedStart
               ? explainNoPlan(
-                  match?.id,
+                  matchedProductId,
                   hasJobsForProduct,
                   waitingJob,
                   prevJob,
@@ -257,21 +315,51 @@ export const usePmsLiveData = ({
             ? "Normal"
             : "Low";
 
+          const baseRow = {
+            key: rowKey,
+            orderId: order.id,
+            orderNo: order.crmOrderNo || order.orderNo || order.id,
+            customer: order.customerSnapshot?.name || order.customerName || "N/A",
+            customerPhone: order.customerSnapshot?.phone || order.customerPhone || "",
+            vasName,
+            qty: item.qty ?? (item as any)?.quantity ?? 0,
+            group: item.group || "",
+            matchedProductId,
+            matchedProductName,
+            hasProductOverride: Boolean(override?.productId),
+            hasRouting,
+            requiresEmbellishment,
+            hasJobsForProduct,
+            invoiceReady,
+            orderPriority,
+            priorityLabel,
+            isEmergency,
+            vasIndex: index,
+            embellishment: existingEmbellishment,
+            routingSteps,
+          };
+
+          if (
+            matchedProductId &&
+            hasRouting &&
+            !hasJobsForProduct &&
+            (!requiresEmbellishment || existingEmbellishment?.enabled)
+          ) {
+            const previewGroupKey = `${order.id}_${matchedProductId}`;
+            if (!previewGroupRows.has(previewGroupKey)) {
+              previewGroupRows.set(previewGroupKey, []);
+            }
+            previewGroupRows.get(previewGroupKey)!.push(baseRow);
+          }
+
           return [
             {
-              key: rowKey,
-              orderId: order.id,
-              orderNo: order.crmOrderNo || order.orderNo || order.id,
-              customer: order.customerSnapshot?.name || order.customerName || "N/A",
-              customerPhone: order.customerSnapshot?.phone || order.customerPhone || "",
-              vasName,
-              qty: item.qty ?? (item as any)?.quantity ?? 0,
-              group: item.group || "",
+              ...baseRow,
               status,
               currentProcess: stepNo ? `${currentProcess} (Step ${stepNo})` : currentProcess,
               nextProcess: jobBucket.nextJob && jobBucket.inProgress ? jobBucket.nextJob.process : undefined,
-              machineName: machineName || "TBD",
-              personName: personName || "TBD",
+              machineName: machineName || "-",
+              personName: personName || "-",
               plannedStart,
               plannedEnd,
               eta,
@@ -280,24 +368,186 @@ export const usePmsLiveData = ({
                 jobBucket.nextJob?.updatedAt ||
                 (order as any).updatedAt ||
                 order.createdAt,
-              matchedProductId: match?.id,
-              matchedProductName: match?.name,
-              hasRouting,
-              hasJobsForProduct,
               noPlanReason,
-              invoiceReady,
-              orderPriority,
-              priorityLabel,
-              isEmergency,
-              vasIndex: index,
-              embellishment: existingEmbellishment,
             },
           ];
         })
       );
 
-    return rows;
-  }, [embellishmentRecords, jobs, machines, orders, people, plans, products, routing, skills]);
+    const previewPlansByGroup = new Map<
+      string,
+      {
+        process?: string;
+        machineName?: string;
+        personName?: string;
+        plannedStart?: string;
+        plannedEnd?: string;
+        eta?: string;
+      }
+    >();
+
+    if (previewGroupRows.size > 0) {
+      const previewJobs = Array.from(previewGroupRows.entries()).flatMap(([groupKey, groupRows]) => {
+        const firstRow = groupRows[0];
+        if (!firstRow?.matchedProductId) return [];
+        const totalQty = groupRows.reduce((sum, row) => sum + (Number(row.qty) || 0), 0);
+        return buildJobsFromRouting(
+          firstRow.orderId,
+          firstRow.matchedProductId,
+          totalQty,
+          firstRow.routingSteps,
+          {
+            priority: firstRow.orderPriority,
+            embellishment: firstRow.embellishment?.enabled ? firstRow.embellishment : undefined,
+          }
+        ).map((job) => ({ ...job, __groupKey: groupKey }));
+      });
+
+      if (previewJobs.length > 0) {
+        const previewCapacity = buildCapacityMap({
+          machines: machines.filter((machine) => machine.active !== false).map((machine) => ({
+            id: machine.id,
+            process: machine.process,
+            shiftMinutes: machine.shiftMinutes,
+            active: machine.active,
+          })),
+          peopleIds: people.map((person) => person.id),
+          skills: skills.map((skill) => ({
+            machineId: skill.machineId,
+            personId: skill.personId,
+            allowed: skill.allowed,
+          })),
+          plans: plans
+            .filter((plan) => plan.plannedStart && plan.plannedEnd)
+            .map((plan) => ({
+              machineId: plan.machineId,
+              personId: plan.personId,
+              plannedStart: plan.plannedStart as string,
+              plannedEnd: plan.plannedEnd as string,
+            })),
+          downtimes: downtimes.map((down) => ({
+            machineId: down.machineId,
+            from: down.from,
+            to: down.to,
+          })),
+          now: new Date().toISOString(),
+        });
+
+        const previewPriorityMap = Object.fromEntries(
+          Array.from(previewGroupRows.values()).map((groupRows) => {
+            const firstRow = groupRows[0];
+            return [firstRow.orderId, firstRow.orderPriority];
+          })
+        );
+
+        const { planned: previewPlans } = scheduleJobs({
+          jobs: previewJobs.map((job) => ({
+            id: job.id,
+            orderId: job.orderId,
+            jobGroupId: job.jobGroupId,
+            productId: job.productId,
+            stepNo: job.stepNo,
+            process: job.process,
+            requiredMinutes: job.requiredMinutes,
+            status: job.status,
+            priority: (job as any).priority,
+          })),
+          machines: machines.filter((machine) => machine.active !== false).map((machine) => ({
+            id: machine.id,
+            process: machine.process,
+            shiftMinutes: machine.shiftMinutes,
+            active: machine.active,
+          })),
+          skills: skills.map((skill) => ({
+            machineId: skill.machineId,
+            personId: skill.personId,
+            process: skill.process,
+            category: skill.category,
+            allowed: skill.allowed,
+          })),
+          products: products.map((product) => ({
+            id: product.id,
+            category: product.category,
+          })),
+          capacityMap: previewCapacity,
+          allowChain: true,
+          orderPriorityMap: previewPriorityMap,
+          now: new Date().toISOString(),
+          workingHours,
+          peopleById: Object.fromEntries(
+            people.map((person) => [
+              person.id,
+              {
+                active: person.active,
+                leaveFrom: person.leaveFrom,
+                leaveTo: person.leaveTo,
+                leaveReason: person.leaveReason,
+                weekOffDay: person.weekOffDay,
+              },
+            ])
+          ),
+        });
+
+        const previewJobsById = new Map(previewJobs.map((job: any) => [job.id, job]));
+
+        previewPlans.forEach((plan) => {
+          const job = previewJobsById.get(plan.jobId) as any;
+          const groupKey = String(job?.__groupKey || job?.jobGroupId || "");
+          if (!groupKey) return;
+
+          const machineName = lookups.machineById.get(plan.machineId)?.name || plan.machineId;
+          const personName = lookups.personById.get(plan.personId)?.name || plan.personId;
+          const current = previewPlansByGroup.get(groupKey);
+          const currentStart = current?.plannedStart ? new Date(current.plannedStart).getTime() : Number.MAX_SAFE_INTEGER;
+          const nextStart = plan.plannedStart ? new Date(plan.plannedStart).getTime() : Number.MAX_SAFE_INTEGER;
+
+          if (!current || nextStart < currentStart) {
+            previewPlansByGroup.set(groupKey, {
+              process: job?.process,
+              machineName,
+              personName,
+              plannedStart: plan.plannedStart,
+              plannedEnd: plan.plannedEnd,
+              eta: current?.eta,
+            });
+          }
+
+          const existing = previewPlansByGroup.get(groupKey);
+          const latestEta = existing?.eta ? new Date(existing.eta).getTime() : 0;
+          const candidateEta = plan.plannedEnd ? new Date(plan.plannedEnd).getTime() : 0;
+          previewPlansByGroup.set(groupKey, {
+            process: existing?.process,
+            machineName: existing?.machineName,
+            personName: existing?.personName,
+            plannedStart: existing?.plannedStart,
+            plannedEnd: existing?.plannedEnd,
+            eta:
+              candidateEta >= latestEta && plan.plannedEnd
+                ? plan.plannedEnd
+                : existing?.eta,
+          });
+        });
+      }
+    }
+
+    return rows.map((row: any) => {
+      if (row.hasJobsForProduct || !row.matchedProductId || !row.hasRouting) {
+        return row;
+      }
+      const preview = previewPlansByGroup.get(`${row.orderId}_${row.matchedProductId}`);
+      if (!preview) return row;
+      return {
+        ...row,
+        currentProcess: preview.process ? `${preview.process} (Preview)` : row.currentProcess,
+        machineName: preview.machineName || row.machineName,
+        personName: preview.personName || row.personName,
+        plannedStart: preview.plannedStart || row.plannedStart,
+        plannedEnd: preview.plannedEnd || row.plannedEnd,
+        eta: preview.eta || row.eta,
+        noPlanReason: "Preview queue",
+      };
+    });
+  }, [downtimes, embellishmentRecords, jobs, machines, orders, people, plans, products, routing, skills, vasOverrides, workingHours]);
 
   const liveVasRows = useMemo(() => {
     const filtered = liveVasRowsAll.filter((row) =>
@@ -321,9 +571,19 @@ export const usePmsLiveData = ({
 
     const rank: Record<string, number> = { IN_PROGRESS: 0, PLANNED: 1, WAITING: 2, DONE: 3 };
     return [...filtered].sort((left, right) => {
+      if (left.orderPriority !== right.orderPriority) return left.orderPriority - right.orderPriority;
+      const orderDiff = compareOrderNo(left.orderNo, right.orderNo);
+      if (orderDiff !== 0) return orderDiff;
+      const customerDiff = String(left.customer || "").localeCompare(String(right.customer || ""));
+      if (customerDiff !== 0) return customerDiff;
+      const productDiff = String(left.matchedProductName || left.vasName || "").localeCompare(
+        String(right.matchedProductName || right.vasName || "")
+      );
+      if (productDiff !== 0) return productDiff;
       const statusRankDiff = (rank[left.status] ?? 99) - (rank[right.status] ?? 99);
       if (statusRankDiff !== 0) return statusRankDiff;
-      if (left.orderPriority !== right.orderPriority) return left.orderPriority - right.orderPriority;
+      const vasIndexDiff = Number(left.vasIndex ?? 0) - Number(right.vasIndex ?? 0);
+      if (vasIndexDiff !== 0) return vasIndexDiff;
       const leftTime = left.plannedStart ? new Date(left.plannedStart).getTime() : Number.MAX_SAFE_INTEGER;
       const rightTime = right.plannedStart ? new Date(right.plannedStart).getTime() : Number.MAX_SAFE_INTEGER;
       return leftTime - rightTime;
@@ -369,6 +629,51 @@ export const usePmsLiveData = ({
     return { totalItems, inProgress, planned, waiting, done, emergency };
   }, [liveVasRows]);
 
+  const nextDayPlanRows = useMemo<PmsNextDayPlanRow[]>(() => {
+    const lookups = buildLookups(orders, machines, people, products, routing, plans);
+    const jobsById = new Map(jobs.map((job) => [job.id, job]));
+    const now = new Date();
+    const todayKey = now.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+
+    return plans
+      .map((plan) => {
+        const plannedStart = plan.plannedStart;
+        if (!plannedStart) return null;
+        const planDayKey = new Date(plannedStart).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+        if (planDayKey < todayKey) return null;
+
+        const job = jobsById.get(plan.jobId);
+        if (!job) return null;
+        const order = lookups.ordersById.get(job.orderId);
+        const product = job.productId ? lookups.productById.get(job.productId) : undefined;
+        const vasInfo = resolveVasInfo(order, product?.name);
+        if (isPmsExcludedItem(product?.name, vasInfo.vasName, vasInfo.vasGroup)) return null;
+
+        return {
+          key: `${plan.id}-${plannedStart}`,
+          planId: plan.id,
+          orderNo: order?.crmOrderNo || order?.orderNo || order?.id || job.orderId,
+          customer: order?.customerSnapshot?.name || order?.customerName || "N/A",
+          vasName: vasInfo.vasName,
+          process: job.process || "Not scheduled",
+          personId: plan.personId || "",
+          person: plan.personId ? lookups.personById.get(plan.personId)?.name || plan.personId : "TBD",
+          machineId: plan.machineId || "",
+          machine: plan.machineId ? lookups.machineById.get(plan.machineId)?.name || plan.machineId : "TBD",
+          plannedStart,
+          plannedEnd: plan.plannedEnd,
+          qty: vasInfo.qty,
+          dateKey: planDayKey,
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => {
+        const leftTime = new Date(left!.plannedStart || 0).getTime();
+        const rightTime = new Date(right!.plannedStart || 0).getTime();
+        return leftTime - rightTime;
+      }) as PmsNextDayPlanRow[];
+  }, [jobs, machines, orders, people, plans, products, routing]);
+
   const filteredEmbellishmentRows = useMemo(
     () =>
       liveVasRows.filter((row) =>
@@ -379,6 +684,10 @@ export const usePmsLiveData = ({
           row.group,
           row.matchedProductName,
           row.status,
+          row.requiresEmbellishment ? "Additional VAS required" : "",
+          row.embellishment?.enabled ? "Filled" : "",
+          row.embellishment?.totalTime,
+          row.embellishment?.chargeAmount,
           row.embellishment?.embellishmentBarcode,
           row.embellishment?.customerName,
           row.embellishment?.customerPhone,
@@ -401,6 +710,7 @@ export const usePmsLiveData = ({
     liveVasRows,
     routingNotEnteredItems,
     liveStats,
+    nextDayPlanRows,
     filteredEmbellishmentRows,
   };
 };

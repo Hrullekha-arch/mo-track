@@ -14,8 +14,8 @@ import type {
 import {
   buildLookups,
   compareOrderNo,
-  isOrderClosedForPms,
-  isOrderInvoiced,
+  getDisplayCustomerName,
+  getDisplaySmName,
   normalizeText,
   resolveVasInfo,
 } from "../utils/pmsHelpers";
@@ -36,6 +36,7 @@ type Params = {
   embellishmentRecords: PmsEmbellishmentRecord[];
   workDetailSearch: string;
   statusSearch: string;
+  statusQuickFilter: string;
 };
 
 const matchesPmsSearch = (search: string, values: unknown[]) => {
@@ -62,7 +63,27 @@ export const usePmsWorkData = ({
   embellishmentRecords,
   workDetailSearch,
   statusSearch,
+  statusQuickFilter,
 }: Params) => {
+  const matchesStatusQuickFilter = (row: any) => {
+    switch (statusQuickFilter) {
+      case "pending":
+        return row.stage === "Pending";
+      case "machineRunning":
+        return row.stage === "Machine Running";
+      case "qcPending":
+        return Boolean(row.qcPending);
+      case "dispatchReady":
+        return Boolean(row.dispatchReady);
+      case "completed":
+        return row.stage === "Completed";
+      case "embellishment":
+        return Boolean(row.embellishment?.enabled);
+      default:
+        return true;
+    }
+  };
+
   const workDetailRows = useMemo(() => {
     const nowMs = Date.now();
     const lookups = buildLookups(orders, machines, people, products, routing, plans);
@@ -133,7 +154,7 @@ export const usePmsWorkData = ({
         if (!currentJob) return null;
 
         const order = lookups.ordersById.get(currentJob.orderId);
-        if (isOrderClosedForPms(order)) return null;
+        if (!order) return null;
         const product = currentJob.productId ? lookups.productById.get(currentJob.productId) : undefined;
         const routingSteps = currentJob.productId ? lookups.routingByProduct.get(currentJob.productId) || [] : [];
 
@@ -153,6 +174,9 @@ export const usePmsWorkData = ({
         sortedJobs.forEach((groupJob) => {
           if (groupJob.stepNo === undefined || groupJob.stepNo === null) return;
           const plan = lookups.planByJob.get(groupJob.id);
+          const hasActivePlan =
+            String(groupJob.status || "").toUpperCase() === "PLANNED" ||
+            String(groupJob.status || "").toUpperCase() === "IN_PROGRESS";
           const machineName = plan?.machineId
             ? lookups.machineById.get(plan.machineId)?.name || plan.machineId
             : undefined;
@@ -160,13 +184,13 @@ export const usePmsWorkData = ({
             ? lookups.personById.get(plan.personId)?.name || plan.personId
             : undefined;
           stepPlanMap.set(groupJob.stepNo, {
-            plannedStart: groupJob.plannedStart ?? plan?.plannedStart,
-            plannedEnd: groupJob.plannedEnd ?? plan?.plannedEnd,
+            plannedStart: hasActivePlan ? groupJob.plannedStart ?? plan?.plannedStart : undefined,
+            plannedEnd: hasActivePlan ? groupJob.plannedEnd ?? plan?.plannedEnd : undefined,
             actualStart: groupJob.actualStart,
             actualEnd: groupJob.actualEnd,
             status: groupJob.status,
-            machineName,
-            personName,
+            machineName: machineName,
+            personName: personName,
           });
         });
 
@@ -209,6 +233,8 @@ export const usePmsWorkData = ({
         const embellishmentRecord = embellishmentByOrderProduct.get(
           `${currentJob.orderId || ""}__${currentJob.productId || ""}`
         );
+        const customerName = getDisplayCustomerName(order, embellishmentRecord?.customerName);
+        const smName = getDisplaySmName(order);
         const resetJobs = sortedJobs.filter((job) => job.status === "PLANNED" || job.status === "WAITING");
         const resetJobIds = resetJobs.map((job) => job.id).filter(Boolean);
         const resetPlanDocIds = resetJobIds.flatMap((jobId) => lookups.planDocIdsByJob.get(jobId) || []);
@@ -246,7 +272,8 @@ export const usePmsWorkData = ({
           currentJobId: currentJob.id,
           orderNo: order?.crmOrderNo || order?.orderNo || order?.id || currentJob.orderId,
           orderId: currentJob.orderId,
-          customer: order?.customerSnapshot?.name || order?.customerName || "N/A",
+          customer: customerName,
+          smName,
           vasName: vasInfo.vasName,
           vasGroup: vasInfo.vasGroup,
           qty: vasInfo.qty,
@@ -296,7 +323,7 @@ export const usePmsWorkData = ({
     const rows = jobs
       .map((job) => {
         const order = lookups.ordersById.get(job.orderId);
-        if (!isOrderInvoiced(order) || isOrderClosedForPms(order)) return null;
+        if (!order) return null;
         const product = job.productId ? lookups.productById.get(job.productId) : undefined;
         const routingSteps = job.productId ? lookups.routingByProduct.get(job.productId) || [] : [];
         const currentStep = routingSteps.find((step) => step.stepNo === job.stepNo) || routingSteps[0];
@@ -367,7 +394,7 @@ export const usePmsWorkData = ({
         const firstJob = sortedJobs[0];
         if (!firstJob) return null;
         const order = lookups.ordersById.get(firstJob.orderId);
-        if (!isOrderInvoiced(order) || isOrderClosedForPms(order)) return null;
+        if (!order) return null;
         const product = firstJob.productId ? lookups.productById.get(firstJob.productId) : undefined;
         const routingSteps = firstJob.productId ? lookups.routingByProduct.get(firstJob.productId) || [] : [];
         const vasInfo = resolveVasInfo(order, product?.name);
@@ -453,39 +480,7 @@ export const usePmsWorkData = ({
       }) as any[];
   }, [embellishmentRecords, jobs, machines, orders, people, plans, products, routing]);
 
-  const workStatusSummary = useMemo(() => {
-    const filteredRows = workStatusRows.filter((row) =>
-      matchesPmsSearch(statusSearch, [
-        row.orderNo,
-        row.customer,
-        row.vasName,
-        row.productName,
-        row.stage,
-        row.jobStatuses,
-        row.jobStatusItems?.map((item: any) => `${item.stepLabel} ${item.status}`),
-        row.embellishment?.embellishmentBarcode,
-        row.embellishment?.customerName,
-        row.embellishment?.customerPhone,
-      ])
-    );
-    const pending = filteredRows.filter((row) => row.stage === "Pending").length;
-    const machineRunning = filteredRows.filter((row) => row.stage === "Machine Running").length;
-    const completed = filteredRows.filter((row) => row.stage === "Completed").length;
-    const qcPending = filteredRows.filter((row) => row.qcPending).length;
-    const dispatchReady = filteredRows.filter((row) => row.dispatchReady).length;
-    const embellishment = filteredRows.filter((row) => row.embellishment?.enabled).length;
-    return {
-      totalOrders: filteredRows.length,
-      pending,
-      machineRunning,
-      completed,
-      qcPending,
-      dispatchReady,
-      embellishment,
-    };
-  }, [statusSearch, workStatusRows]);
-
-  const filteredWorkStatusRows = useMemo(
+  const searchedWorkStatusRows = useMemo(
     () =>
       workStatusRows.filter((row) =>
         matchesPmsSearch(statusSearch, [
@@ -502,6 +497,30 @@ export const usePmsWorkData = ({
         ])
       ),
     [statusSearch, workStatusRows]
+  );
+
+  const workStatusSummary = useMemo(() => {
+    const filteredRows = searchedWorkStatusRows;
+    const pending = filteredRows.filter((row) => row.stage === "Pending").length;
+    const machineRunning = filteredRows.filter((row) => row.stage === "Machine Running").length;
+    const completed = filteredRows.filter((row) => row.stage === "Completed").length;
+    const qcPending = filteredRows.filter((row) => row.qcPending).length;
+    const dispatchReady = filteredRows.filter((row) => row.dispatchReady).length;
+    const embellishment = filteredRows.filter((row) => row.embellishment?.enabled).length;
+    return {
+      totalOrders: filteredRows.length,
+      pending,
+      machineRunning,
+      completed,
+      qcPending,
+      dispatchReady,
+      embellishment,
+    };
+  }, [searchedWorkStatusRows]);
+
+  const filteredWorkStatusRows = useMemo(
+    () => searchedWorkStatusRows.filter((row) => matchesStatusQuickFilter(row)),
+    [searchedWorkStatusRows, statusQuickFilter]
   );
 
   const filteredWorkDetailRows = useMemo(

@@ -1,12 +1,30 @@
-import { AlertCircle, Check, Loader2, Plus, Search, X } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { AlertCircle, AlertTriangle, CalendarDays, Check, Loader2, Plus, Printer, Search, X } from "lucide-react";
+import { doc, setDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TabsContent } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import {
+  isPmsPersonActive,
+  isPmsPersonOnLeaveAt,
+  isPmsPersonWeekOffAt,
+} from "@/lib/pms/person-availability";
 import { getOptionalDisplayText } from "../../utils/pmsHelpers";
 import { formatPmsDateTime } from "../../utils/pmsDateFormat";
 import {
@@ -22,13 +40,195 @@ type Props = {
   ctx: any;
 };
 
+const escapeHtml = (value: unknown) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const getTomorrowIso = () => {
+  const d = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  return d.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+};
+
+const formatDateKey = (dateKey: string) =>
+  new Date(dateKey + "T12:00:00+05:30").toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+
 export function PmsLiveTab({ ctx }: Props) {
+  const [nextDayPlanOpen, setNextDayPlanOpen] = useState(false);
+  const [planDateFrom, setPlanDateFrom] = useState(getTomorrowIso);
+  const [planDateTo, setPlanDateTo] = useState(getTomorrowIso);
+  const [reassigningPlanKey, setReassigningPlanKey] = useState<string | null>(null);
+
   const disabledActions =
     ctx.runningAutopilot ||
     ctx.runningPriorityReplan ||
     ctx.resettingAutopilot ||
     Boolean(ctx.priorityUpdatingOrderId) ||
     Boolean(ctx.deletingPlanKey);
+
+  const sortedProducts = useMemo(
+    () =>
+      [...ctx.products].sort((left: any, right: any) =>
+        String(left?.name || "").localeCompare(String(right?.name || ""))
+      ),
+    [ctx.products]
+  );
+  const productOptions = useMemo<ComboboxOption[]>(
+    () => [
+      { value: "__AUTO__", label: "Auto Match" },
+      ...sortedProducts.map((product: any) => ({
+        value: product.id,
+        label: product.name,
+      })),
+    ],
+    [sortedProducts]
+  );
+
+  const filteredPlanRows = useMemo(
+    () =>
+      ctx.nextDayPlanRows.filter(
+        (row: any) => row.dateKey >= planDateFrom && row.dateKey <= planDateTo
+      ),
+    [ctx.nextDayPlanRows, planDateFrom, planDateTo]
+  );
+
+  const planRangeLabel = useMemo(() => {
+    const from = formatDateKey(planDateFrom);
+    if (planDateFrom === planDateTo) return from;
+    return `${from} – ${formatDateKey(planDateTo)}`;
+  }, [planDateFrom, planDateTo]);
+
+  const unavailableCount = useMemo(() => {
+    return filteredPlanRows.filter((row: any) => {
+      const person = (ctx.people as any[]).find((p: any) => p.id === row.personId);
+      if (!person) return false;
+      if (!isPmsPersonActive(person)) return true;
+      if (row.plannedStart && isPmsPersonOnLeaveAt(person, row.plannedStart)) return true;
+      if (row.plannedStart && isPmsPersonWeekOffAt(person, row.plannedStart)) return true;
+      return false;
+    }).length;
+  }, [filteredPlanRows, ctx.people]);
+
+  const getPlanPersonStatus = useCallback(
+    (row: any): "ok" | "inactive" | "on_leave" | "week_off" => {
+      const person = (ctx.people as any[]).find((p: any) => p.id === row.personId);
+      if (!person) return "ok";
+      if (!isPmsPersonActive(person)) return "inactive";
+      if (row.plannedStart && isPmsPersonOnLeaveAt(person, row.plannedStart)) return "on_leave";
+      if (row.plannedStart && isPmsPersonWeekOffAt(person, row.plannedStart)) return "week_off";
+      return "ok";
+    },
+    [ctx.people]
+  );
+
+  const getEligibleReplacementPersons = useCallback(
+    (row: any) => {
+      const skillPersonIds = new Set(
+        (ctx.skills as any[])
+          .filter((s: any) => s.machineId === row.machineId && s.allowed)
+          .map((s: any) => s.personId)
+      );
+      return (ctx.people as any[]).filter((p: any) => {
+        if (!skillPersonIds.has(p.id)) return false;
+        if (p.id === row.personId) return false;
+        if (!isPmsPersonActive(p)) return false;
+        if (row.plannedStart && isPmsPersonOnLeaveAt(p, row.plannedStart)) return false;
+        if (row.plannedStart && isPmsPersonWeekOffAt(p, row.plannedStart)) return false;
+        return true;
+      });
+    },
+    [ctx.people, ctx.skills]
+  );
+
+  const handleReassignPlanPerson = useCallback(
+    async (planId: string, planKey: string, newPersonId: string) => {
+      setReassigningPlanKey(planKey);
+      try {
+        await setDoc(
+          doc(db, "plan", planId),
+          { personId: newPersonId, updatedAt: new Date().toISOString() },
+          { merge: true }
+        );
+      } finally {
+        setReassigningPlanKey(null);
+      }
+    },
+    []
+  );
+
+  const handlePrintNextDayPlan = () => {
+    if (typeof window === "undefined") return;
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    const rowsHtml =
+      filteredPlanRows.length > 0
+        ? filteredPlanRows
+            .map(
+              (row: any) => `
+                <tr>
+                  <td>${escapeHtml(row.orderNo)}</td>
+                  <td>${escapeHtml(row.customer)}</td>
+                  <td>${escapeHtml(row.vasName)}</td>
+                  <td>${escapeHtml(row.qty)}</td>
+                  <td>${escapeHtml(row.process)}</td>
+                  <td>${escapeHtml(row.person)}</td>
+                  <td>${escapeHtml(row.machine)}</td>
+                  <td>${escapeHtml(formatPmsDateTime(row.plannedStart))}</td>
+                  <td>${escapeHtml(formatPmsDateTime(row.plannedEnd))}</td>
+                </tr>
+              `
+            )
+            .join("")
+        : `<tr><td colspan="9" style="text-align:center;padding:24px;">No plan scheduled for ${escapeHtml(planRangeLabel)}.</td></tr>`;
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>PMS Scheduled Plan - ${escapeHtml(planRangeLabel)}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; color: #111827; }
+            h1 { margin: 0 0 6px; font-size: 22px; }
+            p { margin: 0 0 20px; color: #4b5563; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #d1d5db; padding: 10px 8px; font-size: 12px; text-align: left; }
+            th { background: #f3f4f6; }
+          </style>
+        </head>
+        <body>
+          <h1>PMS Scheduled Plan</h1>
+          <p>Plan date: ${escapeHtml(planRangeLabel)}</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Order No</th>
+                <th>Customer</th>
+                <th>VAS Item</th>
+                <th>Qty</th>
+                <th>Step</th>
+                <th>Person</th>
+                <th>Machine</th>
+                <th>Start</th>
+                <th>End</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  };
 
   return (
     <TabsContent value="live" className="space-y-4">
@@ -62,6 +262,10 @@ export function PmsLiveTab({ ctx }: Props) {
                 />
               </div>
               <div className="flex w-full flex-wrap gap-2 lg:w-auto lg:justify-end">
+              <Button size="sm" variant="outline" onClick={() => setNextDayPlanOpen(true)}>
+                <CalendarDays className="mr-2 h-4 w-4" />
+                Next Day Plan
+              </Button>
               <Button size="sm" variant="outline" onClick={ctx.handleRunAutopilot} disabled={disabledActions}>
                 {ctx.runningAutopilot && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Run Autopilot
@@ -129,9 +333,14 @@ export function PmsLiveTab({ ctx }: Props) {
                                 {getOptionalDisplayText(row.group)}
                               </div>
                             )}
+                            {row.requiresEmbellishment && !row.embellishment?.enabled && (
+                              <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+                                Additional VAS required
+                              </Badge>
+                            )}
                             {row.embellishment?.enabled && (
                               <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
-                                Embelshment work
+                                Additional VAS ready
                               </Badge>
                             )}
                           </div>
@@ -140,11 +349,6 @@ export function PmsLiveTab({ ctx }: Props) {
                       <TableCell>{row.qty}</TableCell>
                       <TableCell>
                         <div className="space-y-1">
-<<<<<<< HEAD
-                          <div className="font-medium">{row.matchedProductName || "No match"}</div>
-                          {!row.matchedProductName && (
-                            <div className="text-xs text-muted-foreground">Create PMS product</div>
-=======
                           {ctx.canManagePms ? (
                             <Combobox
                               options={productOptions}
@@ -165,8 +369,23 @@ export function PmsLiveTab({ ctx }: Props) {
                             />
                           ) : (
                             <div className="font-medium">{row.matchedProductName || "No match"}</div>
->>>>>>> 6c2a39e (pms Fixes and update v4)
                           )}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="text-xs text-muted-foreground">
+                              {row.matchedProductName || "Create PMS product"}
+                            </div>
+                            {row.hasProductOverride && (
+                              <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">
+                                Override
+                              </Badge>
+                            )}
+                            {ctx.updatingLiveRowKey === row.key && (
+                              <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+                                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                Updating
+                              </Badge>
+                            )}
+                          </div>
                           {row.matchedProductId && !row.hasRouting && (
                             <div className="space-y-1">
                               <div className="text-xs font-medium text-amber-600">Routing not created yet</div>
@@ -241,7 +460,6 @@ export function PmsLiveTab({ ctx }: Props) {
                                   row.hasJobsForProduct ||
                                   !row.matchedProductId ||
                                   !row.hasRouting ||
-                                  !row.invoiceReady ||
                                   disabledActions
                                 }
                                 onClick={() => ctx.handleOpenCreateJobDialog(row)}
@@ -256,7 +474,11 @@ export function PmsLiveTab({ ctx }: Props) {
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>
-                              {row.hasJobsForProduct ? "Jobs Created" : "Create Jobs"}
+                              {row.hasJobsForProduct
+                                ? "Jobs Created"
+                                : row.requiresEmbellishment
+                                ? "Open Additional VAS Form"
+                                : "Start PMS"}
                             </TooltipContent>
                           </Tooltip>
                           <Tooltip>
@@ -296,6 +518,161 @@ export function PmsLiveTab({ ctx }: Props) {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={nextDayPlanOpen} onOpenChange={setNextDayPlanOpen}>
+        <DialogContent className="flex max-h-[90vh] max-w-6xl flex-col">
+          <DialogHeader>
+            <DialogTitle>Scheduled Plan</DialogTitle>
+            <DialogDescription>
+              Review scheduled PMS work by date range. Persons on leave or inactive are flagged — admins can reassign directly.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Date range controls */}
+          <div className="flex flex-wrap items-center gap-3 border-b pb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-muted-foreground">From</span>
+              <input
+                type="date"
+                value={planDateFrom}
+                onChange={(e) => {
+                  setPlanDateFrom(e.target.value);
+                  if (e.target.value > planDateTo) setPlanDateTo(e.target.value);
+                }}
+                className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-muted-foreground">To</span>
+              <input
+                type="date"
+                value={planDateTo}
+                min={planDateFrom}
+                onChange={(e) => setPlanDateTo(e.target.value)}
+                className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+              />
+            </div>
+            <Badge variant="secondary">{filteredPlanRows.length} plan{filteredPlanRows.length !== 1 ? "s" : ""}</Badge>
+            {unavailableCount > 0 && (
+              <Badge className="bg-amber-500 hover:bg-amber-500">
+                <AlertTriangle className="mr-1 h-3 w-3" />
+                {unavailableCount} unavailable
+              </Badge>
+            )}
+          </div>
+
+          <ScrollArea className="flex-1 rounded-md border">
+            <div className="min-w-[960px]">
+              <Table>
+                <TableHeader>
+                  <TableRow className={PMS_TABLE_HEADER_ROW_CLASS}>
+                    <TableHead className={PMS_TABLE_HEAD_CLASS}>Order No</TableHead>
+                    <TableHead className={PMS_TABLE_HEAD_CLASS}>Customer</TableHead>
+                    <TableHead className={PMS_TABLE_HEAD_CLASS}>VAS Item</TableHead>
+                    <TableHead className={PMS_TABLE_HEAD_CLASS}>Qty</TableHead>
+                    <TableHead className={PMS_TABLE_HEAD_CLASS}>Step</TableHead>
+                    <TableHead className={PMS_TABLE_HEAD_CLASS}>Person</TableHead>
+                    <TableHead className={PMS_TABLE_HEAD_CLASS}>Machine</TableHead>
+                    <TableHead className={PMS_TABLE_HEAD_CLASS}>Start</TableHead>
+                    <TableHead className={PMS_TABLE_HEAD_CLASS}>End</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredPlanRows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                        No plan scheduled for {planRangeLabel}.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredPlanRows.map((row: any) => {
+                      const personStatus = getPlanPersonStatus(row);
+                      const isUnavailable = personStatus !== "ok";
+                      const eligiblePersons = isUnavailable ? getEligibleReplacementPersons(row) : [];
+                      const isReassigning = reassigningPlanKey === row.key;
+
+                      return (
+                        <TableRow
+                          key={row.key}
+                          className={isUnavailable ? "bg-amber-50 hover:bg-amber-50/80" : undefined}
+                        >
+                          <TableCell className="font-medium">{row.orderNo}</TableCell>
+                          <TableCell>{row.customer}</TableCell>
+                          <TableCell>{row.vasName}</TableCell>
+                          <TableCell>{row.qty}</TableCell>
+                          <TableCell>{row.process}</TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1.5">
+                                {isUnavailable && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      {personStatus === "inactive"
+                                        ? "Person is inactive"
+                                        : personStatus === "on_leave"
+                                        ? "Person is on leave"
+                                        : "Person is on week off"}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                                <span className={isUnavailable ? "font-medium text-amber-700" : ""}>
+                                  {row.person}
+                                </span>
+                              </div>
+                              {isUnavailable && ctx.canManagePms && (
+                                isReassigning ? (
+                                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                    Reassigning…
+                                  </div>
+                                ) : (
+                                  <Combobox
+                                    options={eligiblePersons.map((p: any) => ({
+                                      value: p.id,
+                                      label: p.name,
+                                    }))}
+                                    value=""
+                                    placeholder="Reassign to…"
+                                    searchPlaceholder="Search person…"
+                                    emptyPlaceholder="No available person."
+                                    disabled={isReassigning}
+                                    onSelect={(value) => {
+                                      if (value) handleReassignPlanPerson(row.planId, row.key, value);
+                                    }}
+                                    className="h-7 w-[160px] text-xs"
+                                    inputClassName="h-7 text-xs"
+                                    contentClassName="p-0"
+                                  />
+                                )
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>{row.machine}</TableCell>
+                          <TableCell>{formatPmsDateTime(row.plannedStart)}</TableCell>
+                          <TableCell>{formatPmsDateTime(row.plannedEnd)}</TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </ScrollArea>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNextDayPlanOpen(false)}>
+              Close
+            </Button>
+            <Button onClick={handlePrintNextDayPlan}>
+              <Printer className="mr-2 h-4 w-4" />
+              Print Plan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </TabsContent>
   );
 }

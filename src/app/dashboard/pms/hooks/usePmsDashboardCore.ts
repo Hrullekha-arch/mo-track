@@ -28,6 +28,7 @@ import type {
   PmsProduct,
   PmsRouting,
   PmsSkill,
+  PmsVasOverride,
 } from "../types/pms";
 import {
   emptyEmbellishmentForm,
@@ -48,9 +49,11 @@ export const usePmsDashboardCore = () => {
   const [embellishmentRecords, setEmbellishmentRecords] = useState<
     PmsEmbellishmentRecord[]
   >([]);
+  const [vasOverrides, setVasOverrides] = useState<PmsVasOverride[]>([]);
   const [activeTab, setActiveTab] = useState("live");
   const [vasSearch, setVasSearch] = useState("");
   const [statusSearch, setStatusSearch] = useState("");
+  const [statusQuickFilter, setStatusQuickFilter] = useState("all");
   const [workDetailSearch, setWorkDetailSearch] = useState("");
   const [embellishmentSearch, setEmbellishmentSearch] = useState("");
   const [creatingJobKey, setCreatingJobKey] = useState<string | null>(null);
@@ -61,6 +64,7 @@ export const usePmsDashboardCore = () => {
   const [expandedWorkRows, setExpandedWorkRows] = useState<Record<string, boolean>>({});
   const [priorityUpdatingOrderId, setPriorityUpdatingOrderId] = useState<string | null>(null);
   const [deletingPlanKey, setDeletingPlanKey] = useState<string | null>(null);
+  const [updatingLiveRowKey, setUpdatingLiveRowKey] = useState<string | null>(null);
   const [manualDoneDialog, setManualDoneDialog] = useState<ManualDoneDialogState>({
     open: false,
     row: null,
@@ -153,7 +157,7 @@ export const usePmsDashboardCore = () => {
     const unsubDowntime = onSnapshot(collection(db, "machineDowntime"), (snap) => {
       setDowntimes(snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) })));
     });
-    const ordersQuery = query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(250));
+    const ordersQuery = query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(2000));
     const unsubOrders = onSnapshot(ordersQuery, (snap) => {
       setOrders(
         snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) } as Order))
@@ -172,6 +176,9 @@ export const usePmsDashboardCore = () => {
         snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) }))
       );
     });
+    const unsubVasOverrides = onSnapshot(collection(db, "pmsVasOverrides"), (snap) => {
+      setVasOverrides(snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) })));
+    });
 
     return () => {
       unsubProducts();
@@ -185,6 +192,7 @@ export const usePmsDashboardCore = () => {
       unsubJobs();
       unsubPlans();
       unsubEmbellishment();
+      unsubVasOverrides();
     };
   }, []);
 
@@ -236,12 +244,16 @@ export const usePmsDashboardCore = () => {
     setPlans,
     embellishmentRecords,
     setEmbellishmentRecords,
+    vasOverrides,
+    setVasOverrides,
     activeTab,
     setActiveTab,
     vasSearch,
     setVasSearch,
     statusSearch,
     setStatusSearch,
+    statusQuickFilter,
+    setStatusQuickFilter,
     workDetailSearch,
     setWorkDetailSearch,
     embellishmentSearch,
@@ -262,6 +274,8 @@ export const usePmsDashboardCore = () => {
     setPriorityUpdatingOrderId,
     deletingPlanKey,
     setDeletingPlanKey,
+    updatingLiveRowKey,
+    setUpdatingLiveRowKey,
     manualDoneDialog,
     setManualDoneDialog,
     manualDoneAllQtyReady,

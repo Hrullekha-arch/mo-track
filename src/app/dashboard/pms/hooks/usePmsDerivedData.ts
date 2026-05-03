@@ -20,6 +20,7 @@ import {
   roundToTwoDecimals,
   toNumber,
 } from "../pmsCore";
+import { isOrderClosedForPms as sharedIsOrderClosedForPms } from "../utils/pmsHelpers";
 
 type UsePmsDerivedDataParams = {
   products: PmsProduct[];
@@ -143,15 +144,7 @@ export function usePmsDerivedData(params: UsePmsDerivedDataParams) {
   }, []);
 
   const isOrderClosedForPms = useCallback((order?: Order) => {
-    if (!order) return false;
-    const workflowStatus = String((order as any)?.workflow?.status || "")
-      .trim()
-      .toUpperCase();
-    if (workflowStatus === "COMPLETED" || workflowStatus === "CANCELLED") return true;
-    const status = String((order as any)?.status || "")
-      .trim()
-      .toUpperCase();
-    return status === "INSTALLATION DONE" || status === "COMPLETED" || status === "CANCELLED";
+    return sharedIsOrderClosedForPms(order);
   }, []);
 
   const liveVasRowsAll = useMemo(() => {

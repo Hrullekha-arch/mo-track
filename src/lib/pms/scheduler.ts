@@ -1,4 +1,11 @@
 import { CapacityMap } from "./capacity";
+import { isPmsSkillEligible } from "./category-match";
+import {
+  doesPmsPersonLeaveOverlap,
+  getPmsPersonWeekOffConflict,
+  getPmsPersonLeaveWindow,
+  isPmsPersonActive,
+} from "./person-availability";
 import { maxIso, toMillis } from "./time";
 import { getWorkingSchedule, WorkingHoursConfig } from "./working-hours";
 
@@ -45,6 +52,14 @@ type ProductLike = {
   category: string;
 };
 
+type PersonLike = {
+  active?: boolean | null;
+  leaveFrom?: string | null;
+  leaveTo?: string | null;
+  leaveReason?: string | null;
+  weekOffDay?: string | null;
+};
+
 const getOrderPriority = (job: SchedulerJob, orderPriorityMap: Record<string, number | undefined>) =>
   job.priority ?? orderPriorityMap[job.orderId] ?? 0;
 
@@ -65,6 +80,7 @@ export const scheduleJobs = ({
   orderPriorityMap,
   now,
   workingHours,
+  peopleById,
 }: {
   jobs: SchedulerJob[];
   machines: MachineLike[];
@@ -75,6 +91,7 @@ export const scheduleJobs = ({
   orderPriorityMap: Record<string, number | undefined>;
   now: string;
   workingHours?: WorkingHoursConfig;
+  peopleById?: Record<string, PersonLike | undefined>;
 }) => {
   const productCategory = new Map(products.map((p) => [p.id, p.category]));
   const jobByGroup = new Map<string, SchedulerJob[]>();
@@ -147,21 +164,47 @@ export const scheduleJobs = ({
           skill.machineId === machine.id &&
           skill.allowed &&
           skill.process === job.process &&
-          skill.category === category
+          isPmsSkillEligible({
+            process: job.process,
+            productCategory: category,
+            skillCategory: skill.category,
+          })
       );
 
       machineSkills.forEach((skill) => {
         const slot = capacityMap[machine.id]?.[skill.personId];
         if (!slot) return;
+        const person = peopleById?.[skill.personId];
+        if (person && !isPmsPersonActive(person)) return;
 
         const jobReadyAtMs = toMillis(jobReadyAt);
         const slotFreeAtMs = toMillis(slot.freeAt);
-        const candidateStart =
+        let candidateStart =
           jobReadyAtMs !== undefined && (slotFreeAtMs === undefined || jobReadyAtMs > slotFreeAtMs)
             ? jobReadyAt
             : slot.freeAt;
 
-        const schedule = getWorkingSchedule(candidateStart, job.requiredMinutes, workingHours);
+        let schedule = getWorkingSchedule(candidateStart, job.requiredMinutes, workingHours);
+        const leaveWindow = getPmsPersonLeaveWindow(person);
+        let guard = 0;
+        while (guard < 7) {
+          const leaveConflict =
+            leaveWindow && doesPmsPersonLeaveOverlap(person, schedule.start, schedule.end)
+              ? { to: leaveWindow.to }
+              : undefined;
+          const weekOffConflict = getPmsPersonWeekOffConflict(
+            person,
+            schedule.start,
+            schedule.end,
+            workingHours?.timezoneOffsetMinutes
+          );
+          const conflict = leaveConflict || weekOffConflict;
+          if (!conflict) break;
+          candidateStart = conflict.to;
+          schedule = getWorkingSchedule(candidateStart, job.requiredMinutes, workingHours);
+          guard += 1;
+        }
+
         const plannedStart = schedule.start;
         const plannedEnd = schedule.end;
 
@@ -182,19 +225,20 @@ export const scheduleJobs = ({
       });
     });
 
-    if (!bestPlan) return;
+    if (bestPlan === null) return;
+    const finalPlan: SchedulerPlan = bestPlan;
 
-    planned.push(bestPlan);
-    plannedByJobId.set(job.id, bestPlan);
+    planned.push(finalPlan);
+    plannedByJobId.set(job.id, finalPlan);
 
-    bumpMachineSlots(bestPlan.machineId, bestPlan.plannedEnd, job.requiredMinutes);
-    bumpPersonSlots(bestPlan.personId, bestPlan.plannedEnd, job.requiredMinutes);
+    bumpMachineSlots(finalPlan.machineId, finalPlan.plannedEnd, job.requiredMinutes);
+    bumpPersonSlots(finalPlan.personId, finalPlan.plannedEnd, job.requiredMinutes);
 
     updatedJobs.push({
       ...job,
       status: "PLANNED",
-      plannedStart: bestPlan.plannedStart,
-      plannedEnd: bestPlan.plannedEnd,
+      plannedStart: finalPlan.plannedStart,
+      plannedEnd: finalPlan.plannedEnd,
     });
   });
 

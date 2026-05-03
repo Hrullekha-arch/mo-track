@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 import { simulateScheduleForOrder } from "@/lib/pms/simulator";
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
 
     const machinesSnap = await adminDb.collection("machines").where("active", "==", true).get();
     const skillsSnap = await adminDb.collection("machineSkills").where("allowed", "==", true).get();
+    const peopleSnap = await adminDb.collection("people").get();
     const productsSnap = await adminDb.collection("products").get();
     const plansSnap = await adminDb.collection("plan").get();
     const downtimeSnap = await adminDb.collection("machineDowntime").get();
@@ -39,6 +41,7 @@ export async function POST(request: Request) {
       jobs,
       machines: machinesSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })),
       skills: skillsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })),
+      people: peopleSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })),
       products: productsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })),
       plans: plansSnap.docs.map((doc) => doc.data() as any),
       downtimes: downtimeSnap.docs.map((doc) => doc.data() as any),

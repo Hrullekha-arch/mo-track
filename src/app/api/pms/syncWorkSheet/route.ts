@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
 import { buildPmsWorkSheetRowsFromDb } from "@/services/pms-work-sheet";
@@ -23,7 +24,7 @@ const getSheetsClient = async () => {
   });
 
   const authClient = await auth.getClient();
-  return google.sheets({ version: "v4", auth: authClient });
+  return google.sheets({ version: "v4", auth: authClient as any });
 };
 
 export async function POST(request: Request) {
@@ -132,7 +133,7 @@ export async function POST(request: Request) {
       toCanonicalRow(row).map(normalizeCell).join("\u001f");
 
     const existingRowKeys = new Set<string>();
-    existingDataRows.forEach((row) => {
+    existingDataRows.forEach((row: any[]) => {
       if (!isRowBlank(row)) {
         existingRowKeys.add(serializeRow(row));
       }

@@ -2,11 +2,10 @@
 
 import { useCallback } from "react";
 import {
-  addDoc,
   collection,
+  deleteDoc,
   deleteField,
   doc,
-  getDoc,
   getDocs,
   setDoc,
   writeBatch,
@@ -31,6 +30,8 @@ type Params = {
   role?: string | null;
   user?: { id?: string | null; name?: string | null; role?: string | null } | null;
   toast: any;
+  products: PmsProduct[];
+  routing: PmsRouting[];
   liveVasRowsAll: any[];
   createJobDialog: any;
   setCreateJobDialog: any;
@@ -59,12 +60,16 @@ type Params = {
   setManualDoneReason: (value: string) => void;
   setActiveTab: (value: string) => void;
   setSelectedProductId: (value: string) => void;
+  updatingLiveRowKey: string | null;
+  setUpdatingLiveRowKey: (value: string | null) => void;
 };
 
 export const usePmsJobActions = ({
   role,
   user,
   toast,
+  products,
+  routing,
   liveVasRowsAll,
   createJobDialog,
   setCreateJobDialog,
@@ -93,7 +98,43 @@ export const usePmsJobActions = ({
   setManualDoneReason,
   setActiveTab,
   setSelectedProductId,
+  updatingLiveRowKey,
+  setUpdatingLiveRowKey,
 }: Params) => {
+  const startPmsForRow = useCallback(
+    async (
+      row: CreateJobDialogRow,
+      embellishment?: StoredEmbellishment
+    ) => {
+      const qty = Number(row.qty) || 1;
+      const createRes = await fetch("/api/pms/createOrder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: row.orderId,
+          productId: row.matchedProductId,
+          qty,
+          embellishment,
+        }),
+      });
+      const createData = await createRes.json().catch(() => ({}));
+      if (!createRes.ok || !createData?.success) {
+        throw new Error(createData?.message || "Failed to create PMS jobs.");
+      }
+
+      const runRes = await fetch("/api/pms/runAutopilot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: row.orderId }),
+      });
+      const runData = await runRes.json().catch(() => ({}));
+      if (!runRes.ok || !runData?.success) {
+        throw new Error(runData?.message || "PMS jobs were created, but scheduling failed.");
+      }
+    },
+    []
+  );
+
   const handleOpenRoutingSetup = useCallback((productId?: string) => {
     if (!productId) return;
     setSelectedProductId(productId);
@@ -118,14 +159,6 @@ export const usePmsJobActions = ({
         priorityUpdatingOrderId ||
         deletingPlanKey
       ) {
-        return;
-      }
-      if (!row?.invoiceReady) {
-        toast({
-          variant: "destructive",
-          title: "Invoice required",
-          description: "Generate an invoice for this order before creating PMS jobs.",
-        });
         return;
       }
       if (!row?.matchedProductId) {
@@ -161,7 +194,7 @@ export const usePmsJobActions = ({
       setCreateJobDialog({
         open,
         row,
-        embellishmentEnabled: Boolean(existing?.enabled),
+        embellishmentEnabled: Boolean(existing?.enabled || row.requiresEmbellishment),
         form: buildEmbellishmentForm(row, existing),
       });
     },
@@ -179,10 +212,34 @@ export const usePmsJobActions = ({
   );
 
   const handleOpenCreateJobDialog = useCallback(
-    (row: CreateJobDialogRow) => {
-      prepareCreateJobEditor(row, true);
+    async (row: CreateJobDialogRow) => {
+      if (row.requiresEmbellishment) {
+        prepareCreateJobEditor(row, true);
+        return;
+      }
+
+      setCreatingJobKey(row.key);
+      try {
+        await startPmsForRow(
+          row,
+          row.embellishment?.enabled ? row.embellishment : undefined
+        );
+
+        toast({
+          title: "PMS started",
+          description: `${row.vasName} was sent directly to PMS.`,
+        });
+      } catch (error) {
+        toast({
+          variant: "destructive",
+          title: "PMS creation failed",
+          description: (error as Error).message,
+        });
+      } finally {
+        setCreatingJobKey(null);
+      }
     },
-    [prepareCreateJobEditor]
+    [prepareCreateJobEditor, setCreatingJobKey, startPmsForRow, toast]
   );
 
   const handleSelectEmbellishmentRow = useCallback(
@@ -259,7 +316,7 @@ export const usePmsJobActions = ({
     ) {
       toast({
         variant: "destructive",
-        title: "Embelshment form incomplete",
+        title: "Additional VAS form incomplete",
         description:
           "Fill customer, windows, panels, barcode, stitching per panel, design time, hand work time, and hourly charge.",
       });
@@ -291,8 +348,22 @@ export const usePmsJobActions = ({
     setCreatingJobKey(row.key);
     try {
       await persistEmbellishmentForRow(row, embellishmentPayload);
+      if (
+        row.requiresEmbellishment &&
+        !row.hasJobsForProduct &&
+        row.hasRouting &&
+        row.matchedProductId
+      ) {
+        await startPmsForRow(row, embellishmentPayload);
+        toast({
+          title: "Additional VAS saved and PMS planned",
+          description: `${row.vasName} was saved and sent to PMS planning.`,
+        });
+        return;
+      }
+
       toast({
-        title: "Embelshment details saved",
+        title: "Additional VAS details saved",
         description: `Saved ${row.vasName} with total time ${embellishmentPayload.totalTime} min and charge ${embellishmentPayload.chargeAmount}.`,
       });
     } catch (error) {
@@ -446,39 +517,20 @@ export const usePmsJobActions = ({
     if (createJobDialog.embellishmentEnabled) {
       embellishmentPayload = getValidatedEmbellishmentPayload() || undefined;
       if (embellishmentPayload === undefined && createJobDialog.embellishmentEnabled) return;
-    }
-
-    setCreatingJobKey(row.key);
-    try {
-      if (embellishmentPayload) {
-        await persistEmbellishmentForRow(row, embellishmentPayload);
       }
 
-      const createRes = await fetch("/api/pms/createOrder", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId: row.orderId,
-          productId: row.matchedProductId,
-          qty,
-          embellishment: embellishmentPayload,
-        }),
-      });
-      const createData = await createRes.json().catch(() => ({}));
-      if (!createRes.ok || !createData?.success) {
-        throw new Error(createData?.message || "Failed to create PMS jobs.");
-      }
+      setCreatingJobKey(row.key);
+      try {
+        if (embellishmentPayload) {
+          await persistEmbellishmentForRow(row, embellishmentPayload);
+        }
 
-      await fetch("/api/pms/runAutopilot", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId: row.orderId }),
-      });
+      await startPmsForRow(row, embellishmentPayload);
 
       toast({
         title: "PMS jobs created",
         description: embellishmentPayload
-          ? `Scheduled ${row.vasName} with Embelshment work (Total Time: ${embellishmentPayload.totalTime} min, Charge: ${embellishmentPayload.chargeAmount}).`
+          ? `Scheduled ${row.vasName} with Additional VAS work (Total Time: ${embellishmentPayload.totalTime} min, Charge: ${embellishmentPayload.chargeAmount}).`
           : `Scheduled ${row.vasName} (Qty: ${qty}).`,
       });
       handleCloseCreateJobDialog();
@@ -497,6 +549,7 @@ export const usePmsJobActions = ({
     handleCloseCreateJobDialog,
     persistEmbellishmentForRow,
     setCreatingJobKey,
+    startPmsForRow,
     toast,
   ]);
 
@@ -526,9 +579,14 @@ export const usePmsJobActions = ({
     try {
       const jobGroupMap = new Map<string, { orderId: string; productId: string; qty: number; embellishment?: StoredEmbellishment }>();
       let skipped = 0;
+      let skippedForEmbellishment = 0;
       liveVasRowsAll.forEach((row) => {
         if (!row.matchedProductId) {
           skipped += 1;
+          return;
+        }
+        if (row.requiresEmbellishment && !row.embellishment?.enabled) {
+          skippedForEmbellishment += 1;
           return;
         }
         const qty = Number(row.qty) || 1;
@@ -593,6 +651,9 @@ export const usePmsJobActions = ({
       let description = `Deleted ${deletedJobs} jobs and ${deletedPlans} plan(s).`;
       if (jobGroupMap.size > 0) description += ` Created ${createdGroups}/${jobGroupMap.size} job group(s).`;
       if (skipped > 0) description += ` Skipped ${skipped} item(s) without PMS product match.`;
+      if (skippedForEmbellishment > 0) {
+        description += ` Skipped ${skippedForEmbellishment} item(s) that still need the Additional VAS form.`;
+      }
       if (failedGroups > 0) description += ` ${failedGroups} group(s) failed to create.`;
 
       toast({ title: "Autopilot reset complete", description });
@@ -783,13 +844,22 @@ export const usePmsJobActions = ({
         orderId: row.orderId,
         orderNo: row.orderNo,
         customer: row.customer,
+        smName: row.smName,
         vasName: row.vasName,
         process: row.process,
+        person: row.person,
         qty: Number.isFinite(Number(row.qty)) ? Number(row.qty) : 0,
         stepNo: row.currentStepNo,
         totalSteps: row.totalSteps,
+        isFinalStep: Boolean(row.isFinalStep),
+        isManualCompletionStep: isManualCompletionProcess(row.process),
         plannedStart: row.plannedStart,
         plannedEnd: row.plannedEnd,
+        nextProcess: row.nextProcess,
+        nextPerson: row.nextPerson,
+        nextMachine: row.nextMachine,
+        nextPlannedStart: row.nextPlannedStart,
+        nextPlannedEnd: row.nextPlannedEnd,
       },
     });
   }, [setManualDoneAllQtyReady, setManualDoneDialog, setManualDoneReason, setManualDoneRemainingQty]);
@@ -802,12 +872,13 @@ export const usePmsJobActions = ({
   const handleSubmitManualDone = useCallback(async () => {
     if (!manualDoneDialog.row || manualDoneSaving) return;
     const row = manualDoneDialog.row;
+    const isFinalStep = Boolean(row.isFinalStep);
     const totalQty = Number(row.qty || 0);
     const allQtyReady = manualDoneAllQtyReady === "yes";
     const parsedRemainingQty = Number(manualDoneRemainingQty || 0);
     const remainingQty = allQtyReady ? 0 : parsedRemainingQty;
 
-    if (!allQtyReady) {
+    if (isFinalStep && !allQtyReady) {
       if (!Number.isFinite(parsedRemainingQty) || parsedRemainingQty <= 0) {
         toast({ variant: "destructive", title: "Remaining qty required", description: "Enter a valid remaining qty when all qty is not ready." });
         return;
@@ -827,54 +898,47 @@ export const usePmsJobActions = ({
       const nowIso = new Date().toISOString();
       const readyQty = totalQty > 0 ? Math.max(0, Number((totalQty - remainingQty).toFixed(2))) : undefined;
       const completionPayload = {
-        mode: "MANUAL_LAST_STEP" as const,
+        mode: isFinalStep ? ("MANUAL_LAST_STEP" as const) : ("MANUAL_STEP_DONE" as const),
+        isFinalStep,
         isAllQtyReady: allQtyReady,
-        totalQty: totalQty > 0 ? totalQty : null,
-        readyQty: readyQty ?? null,
-        remainingQty: allQtyReady ? 0 : remainingQty,
-        remainingReason: allQtyReady ? null : manualDoneReason.trim(),
+        totalQty: isFinalStep && totalQty > 0 ? totalQty : null,
+        readyQty: isFinalStep ? readyQty ?? null : null,
+        remainingQty: isFinalStep && !allQtyReady ? remainingQty : 0,
+        remainingReason: isFinalStep && !allQtyReady ? manualDoneReason.trim() : null,
         completedBy: {
           id: user?.id || null,
           name: user?.name || null,
           role: user?.role || null,
         },
         completedAt: nowIso,
+        nextProcess: row.nextProcess || null,
+        nextPerson: row.nextPerson || null,
+        nextMachine: row.nextMachine || null,
       };
 
-      const jobRef = doc(db, "jobs", row.jobId);
-      const jobSnap = await getDoc(jobRef);
-      const jobData = jobSnap.exists() ? (jobSnap.data() as any) : {};
-      const actualStart =
-        String(jobData?.actualStart || "").trim() ||
-        String(jobData?.plannedStart || "").trim() ||
-        row.plannedStart ||
-        nowIso;
-
-      await setDoc(
-        jobRef,
-        {
-          status: "DONE",
-          actualStart,
-          actualEnd: nowIso,
-          updatedAt: nowIso,
-          manualCompletion: completionPayload,
-          completionMeta: completionPayload,
-        },
-        { merge: true }
-      );
-
-      await addDoc(collection(db, "pmsManualCompletions"), {
-        jobId: row.jobId,
-        orderId: row.orderId,
-        orderNo: row.orderNo,
-        customer: row.customer,
-        vasItem: row.vasName,
-        process: row.process,
-        stepNo: row.stepNo || null,
-        totalSteps: row.totalSteps || null,
-        ...completionPayload,
-        createdAt: nowIso,
+      const completeRes = await fetch("/api/pms/completeJob", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobId: row.jobId,
+          actualStart: row.plannedStart || nowIso,
+          completedAt: nowIso,
+          manualCompletion: {
+            ...completionPayload,
+            orderId: row.orderId,
+            orderNo: row.orderNo,
+            customer: row.customer,
+            vasItem: row.vasName,
+            process: row.process,
+            stepNo: row.stepNo || null,
+            totalSteps: row.totalSteps || null,
+          },
+        }),
       });
+      const completeData = await completeRes.json().catch(() => ({}));
+      if (!completeRes.ok || !completeData?.success) {
+        throw new Error(completeData?.message || "Failed to complete PMS job.");
+      }
 
       await fetch("/api/pms/autoAdvance", {
         method: "POST",
@@ -883,9 +947,15 @@ export const usePmsJobActions = ({
 
       toast({
         title: "Step marked complete",
-        description: allQtyReady
-          ? "Final step completed with full qty."
-          : "Final step completed with remaining qty recorded.",
+        description: isFinalStep
+          ? allQtyReady
+            ? "Final step completed with full qty."
+            : "Final step completed with remaining qty recorded."
+          : row.nextPerson
+          ? `Step completed and moved to ${row.nextPerson}${row.nextProcess ? ` for ${row.nextProcess}` : ""}.`
+          : row.nextProcess
+          ? `Step completed and moved to ${row.nextProcess}.`
+          : "Step completed successfully.",
       });
       setManualDoneDialog({ open: false, row: null });
     } catch (error) {
@@ -910,6 +980,7 @@ export const usePmsJobActions = ({
     handleCloseCreateJobDialog,
     prepareCreateJobEditor,
     handleOpenCreateJobDialog,
+    handleAssignLiveVasProduct,
     handleSelectEmbellishmentRow,
     handleCreateJobDialogFieldChange,
     handleSaveEmbellishmentDetails,

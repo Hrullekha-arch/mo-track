@@ -1,4 +1,5 @@
 import { maxIso, normalizeIso, toMillis } from "./time";
+import { getCanonicalPlans } from "./plan-utils";
 
 export type CapacitySlot = {
   machineId: string;
@@ -74,12 +75,15 @@ export const buildCapacityMap = ({
   downtimes: DowntimeLike[];
   now: string;
 }): CapacityMap => {
+  const canonicalPlans = getCanonicalPlans(
+    plans as Array<PlanLike & { id?: string }>
+  ).plans as PlanLike[];
   const map: CapacityMap = {};
 
   const planByMachine = new Map<string, PlanLike[]>();
   const planByPerson = new Map<string, PlanLike[]>();
 
-  plans.forEach((plan) => {
+  canonicalPlans.forEach((plan) => {
     if (!planByMachine.has(plan.machineId)) planByMachine.set(plan.machineId, []);
     planByMachine.get(plan.machineId)!.push(plan);
 

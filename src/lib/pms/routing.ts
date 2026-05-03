@@ -34,12 +34,16 @@ const EMBELLISHMENT_PROCESS_KEYS = new Set([
   "embellishment work",
 ]);
 
-const isEmbellishmentProcess = (process?: string) =>
+export const isEmbellishmentProcess = (process?: string) =>
   EMBELLISHMENT_PROCESS_KEYS.has(
     String(process || "")
       .trim()
       .toLowerCase()
   );
+
+export const hasEmbellishmentRoutingStep = (
+  steps?: Array<Pick<RoutingStep, "process">> | null
+) => Array.isArray(steps) && steps.some((step) => isEmbellishmentProcess(step.process));
 
 export const computeRequiredMinutes = (
   cycleMinutes: number,
