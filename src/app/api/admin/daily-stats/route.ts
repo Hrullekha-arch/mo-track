@@ -51,7 +51,10 @@ export async function POST(req: Request) {
       installers = [onlyInstallerId];
     } else {
       const usersSnap = await adminDb.collection("users").where("role", "==", "installer").get();
-      installers = usersSnap.docs.map((d) => d.id);
+      installers = [];
+      for (const docSnap of usersSnap.docs) {
+        installers.push(docSnap.id);
+      }
     }
 
     const results: any[] = [];

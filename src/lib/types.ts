@@ -108,6 +108,27 @@ export interface User {
   timesheetEnabled?: boolean;
   timesheetDutyStart?: string; // HH:mm
   timesheetDutyEnd?: string; // HH:mm
+  employeeCode?: string;
+  department?: string;
+  reportingManager?: string;
+  joiningDate?: string; // YYYY-MM-DD
+  employmentStatus?: 'active' | 'on_leave' | 'inactive';
+  panNumber?: string;
+  aadhaarNumber?: string;
+  bankName?: string;
+  bankAccountNumber?: string;
+  bankIfsc?: string;
+  uanNumber?: string;
+  esiNumber?: string;
+  medicalInsurance?: string;
+  salaryBasic?: number;
+  salaryHra?: number;
+  salarySpecialAllowance?: number;
+  salaryOtherAllowance?: number;
+  salaryPf?: number;
+  salaryEsi?: number;
+  salaryProfessionalTax?: number;
+  salaryTds?: number;
 }
 
 export interface Walkin_Customer {

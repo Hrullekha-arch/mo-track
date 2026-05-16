@@ -56,12 +56,14 @@ import {
   SheetDescription,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { LeaveWidget } from "@/components/features/dashboard/LeaveWidget";
 
 
 export const navItems = [
     { href: "/dashboard", icon: Home, label: "Home", roles: ['admin', 'employee', 'Accounts'] },
     // { href: "/dashboard/fms", icon: Factory, label: "FMS", roles: ['admin', 'employee'] },
     { href: "/dashboard/pms", icon: ClipboardList, label: "PMS", roles: ['admin', 'employee'] },
+    { href: "/dashboard/hr", icon: Users, label: "HR", roles: ['admin', 'Hr'] },
     { href: "/dashboard/approvals", icon: FileSignature, label: "Approvals", roles: ['admin', 'Accounts'] },
     { href: "/dashboard/stock-verification", icon: PackageSearch, label: "Stock Verification", roles: ['admin', 'employee'] },
     { href: "/dashboard/visits", icon: CalendarCheck, label: "Visits", roles: ['admin', 'employee'] },
@@ -103,6 +105,7 @@ function SidebarNav({ className }: { className?: string }) {
       if (!user) return false;
       // Admin sees everything
       if (role === 'admin') return true;
+      if (role === 'Hr' && item.href === "/dashboard/hr") return true;
       // Headsalesmanager can always access complain approval page.
       if (isHeadSalesManager && item.href === "/dashboard/complain-approval") return true;
       // For other roles, check the permissions array
@@ -288,6 +291,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return navItems.filter((item) => {
       if (!user) return false;
       if (role === "admin") return true;
+      if (role === "Hr" && item.href === "/dashboard/hr") return true;
       return user.permissions?.includes(item.href);
     });
   }, [user, role]);
@@ -350,6 +354,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
         </header>
         <main className="flex-1 overflow-y-auto">
+          <LeaveWidget />
           {children}
         </main>
       </div>

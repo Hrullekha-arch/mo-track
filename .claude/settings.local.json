@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx next *)",
+      "Bash(Get-Content \"C:\\\\Users\\\\HP\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Mo-Track\\\\5ad525c9-67f3-4a10-a40e-0c7743a7c167\\\\tasks\\\\b70er1wu1.output\" -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object -First 100)",
+      "Bash(Get-Content d:\\\\Mo_Track\\\\package.json)",
+      "Bash(Select-String -Pattern \"xlsx|exceljs|sheet\")",
+      "Bash(npm install *)",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/next/package.json'\\).version\\)\")",
+      "PowerShell(head -20)",
+      "PowerShell(cmd /c \"dir /al d:\\\\Mo_Track\\\\node_modules\\\\next\" 2>&1)",
+      "PowerShell(cmd /c \"dir d:\\\\Mo_Track\\\\node_modules\\\\next\" 2>&1)",
+      "PowerShell(cmd /c \"dir d:\\\\Mo_Track\\\\node_modules\\\\next\\\\dist\\\\client\\\\components\" 2>&1)"
+    ]
+  }
+}

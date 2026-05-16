@@ -1,0 +1,65 @@
+HR Attendance Import Guide
+
+1. Employee code mapping
+- SSL Emp. Code must match HR Employee Code or Biometric ID.
+- Example: SSL code 5010 should be saved in HR Employee Master as Employee Code 5010.
+- Excel-style codes like '5010 or 5010.0 are normalized during import.
+
+2. Supported file types
+- CSV row-wise template
+- XLS / XLSX row-wise attendance export
+- Monthly Status Report (Basic Work Duration) sheet from SSL
+- eSSL eTimeTrack Lite Monthly Status Report format with:
+  Days row
+  Status row
+  InTime row
+  OutTime row
+  Total row
+
+3. CSV template columns
+- EmpCode
+- Date
+- InTime
+- OutTime
+- Status
+- WorkDuration
+
+4. Date format
+- Use YYYY-MM-DD in CSV template
+- Example: 2026-03-01
+
+5. Status values
+- P = Present
+- A = Absent
+- WO = Week Off
+- H = Holiday
+- L = Late
+- HL = Half Day
+- OL = On Leave
+
+6. If Status is blank
+- The system will still mark attendance as Present when InTime, OutTime, or WorkDuration exists.
+
+7. Monthly report import
+- The system reads each employee block
+- It converts each day column into one attendance row
+- It uses Status, InTime, OutTime, and Total duration for payroll-ready attendance
+- This works for the sheet layout:
+  Emp. Code -> Emp. Name
+  Status
+  InTime
+  OutTime
+  Total
+
+8. Salary calculation flow
+- Upload attendance
+- Verify employee code matches
+- Import records
+- Open HR > Payroll
+- Generate payroll for the month
+- Absent days become leave/LOP in prorated payroll
+
+9. Common issues
+- Matched Employees = 0 means employee code mismatch
+- Wrong month means uploaded report month and payroll month are different
+- Empty file means no valid employee/day rows were found

@@ -2465,6 +2465,9 @@ export default function DashboardPage() {
         if (!loading && user?.role === 'Purchase') {
             router.replace('/dashboard/purchase');
         }
+        if (!loading && user?.role === 'Hr') {
+            router.replace('/dashboard/hr');
+        }
     }, [loading, router, user]);
     
     if (loading) {
@@ -2503,6 +2506,20 @@ export default function DashboardPage() {
     }
 
     if (user?.role === 'Purchase') {
+        return (
+             <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-4">
+                <Skeleton className="h-9 w-1/2 mb-2" />
+                <Skeleton className="h-5 w-3/4" />
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                     <Skeleton className="h-24 w-full" />
+                     <Skeleton className="h-24 w-full" />
+                     <Skeleton className="h-24 w-full" />
+                </div>
+            </div>
+        );
+    }
+
+    if (user?.role === 'Hr') {
         return (
              <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-4">
                 <Skeleton className="h-9 w-1/2 mb-2" />

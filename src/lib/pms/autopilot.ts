@@ -6,6 +6,7 @@ import {
   getPmsPersonLeaveWindow,
   getPmsPersonWeekOffConflict,
   isPmsPersonActive,
+  isPmsPersonOnLeaveAt,
 } from "./person-availability";
 import { getWorkingSchedule, WorkingHoursConfig } from "./working-hours";
 
@@ -234,6 +235,7 @@ export function runAutopilot(args: AutopilotArgs) {
           if (!personId) continue;
           const person = peopleById[personId];
           if (person && !isPmsPersonActive(person)) continue;
+          if (person && isPmsPersonOnLeaveAt(person, anchor)) continue;
           eligiblePairs.push({ machineId: machine.id, personId });
         }
       }

@@ -5,3 +5,5 @@
 // For example, if you have a devDependency like `some-untyped-module`,
 // you can declare it here to avoid TypeScript errors in your project.
 // declare module 'some-untyped-module';
+
+declare module "next-pwa";

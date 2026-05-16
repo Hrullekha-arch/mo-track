@@ -21,10 +21,15 @@ import {
   buildEmbellishmentForm,
   emptyEmbellishmentForm,
   hasEmbellishmentRoutingStep,
-  toNumber,
 } from "../utils/pmsHelpers";
 import { canManagePms } from "../utils/pmsAccess";
-import { isManualCompletionProcess } from "@/lib/pms/process-rules";
+import {
+  buildManualDoneDialogRow,
+  deleteDocsInChunks,
+  persistEmbellishmentRecord,
+  startPmsForRowRequest,
+  validateEmbellishmentPayload,
+} from "./usePmsJobActions.helpers";
 
 type Params = {
   role?: string | null;
@@ -106,31 +111,7 @@ export const usePmsJobActions = ({
       row: CreateJobDialogRow,
       embellishment?: StoredEmbellishment
     ) => {
-      const qty = Number(row.qty) || 1;
-      const createRes = await fetch("/api/pms/createOrder", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId: row.orderId,
-          productId: row.matchedProductId,
-          qty,
-          embellishment,
-        }),
-      });
-      const createData = await createRes.json().catch(() => ({}));
-      if (!createRes.ok || !createData?.success) {
-        throw new Error(createData?.message || "Failed to create PMS jobs.");
-      }
-
-      const runRes = await fetch("/api/pms/runAutopilot", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId: row.orderId }),
-      });
-      const runData = await runRes.json().catch(() => ({}));
-      if (!runRes.ok || !runData?.success) {
-        throw new Error(runData?.message || "PMS jobs were created, but scheduling failed.");
-      }
+      await startPmsForRowRequest(row, embellishment);
     },
     []
   );
@@ -264,80 +245,23 @@ export const usePmsJobActions = ({
 
   const persistEmbellishmentForRow = useCallback(
     async (row: CreateJobDialogRow, embellishment: StoredEmbellishment) => {
-      const nowIso = new Date().toISOString();
-      await setDoc(
-        doc(db, "pmsEmbellishment", row.key),
-        {
-          ...embellishment,
-          orderId: row.orderId,
-          orderNo: row.orderNo,
-          customer: row.customer,
-          customerPhone: row.customerPhone || embellishment.customerPhone || "",
-          vasName: row.vasName,
-          vasIndex: row.vasIndex,
-          productId: row.matchedProductId || "",
-          createdAt: nowIso,
-          updatedAt: nowIso,
-          updatedBy: {
-            id: user?.id || null,
-            name: user?.name || null,
-            role: user?.role || null,
-          },
-        },
-        { merge: true }
-      );
+      await persistEmbellishmentRecord({ row, embellishment, user });
     },
     [user]
   );
 
   const getValidatedEmbellishmentPayload = useCallback(() => {
-    if (!createJobDialog.embellishmentEnabled) return undefined;
-
-    const customerName = createJobDialog.form.customerName.trim();
-    const customerPhone = createJobDialog.form.customerPhone.trim();
-    const numberOfWindows = toNumber(createJobDialog.form.numberOfWindows);
-    const numberOfPanels = toNumber(createJobDialog.form.numberOfPanels);
-    const embellishmentBarcode = createJobDialog.form.embellishmentBarcode.trim();
-    const stitchingPerPanel = toNumber(createJobDialog.form.stitchingPerPanel);
-    const designTime = toNumber(createJobDialog.form.designTime);
-    const handWorkTime = toNumber(createJobDialog.form.handWorkTime);
-    const hourlyCharge = toNumber(createJobDialog.form.hourlyCharge);
-
-    if (
-      !customerName ||
-      !customerPhone ||
-      numberOfWindows <= 0 ||
-      numberOfPanels <= 0 ||
-      !embellishmentBarcode ||
-      stitchingPerPanel <= 0 ||
-      designTime < 0 ||
-      handWorkTime < 0 ||
-      hourlyCharge <= 0
-    ) {
+    const result = validateEmbellishmentPayload(createJobDialog, createJobTotals);
+    if (result.disabled) return undefined;
+    if (result.error) {
       toast({
         variant: "destructive",
         title: "Additional VAS form incomplete",
-        description:
-          "Fill customer, windows, panels, barcode, stitching per panel, design time, hand work time, and hourly charge.",
+        description: result.error,
       });
       return null;
     }
-
-    return {
-      enabled: true,
-      customerName,
-      customerPhone,
-      numberOfWindows,
-      numberOfPanels,
-      embellishmentBarcode,
-      stitchingPerPanel,
-      designTime,
-      handWorkTime,
-      hourlyCharge,
-      totalHours: createJobTotals.totalHours,
-      totalTime: createJobTotals.totalMinutes,
-      chargeAmount: createJobTotals.chargeAmount,
-    } satisfies StoredEmbellishment;
+    return result.payload;
   }, [createJobDialog, createJobTotals, toast]);
 
   const handleSaveEmbellishmentDetails = useCallback(async () => {
@@ -553,18 +477,10 @@ export const usePmsJobActions = ({
     toast,
   ]);
 
-  const deleteDocsInBatches = useCallback(async (refs: Array<ReturnType<typeof doc>>) => {
-    const chunkSize = 450;
-    let deleted = 0;
-    for (let i = 0; i < refs.length; i += chunkSize) {
-      const batch = writeBatch(db);
-      const chunk = refs.slice(i, i + chunkSize);
-      chunk.forEach((ref) => batch.delete(ref));
-      await batch.commit();
-      deleted += chunk.length;
-    }
-    return deleted;
-  }, []);
+  const deleteDocsInBatches = useCallback(
+    async (refs: Array<ReturnType<typeof doc>>) => deleteDocsInChunks(refs),
+    []
+  );
 
   const handleResetAndRerunAutopilot = useCallback(async () => {
     if (
@@ -838,29 +754,7 @@ export const usePmsJobActions = ({
     setManualDoneReason("");
     setManualDoneDialog({
       open: true,
-      row: {
-        key: row.key,
-        jobId: row.currentJobId,
-        orderId: row.orderId,
-        orderNo: row.orderNo,
-        customer: row.customer,
-        smName: row.smName,
-        vasName: row.vasName,
-        process: row.process,
-        person: row.person,
-        qty: Number.isFinite(Number(row.qty)) ? Number(row.qty) : 0,
-        stepNo: row.currentStepNo,
-        totalSteps: row.totalSteps,
-        isFinalStep: Boolean(row.isFinalStep),
-        isManualCompletionStep: isManualCompletionProcess(row.process),
-        plannedStart: row.plannedStart,
-        plannedEnd: row.plannedEnd,
-        nextProcess: row.nextProcess,
-        nextPerson: row.nextPerson,
-        nextMachine: row.nextMachine,
-        nextPlannedStart: row.nextPlannedStart,
-        nextPlannedEnd: row.nextPlannedEnd,
-      },
+      row: buildManualDoneDialogRow(row),
     });
   }, [setManualDoneAllQtyReady, setManualDoneDialog, setManualDoneReason, setManualDoneRemainingQty]);
 

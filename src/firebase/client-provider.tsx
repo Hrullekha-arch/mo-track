@@ -1,22 +1,11 @@
 
 'use client';
-import { FirebaseApp } from 'firebase/app';
-import { Auth } from 'firebase/auth';
-import { Firestore } from 'firebase/firestore';
 import { PropsWithChildren, useEffect, useState } from 'react';
 
-import { initializeFirebase, FirebaseProvider } from '.';
+import { initializeFirebase } from './index';
+import { FirebaseProvider } from './provider';
 
-type FirebaseClientProviderProps = PropsWithChildren<{
-  firebaseApp: FirebaseApp;
-  auth: Auth;
-  firestore: Firestore;
-}>;
-
-export function FirebaseClientProvider({
-  children,
-  ...props
-}: FirebaseClientProviderProps) {
+export function FirebaseClientProvider({ children }: PropsWithChildren) {
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => {
     setIsMounted(true);
@@ -26,12 +15,10 @@ export function FirebaseClientProvider({
     return null;
   }
 
+  const { app, auth, firestore } = initializeFirebase();
+
   return (
-    <FirebaseProvider
-      firebaseApp={props.firebaseApp}
-      auth={props.auth}
-      firestore={props.firestore}
-    >
+    <FirebaseProvider firebaseApp={app} auth={auth} firestore={firestore}>
       {children}
     </FirebaseProvider>
   );

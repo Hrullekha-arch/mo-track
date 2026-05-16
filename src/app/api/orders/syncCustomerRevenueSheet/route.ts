@@ -262,7 +262,8 @@ export async function POST() {
     const customerIdByPhone = new Map<string, string>();
     const customerNameByPhone = new Map<string, string>();
 
-    customerSnapshot.docs.forEach((doc) => {
+    for (const docSnap of customerSnapshot.docs) {
+      const doc = docSnap;
       const customer = doc.data() as Record<string, unknown>;
       customerById.set(doc.id, customer);
       const phone = normalizePhone(pickFirstText(customer.phone, customer.mobileNo));
@@ -271,28 +272,30 @@ export async function POST() {
         const customerName = pickFirstText(customer.name);
         if (customerName) customerNameByPhone.set(phone, customerName);
       }
-    });
+    }
 
     const walkinSourceByPhone = new Map<string, { source: string; createdAt: number }>();
-    walkinSnapshot.docs.forEach((doc) => {
+    for (const docSnap of walkinSnapshot.docs) {
+      const doc = docSnap;
       const walkin = doc.data() as Record<string, unknown>;
       const phone = normalizePhone(pickFirstText(walkin.mobile, walkin.phone, walkin.mobileNo));
-      if (!phone) return;
+      if (!phone) continue;
       const source = normalizeSource(
         pickFirstText(walkin.howDidYouHearAboutUs, walkin.source, walkin.leadSource, walkin.customerType)
       );
-      if (!source) return;
+      if (!source) continue;
       const createdAtDate = toDate(walkin.createdAt);
       const createdAt = createdAtDate ? createdAtDate.getTime() : 0;
       const existing = walkinSourceByPhone.get(phone);
       if (!existing || createdAt >= existing.createdAt) {
         walkinSourceByPhone.set(phone, { source, createdAt });
       }
-    });
+    }
 
     const visitStatsByCustomerId = new Map<string, VisitStats>();
     const visitStatsByPhone = new Map<string, VisitStats>();
-    visitSnapshot.docs.forEach((doc) => {
+    for (const docSnap of visitSnapshot.docs) {
+      const doc = docSnap;
       const visit = doc.data() as Record<string, unknown>;
       const pathParts = doc.ref.path.split("/");
       const customerId = pickFirstText(pathParts[1], visit.customerId);
@@ -305,13 +308,14 @@ export async function POST() {
 
       updateVisitStats(visitStatsByCustomerId, customerId, visitDate);
       updateVisitStats(visitStatsByPhone, phone, visitDate);
-    });
+    }
 
     const revenueByCustomerId = new Map<string, RevenueStats>();
     const revenueByPhone = new Map<string, RevenueStats>();
     const orderRows: Array<{ sortTime: number; row: string[] }> = [];
 
-    orderSnapshot.docs.forEach((doc) => {
+    for (const docSnap of orderSnapshot.docs) {
+      const doc = docSnap;
       const order = doc.data() as Record<string, unknown>;
       const orderId = pickFirstText(order.crmOrderNo, order.orderNo, order.orderId, doc.id);
       const orderDate = toDate(pickFirstText(order.createdAt, order.orderDate, order.updatedAt));
@@ -352,9 +356,11 @@ export async function POST() {
           salesPerson,
         ],
       });
-    });
+    }
 
-    const customerRows = customerSnapshot.docs.map((doc) => {
+    const customerRows: string[][] = [];
+    for (const docSnap of customerSnapshot.docs) {
+      const doc = docSnap;
       const customer = doc.data() as Record<string, unknown>;
       const phone = normalizePhone(pickFirstText(customer.phone, customer.mobileNo));
       const customerId = pickFirstText(customer.customerId, customer.customerCode, doc.id);
@@ -378,7 +384,7 @@ export async function POST() {
       const avgOrderSize =
         revenueStats.orderCount > 0 ? revenueStats.totalRevenue / revenueStats.orderCount : null;
 
-      return [
+      customerRows.push([
         customerId,
         customerName,
         pickFirstText(customer.phone, customer.mobileNo),
@@ -391,11 +397,13 @@ export async function POST() {
         totalVisits > 1 ? "Yes" : "No",
         formatAmount(revenueStats.totalRevenue),
         formatAmount(avgOrderSize),
-      ];
-    });
+      ]);
+    }
 
-    customerRows.sort((a, b) => a[1].localeCompare(b[1]));
-    orderRows.sort((a, b) => b.sortTime - a.sortTime);
+    customerRows.sort((a: string[], b: string[]) => a[1].localeCompare(b[1]));
+    orderRows.sort(
+      (a: { sortTime: number; row: string[] }, b: { sortTime: number; row: string[] }) => b.sortTime - a.sortTime
+    );
 
     const customerLastColumn = getColumnLetter(CUSTOMER_HEADER.length);
     const orderLastColumn = getColumnLetter(ORDER_REVENUE_HEADER.length);
