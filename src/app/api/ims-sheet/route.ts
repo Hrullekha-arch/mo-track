@@ -1,127 +1,249 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
-import { google } from "googleapis";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DEFAULT_SHEET_ID = "1EpfQfhfNA0AKSLoPVRsi62fsBwU4GbIoVHgCBBZs69Y";
-const DEFAULT_SHEET_NAME = "IMS";
-const IST_TIMEZONE = "Asia/Kolkata";
+// ================= CONFIG =================
+const SHEET_ID =
+  "1EpfQfhfNA0AKSLoPVRsi62fsBwU4GbIoVHgCBBZs69Y";
 
-const formatDateForSheetHeader = (date: Date) =>
-  new Intl.DateTimeFormat("en-GB", {
-    timeZone: IST_TIMEZONE,
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(date);
+const SHEET_NAME = "IMS";
 
-const parseQuantity = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
+// ================= HELPERS =================
+function parseGoogleVisualizationResponse(
+  text: string
+) {
+  return JSON.parse(
+    text.substring(
+      text.indexOf("{"),
+      text.lastIndexOf("}") + 1
+    )
+  );
+}
 
-  const normalized = String(value ?? "")
-    .replace(/,/g, "")
-    .trim();
+// COLUMN NUMBER => LETTER
+function getColumnLetter(column: number) {
+  let temp = "";
+  let letter = "";
 
-  if (!normalized) return null;
+  while (column > 0) {
+    temp = ((column - 1) % 26).toString();
 
-  const parsed = Number.parseFloat(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
-};
+    letter =
+      String.fromCharCode(
+        Number(temp) + 65
+      ) + letter;
 
-const getSheetsClient = async () => {
-  const serviceAccountKey =
-    process.env.GOOGLE_SERVICE_ACCOUNT_KEY || process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-
-  if (!serviceAccountKey) {
-    throw new Error("Missing GOOGLE_SERVICE_ACCOUNT_KEY or FIREBASE_SERVICE_ACCOUNT_KEY.");
+    column =
+      (column - (Number(temp) + 1)) /
+      26;
   }
 
-  const credentials = JSON.parse(serviceAccountKey);
-  if (credentials.private_key) {
-    credentials.private_key = credentials.private_key.replace(/\\n/g, "\n");
-  }
+  return letter;
+}
 
-  const auth = new google.auth.GoogleAuth({
-    credentials,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
-  });
-
-  return google.sheets({ version: "v4", auth });
-};
-
-export async function GET(request: NextRequest) {
-  const bcn = String(request.nextUrl.searchParams.get("bcn") ?? "").trim();
-  if (!bcn) {
-    return NextResponse.json(
-      { success: false, error: "Missing bcn query parameter." },
-      { status: 400 }
-    );
-  }
-
-  const spreadsheetId = process.env.IMS_SHEET_ID || DEFAULT_SHEET_ID;
-  const sheetName = process.env.IMS_SHEET_NAME || DEFAULT_SHEET_NAME;
-
+// ================= API =================
+export async function GET(
+  request: NextRequest
+) {
   try {
-    const sheets = await getSheetsClient();
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: sheetName,
+    // ================= BCN =================
+    const bcn = String(
+      request.nextUrl.searchParams.get(
+        "bcn"
+      ) ?? ""
+    ).trim();
+
+    if (!bcn) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Missing bcn query parameter.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // ================= GET HEADER =================
+    const headerUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
+      SHEET_NAME
+    )}&range=M1:CC1&tq=${encodeURIComponent(
+      "SELECT *"
+    )}`;
+
+    const headerResponse =
+      await fetch(headerUrl, {
+        cache: "no-store",
+      });
+
+    const headerText =
+      await headerResponse.text();
+
+    const headerJson =
+      parseGoogleVisualizationResponse(
+        headerText
+      );
+
+    const headerRow =
+      headerJson?.table?.rows?.[0]?.c ||
+      [];
+
+    // ================= FIND TODAY DATE COLUMN =================
+    let dateColumnLetter = "M";
+
+    const today = new Date();
+
+    const todayDate =
+      today.getDate();
+
+    const todayMonth =
+      today.getMonth();
+
+    const todayYear =
+      today.getFullYear();
+
+    for (
+      let i = 0;
+      i < headerRow.length;
+      i++
+    ) {
+      const value =
+        headerRow?.[i]?.v;
+
+      if (!value) continue;
+
+      const headerValue = String(
+        value
+      ).trim();
+
+      // FORMAT:
+      // Date(2026,4,11)
+      const match =
+        headerValue.match(
+          /Date\((\d+),(\d+),(\d+)\)/
+        );
+
+      if (!match) continue;
+
+      const year = Number(
+        match[1]
+      );
+
+      // ZERO INDEXED
+      const month = Number(
+        match[2]
+      );
+
+      const day = Number(
+        match[3]
+      );
+
+      // MATCH TODAY
+      if (
+        day === todayDate &&
+        month === todayMonth &&
+        year === todayYear
+      ) {
+        // M starts from 13
+        dateColumnLetter =
+          getColumnLetter(i + 13);
+
+        break;
+      }
+    }
+
+    // ================= QUERY =================
+    // ONLY RETURN REQUIRED COLUMNS
+    const query = encodeURIComponent(`
+      SELECT 
+        A,
+        B,
+        C,
+        D,
+        E,
+        F,
+        G,
+        ${dateColumnLetter}
+      WHERE A='${bcn}'
+    `);
+
+    // ================= FETCH =================
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
+      SHEET_NAME
+    )}&tq=${query}`;
+
+    const response = await fetch(url, {
+      cache: "no-store",
     });
 
-    const rows = (response.data.values ?? []) as string[][];
-    if (!rows.length) {
-      return NextResponse.json({
-        success: true,
-        bcn,
-        qty: null,
-        message: "No data found in IMS sheet.",
-      });
-    }
+    const rawText =
+      await response.text();
 
-    const todayHeader = formatDateForSheetHeader(new Date());
-    //const todayHeader = "28/03/2026";
-    const headerRow = rows[0] ?? [];
-    const dateColumnIndex = headerRow.findIndex(
-      (column) => String(column ?? "").trim() === todayHeader
-    );
+    const json =
+      parseGoogleVisualizationResponse(
+        rawText
+      );
 
-    if (dateColumnIndex === -1) {
-      return NextResponse.json({
-        success: true,
-        bcn,
-        qty: null,
-        message: `Date column ${todayHeader} not found in IMS header.`,
-      });
-    }
+    const row =
+      json?.table?.rows?.[0];
 
-    const row = rows.find(
-      (entry) => String(entry?.[0] ?? "").trim().toLowerCase() === bcn.toLowerCase()
-    );
-
+    // ================= NOT FOUND =================
     if (!row) {
       return NextResponse.json({
         success: true,
+        found: false,
         bcn,
         qty: null,
         message: `BCN ${bcn} not found in IMS sheet.`,
       });
     }
 
-    const qty = parseQuantity(row[dateColumnIndex]);
-
+    // ================= RESPONSE =================
     return NextResponse.json({
       success: true,
-      bcn,
-      qty,
-      date: todayHeader,
+      found: true,
+
+      dateColumn:
+        dateColumnLetter,
+
+      item: {
+        bcn:
+          row?.c?.[0]?.v || null,
+
+        itemName:
+          row?.c?.[1]?.v || null,
+
+        category:
+          row?.c?.[2]?.v || null,
+
+        unit:
+          row?.c?.[3]?.v || null,
+
+        minStock:
+          row?.c?.[4]?.v || 0,
+
+        location:
+          row?.c?.[5]?.v || null,
+
+        group:
+          row?.c?.[6]?.v || null,
+
+        qty:
+          row?.c?.[7]?.v || 0,
+      },
     });
   } catch (error: any) {
-    console.error("IMS sheet lookup failed:", error?.message || error);
+    console.error(
+      "IMS lookup failed:",
+      error?.message || error
+    );
+
     return NextResponse.json(
       {
         success: false,
-        error: "Failed to fetch IMS quantity from Google Sheet.",
+        error:
+          "Failed to fetch IMS quantity from Google Sheet.",
       },
       { status: 500 }
     );

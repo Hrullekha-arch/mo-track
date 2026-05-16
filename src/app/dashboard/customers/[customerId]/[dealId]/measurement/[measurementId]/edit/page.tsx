@@ -2,8 +2,8 @@
 
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import {
   Table,
@@ -88,13 +88,18 @@ const detectItemType = (raw: any): NormalizedType => {
   ) return "blind";
 
   const src = String(raw.productSource || "").toLowerCase();
-  const cat = String(raw.productCategory || "").toLowerCase();
-  const grp = String(raw.group || "").toLowerCase();
+  const cat = String(raw.productCategory || raw.category || "").toLowerCase();
+  const grp = String(raw.group || raw.categoryGroup || "").toLowerCase();
+  const sub = String(raw.subCategory || raw.type || "").toLowerCase();
+  const name = String(raw.itemName || raw.salesDescription || "").toLowerCase();
+  const combined = `${src} ${cat} ${grp} ${sub} ${name}`;
 
   if (src.includes("fabric")) return "fabric";
   if (src.includes("wall")) return "wallpaper";
   if (cat.includes("stitch")) return "stitching";
-  if (grp.includes("hardware") || grp.includes("track")) return "hardware";
+  if (combined.includes("hardware") || combined.includes("track") || combined.includes("channel")) {
+    return "hardware";
+  }
 
   return "unknown";
 };
@@ -261,6 +266,7 @@ const buildEnrichedFromRooms = (
 
 export default function QuotationBuilderPage() {
   const { customerId, dealId, measurementId } = useParams();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -278,6 +284,20 @@ export default function QuotationBuilderPage() {
   const [dealCode, setDealCode] = useState("");
   const pdfRef = useRef<HTMLDivElement | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+
+  const selectedRoomFilterSet = useMemo(() => {
+    const selectedRooms = searchParams
+      .getAll("room")
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+
+    return new Set(selectedRooms.map((room) => normalizeRoom(room)));
+  }, [searchParams]);
+
+  const filterItemsBySelectedRooms = (list: EnrichedProduct[]) => {
+    if (selectedRoomFilterSet.size === 0) return list;
+    return list.filter((entry) => selectedRoomFilterSet.has(normalizeRoom(entry.room)));
+  };
 
   // ================= MERGE LOGIC =================
   const buildMergedItems = (
@@ -379,35 +399,293 @@ export default function QuotationBuilderPage() {
   };
 
   const groupByRoom = (list: EnrichedProduct[]) =>
-    list.reduce((acc: Record<string, EnrichedProduct[]>, curr) => {
+    filterItemsBySelectedRooms(list).reduce((acc: Record<string, EnrichedProduct[]>, curr) => {
       const roomKey = curr.room || 'Unassigned';
       if (!acc[roomKey]) acc[roomKey] = [];
       acc[roomKey].push(curr);
       return acc;
     }, {});
-    
-  const calculateFabricQty = (i: EnrichedProduct) => {
-    log(`  [calculateFabricQty] Calculating for item: "${i.itemName}"`);
-    const heightinch = Number(i.height || 0) + 16;
-    const heightCM = heightinch * 2.54;
-    const vrCM = Number(i.raw?.verticalRepeat || 0);
-    const panelQty = Number(i.noOfPannel || 1);
-    log(`    - Height (in): ${heightinch}, Height (cm): ${heightCM.toFixed(2)}, VR (cm): ${vrCM}, Panels: ${panelQty}`);
 
-    if (!vrCM || vrCM === 0) {
+  const toPositiveNumber = (value: any) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  };
+
+  const roundTo2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+
+  const getItemSearchText = (item: EnrichedProduct) => {
+    const raw = item.raw || {};
+    return [
+      item.itemName,
+      item.bcn,
+      raw.itemName,
+      raw.salesDescription,
+      raw.productSource,
+      raw.productCategory,
+      raw.category,
+      raw.categoryGroup,
+      raw.group,
+      raw.subCategory,
+      raw.type,
+      raw.remark,
+      raw.remarks,
+    ]
+      .map((value) => String(value || "").toLowerCase())
+      .join(" ");
+  };
+
+  const isCurtainLikeItem = (item: EnrichedProduct) => {
+    const text = getItemSearchText(item);
+    return text.includes("curtain") || text.includes("pleat") || text.includes("drape");
+  };
+
+  const isSheerLikeItem = (item: EnrichedProduct) => {
+    const text = getItemSearchText(item);
+    return text.includes("sheer");
+  };
+
+  const isChannelLikeItem = (item: EnrichedProduct) => {
+    const text = getItemSearchText(item);
+    return text.includes("channel") || text.includes("track");
+  };
+
+  const getPanelCount = (item: EnrichedProduct) =>
+    toPositiveNumber(
+      item.noOfPannel ||
+      item.raw?.noOfPannel ||
+      item.raw?.panels ||
+      item.raw?.noOfSeat ||
+      item.raw?.noOfSheet ||
+      0
+    );
+
+  const getWidthInches = (item: EnrichedProduct) =>
+    toPositiveNumber(item.width || item.raw?.width || 0);
+
+  const getHeightInches = (item: EnrichedProduct) =>
+    toPositiveNumber(item.height || item.raw?.height || 0);
+
+  const calculateFabricQtyFromMeasurements = (i: EnrichedProduct) => {
+    const panelQty = getPanelCount(i) || 1;
+    const heightInch = getHeightInches(i) + 16;
+    const heightCM = heightInch * 2.54;
+    const vrCM = toPositiveNumber(i.raw?.verticalRepeat);
+
+    if (!vrCM) {
       const basicMeters = (heightCM / 100) * panelQty;
-      log(`    - No VR. Basic calc: ((${heightCM.toFixed(2)} / 100) * ${panelQty}) = ${basicMeters.toFixed(2)} -> ceil -> ${Math.ceil(basicMeters)}`);
-      return Math.ceil(basicMeters);
+      return roundTo2(basicMeters);
     }
 
     let repeatCount = heightCM / vrCM;
-    log(`    - With VR. Repeats needed: ${heightCM.toFixed(2)} / ${vrCM} = ${repeatCount.toFixed(2)}`);
     repeatCount = repeatCount < 1 ? 1 : Math.ceil(repeatCount);
     const effectiveWidth = repeatCount * vrCM;
     const totalCM = effectiveWidth * panelQty;
     const meters = totalCM / 100;
-    log(`    - Final calc: Ceil(${repeatCount}) * ${vrCM} * ${panelQty} / 100 = ${meters.toFixed(2)} -> ceil -> ${Math.ceil(meters)}`);
-    return Math.ceil(meters);
+    return roundTo2(meters);
+  };
+
+  const getRoomCurtainMeasurementItems = (roomName: string) => {
+    const normalizedRoom = normalizeRoom(roomName);
+    return items.filter(
+      (entry) =>
+        normalizeRoom(entry.room) === normalizedRoom &&
+        !entry.isBlind &&
+        (entry.source === "measurement" || entry.source === "merged") &&
+        isCurtainLikeItem(entry) &&
+        getHeightInches(entry) > 0 &&
+        getPanelCount(entry) > 0
+    );
+  };
+
+  const calculateRoomCurtainFabricQty = (roomName: string) => {
+    const measurementItems = getRoomCurtainMeasurementItems(roomName);
+    if (measurementItems.length === 0) return 0;
+
+    const total = measurementItems.reduce(
+      (sum, entry) => sum + calculateFabricQtyFromMeasurements(entry),
+      0
+    );
+    return roundTo2(total);
+  };
+
+  const getRoomCurtainPanelSummary = (roomName: string) => {
+    const measurementItems = getRoomCurtainMeasurementItems(roomName);
+    if (measurementItems.length === 0) {
+      return { totalPanels: 0, hasUniformLength: false };
+    }
+
+    const heights = measurementItems
+      .map((entry) => getHeightInches(entry))
+      .filter((value) => value > 0);
+    const uniqueHeights = new Set(heights.map((value) => roundTo2(value)));
+    const totalPanels = measurementItems.reduce(
+      (sum, entry) => sum + getPanelCount(entry),
+      0
+    );
+
+    return {
+      totalPanels: roundTo2(totalPanels),
+      hasUniformLength: uniqueHeights.size <= 1,
+    };
+  };
+
+  const getDisplayPanelValue = (item: EnrichedProduct) => {
+    if (item.isBlind) return "";
+
+    const isSelectionDrivenFabric =
+      item.source !== "measurement" &&
+      (item.normalizedType === "fabric" || item.normalizedType === "unknown");
+
+    if (!isSelectionDrivenFabric) {
+      return String(item.noOfPannel || "");
+    }
+
+    const summary = getRoomCurtainPanelSummary(item.room);
+    if (summary.hasUniformLength && summary.totalPanels > 0) {
+      return String(summary.totalPanels);
+    }
+
+    return String(item.noOfPannel || "");
+  };
+
+  const getRoomCurtainAnchorItem = (roomName: string, excludeId?: string): EnrichedProduct | null => {
+    const normalizedRoom = normalizeRoom(roomName);
+    const roomItems = items.filter(
+      (entry) =>
+        normalizeRoom(entry.room) === normalizedRoom &&
+        !entry.isBlind &&
+        entry.id !== excludeId
+    );
+
+    const sourcePriority: Record<EnrichedProduct["source"], number> = {
+      merged: 0,
+      measurement: 1,
+      selection: 2,
+    };
+
+    const ranked = [...roomItems].sort((left, right) => {
+      const sourceDelta = sourcePriority[left.source] - sourcePriority[right.source];
+      if (sourceDelta !== 0) return sourceDelta;
+      return getPanelCount(right) - getPanelCount(left);
+    });
+
+    const curtainMeasured = ranked.find(
+      (entry) => isCurtainLikeItem(entry) && getHeightInches(entry) > 0 && getPanelCount(entry) > 0
+    );
+    if (curtainMeasured) return curtainMeasured;
+
+    const measured = ranked.find(
+      (entry) => getHeightInches(entry) > 0 && getPanelCount(entry) > 0
+    );
+    return measured || null;
+  };
+
+  const getRoomCurtainLayerCount = (roomName: string) => {
+    const normalizedRoom = normalizeRoom(roomName);
+    const primaryRoomFabricItems = items.filter(
+      (entry) =>
+        normalizeRoom(entry.room) === normalizedRoom &&
+        !entry.isBlind &&
+        entry.source !== "measurement" &&
+        (entry.normalizedType === "fabric" || entry.normalizedType === "unknown")
+    );
+    const fallbackRoomFabricItems = items.filter(
+      (entry) =>
+        normalizeRoom(entry.room) === normalizedRoom &&
+        !entry.isBlind &&
+        (entry.normalizedType === "fabric" || entry.normalizedType === "unknown")
+    );
+    const roomFabricItems =
+      primaryRoomFabricItems.length > 0 ? primaryRoomFabricItems : fallbackRoomFabricItems;
+
+    const curtainFabricItems = roomFabricItems.filter(
+      (entry) => isCurtainLikeItem(entry) || isSheerLikeItem(entry)
+    );
+
+    let layerCount = curtainFabricItems.length || roomFabricItems.length || 1;
+    const roomText = roomFabricItems.map((entry) => getItemSearchText(entry)).join(" ");
+    if (/m\s*\+\s*s/.test(roomText) || roomText.includes("main+sheer") || roomText.includes("main sheer")) {
+      layerCount = Math.max(layerCount, 2);
+    }
+
+    return Math.max(1, layerCount);
+  };
+
+  const calculateChannelQty = (item: EnrichedProduct) => {
+    const anchor = getRoomCurtainAnchorItem(item.room, item.id);
+    const widthInches = anchor ? getWidthInches(anchor) : getWidthInches(item);
+    if (!widthInches) {
+      const fallbackQty = toPositiveNumber(item.raw?.quantity ?? item.qty);
+      return fallbackQty || 1;
+    }
+
+    const widthFeetRounded = Math.max(3, Math.ceil(widthInches / 12));
+    const layerCount = getRoomCurtainLayerCount(item.room);
+    const totalFeet = widthFeetRounded * layerCount;
+    const meterQty = totalFeet * 0.3048;
+    return Math.round(meterQty * 100) / 100;
+  };
+
+  const calculateFabricQty = (i: EnrichedProduct) => {
+    log(`  [calculateFabricQty] Calculating for item: "${i.itemName}"`);
+
+    if (i.isBlind) {
+      return toPositiveNumber(i.qty) || 0;
+    }
+
+    if (i.normalizedType === "hardware") {
+      if (isChannelLikeItem(i)) {
+        const qty = calculateChannelQty(i);
+        log(`    - Hardware channel qty resolved: ${qty}`);
+        return qty;
+      }
+      const fallbackQty = toPositiveNumber(i.raw?.quantity ?? i.qty);
+      return fallbackQty || 1;
+    }
+
+    const roomCurtainQty = calculateRoomCurtainFabricQty(i.room);
+    const isRoomCurtainFabricCandidate =
+      i.source !== "measurement" &&
+      (i.normalizedType === "fabric" || i.normalizedType === "unknown");
+    if (roomCurtainQty > 0 && isRoomCurtainFabricCandidate) {
+      log(`    - Qty from room curtain measurements: ${roomCurtainQty}`);
+      return roomCurtainQty;
+    }
+
+    const hasMeasurements = getHeightInches(i) > 0 && getPanelCount(i) > 0;
+    if (hasMeasurements) {
+      const qty = calculateFabricQtyFromMeasurements(i);
+      log(`    - Qty from own measurements: ${qty}`);
+      return qty;
+    }
+
+    const anchor = getRoomCurtainAnchorItem(i.room, i.id);
+    if (anchor) {
+      const qty = calculateFabricQtyFromMeasurements(anchor);
+      log(`    - Qty inherited from room curtain anchor "${anchor.itemName}": ${qty}`);
+      return qty;
+    }
+
+    return 1;
+  };
+
+  const isMeasurementOnlyCurtainSupportItem = (
+    item: EnrichedProduct,
+    list: EnrichedProduct[]
+  ) => {
+    if (item.source !== "measurement" || item.isBlind || !isCurtainLikeItem(item)) {
+      return false;
+    }
+    const roomKey = normalizeRoom(item.room);
+    const hasSelectionDrivenFabricInRoom = list.some(
+      (entry) =>
+        entry.id !== item.id &&
+        normalizeRoom(entry.room) === roomKey &&
+        !entry.isBlind &&
+        entry.source !== "measurement" &&
+        (entry.normalizedType === "fabric" || entry.normalizedType === "unknown")
+    );
+    return hasSelectionDrivenFabricInRoom;
   };
 
   const getGstPercent = (item: EnrichedProduct) => {
@@ -419,7 +697,7 @@ export default function QuotationBuilderPage() {
 
   const deriveRowAmounts = (item: EnrichedProduct) => {
     log(`[deriveRowAmounts] Deriving amounts for item: "${item.itemName}"`);
-    const qty = item.isBlind ? item.qty : calculateFabricQty(item);
+    const qty = item.isBlind ? (toPositiveNumber(item.qty) || 0) : calculateFabricQty(item);
     const gross = qty * item.mrp;
     const discountPercent = discountMap[item.id] ?? 0;
     const discountAmount = gross * (discountPercent / 100);
@@ -548,9 +826,13 @@ export default function QuotationBuilderPage() {
       const updated = items.map((i) => {
         if (i.id === id) {
           const newRaw = { ...i.raw, [nestedKey]: nestedValue };
-          const newQty = calculateFabricQty({ ...i, raw: newRaw });
+          const topLevelPatch: Partial<EnrichedProduct> = {};
+          if (nestedKey === "noOfPannel" || nestedKey === "width" || nestedKey === "height") {
+            (topLevelPatch as any)[nestedKey] = nestedValue;
+          }
+          const newQty = calculateFabricQty({ ...i, ...topLevelPatch, raw: newRaw });
           const newAmount = newQty * i.mrp;
-          return { ...i, raw: newRaw, qty: newQty, amount: newAmount };
+          return { ...i, ...topLevelPatch, raw: newRaw, qty: newQty, amount: newAmount };
         }
         return i;
       });
@@ -576,12 +858,14 @@ export default function QuotationBuilderPage() {
         mrp: item.mrp,
       });
     } else {
+      const displayPanelValue = getDisplayPanelValue(item);
       setEditForm({
         itemName: item.raw?.itemName || item.itemName || "",
         collectionBrand: item.raw?.collectionBrand || item.bcn || "",
         width: item.raw?.width || item.width || "",
         height: item.raw?.height || item.height || "",
         noOfPannel:
+          displayPanelValue ||
           item.raw?.noOfPannel ||
           item.raw?.noOfSeat ||
           item.raw?.noOfSheet ||
@@ -768,17 +1052,26 @@ export default function QuotationBuilderPage() {
     }
   };
 
-  const grossTotal = items.reduce((s: number, i: EnrichedProduct) => {
+  const visibleItems = useMemo(
+    () =>
+      filterItemsBySelectedRooms(items).filter(
+        (item) => !isMeasurementOnlyCurtainSupportItem(item, items)
+      ),
+    [items, selectedRoomFilterSet]
+  );
+  const visibleGroupedRooms = useMemo(() => groupByRoom(visibleItems), [visibleItems]);
+
+  const grossTotal = visibleItems.reduce((s: number, i: EnrichedProduct) => {
     const { gross } = deriveRowAmounts(i);
     return s + gross;
   }, 0);
-  const discountAmount = items.reduce((s: number, i: EnrichedProduct) => {
+  const discountAmount = visibleItems.reduce((s: number, i: EnrichedProduct) => {
     const { discountAmount } = deriveRowAmounts(i);
     return s + discountAmount;
   }, 0);
   const netTotal = grossTotal - discountAmount;
   // GST per item (5% fabric, 18% hardware/blind)
-  const gstTotal = items.reduce((s: number, i: EnrichedProduct) => {
+  const gstTotal = visibleItems.reduce((s: number, i: EnrichedProduct) => {
     const { gstAmount } = deriveRowAmounts(i);
     return s + gstAmount;
   }, 0);
@@ -787,7 +1080,7 @@ export default function QuotationBuilderPage() {
   const sgst = gstTotal / 2;
   const grandTotal = baseAmount + gstTotal;
 
-  const hasBlockingIssues = items.some(
+  const hasBlockingIssues = visibleItems.some(
     (i) => i.issues && i.issues.length > 0
   );
   
@@ -824,6 +1117,14 @@ export default function QuotationBuilderPage() {
 
   const handleCreateQuotation = async () => {
     log("🚀 [handleCreateQuotation] Starting...");
+    if (visibleItems.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "No Rooms Selected",
+        description: "No room is selected for quotation. Please go back and select at least one room.",
+      });
+      return;
+    }
     if (hasBlockingIssues) {
       toast({
         variant: "destructive",
@@ -844,8 +1145,8 @@ export default function QuotationBuilderPage() {
     setSaving(true);
     try {
       // 1. Format data for the action
-      const quotationItems = items.map((item) => {
-        const { qty, mrp } = deriveRowAmounts(item);
+      const quotationItems = visibleItems.map((item) => {
+        const { qty } = deriveRowAmounts(item);
         const resolvedUnit = String((item.raw as any)?.stockUnit || (item.raw as any)?.unit || "").trim() || "Mtr";
         return {
           collectionBrand: item.bcn,
@@ -854,7 +1155,7 @@ export default function QuotationBuilderPage() {
           quantity: qty,
           unit: resolvedUnit,
           stockUnit: resolvedUnit,
-          rate: mrp,
+          rate: item.mrp,
           discountPercent: discountMap[item.id] ?? 0,
           room: item.room,
           remark: item.raw?.remarks || item.raw?.remark || "",
@@ -919,8 +1220,8 @@ export default function QuotationBuilderPage() {
 
       <div className="grid grid-cols-4 gap-6">
         <div className="col-span-3 space-y-10">
-          {Object.keys(groupedRooms).map((room) => {
-            const roomItems = groupedRooms[room];
+          {Object.keys(visibleGroupedRooms).map((room) => {
+            const roomItems = visibleGroupedRooms[room];
             const fabricItems = roomItems.filter((i: EnrichedProduct) => !i.isBlind);
             const blindItems = roomItems.filter((i: EnrichedProduct) => i.isBlind);
 
@@ -978,10 +1279,10 @@ export default function QuotationBuilderPage() {
                             </div>
                           </TableCell>
                           <TableCell>
-                               {i.noOfPannel ? (
+                               {getDisplayPanelValue(i) ? (
                                 <Input
                                     type="text"
-                                    defaultValue={i.noOfPannel || ""}
+                                    defaultValue={getDisplayPanelValue(i)}
                                     onChange={(e) => updateNested(i.id, "noOfPannel", e.target.value)}
                                     className="w-24"
                                 />
@@ -1248,14 +1549,14 @@ export default function QuotationBuilderPage() {
               </tr>
             </thead>
             <tbody>
-              {Object.keys(groupedRooms).length === 0 && (
+              {Object.keys(visibleGroupedRooms).length === 0 && (
                 <tr>
                   <td className="border text-center" colSpan={10}>
                     No items
                   </td>
                 </tr>
               )}
-              {Object.entries(groupedRooms).map(([roomName, roomItems], roomIndex) => {
+              {Object.entries(visibleGroupedRooms).map(([roomName, roomItems], roomIndex) => {
                 let serial = 1;
                 return (
                   <React.Fragment key={roomName}>

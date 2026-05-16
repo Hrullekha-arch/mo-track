@@ -905,6 +905,12 @@ const  SalesmanDashboardV2 =() => {
         status: "Deal Created", inquiryStatus: "Inquery made",
         advanceReceived: advanceReceivedAnswer, measurementRequired: measurementRequiredAnswer,
         latestDealId: dealRes.deal.dealId, latestDealDocId: dealRes.deal.id,
+        action: "create-deal",
+        salesmanLeadAction: "Create Deal",
+        salesmanLeadActionAt: nowIso,
+        updatedAt: nowIso,
+        lastUpdatedAt: nowIso,
+        updatedBy: { userId: user.id, username: user.name },
         dealSnapshot: { status: "Inquery made", dealDocId: dealRes.deal.id, dealId: dealRes.deal.dealId, customerId, dealName: dealRes.deal.title || "WalkIn", measurementRequired: measurementRequiredAnswer, advanceReceived: advanceReceivedAnswer, createdAt: nowIso },
       });
       toast({ title: "Deal Created ✓", description: `Redirecting to deal #${dealRes.deal.dealId}` });
@@ -924,7 +930,18 @@ const  SalesmanDashboardV2 =() => {
     if (!closingLead || !wentBackRemark.trim()) return;
     setIsClosing(true);
     try {
-      await updateDoc(doc(db, "Walkin_Customer", closingLead.id), { status: "went-back", action: "went-back", remarks: wentBackRemark });
+      const nowIso = new Date().toISOString();
+      await updateDoc(doc(db, "Walkin_Customer", closingLead.id), {
+        status: "went-back",
+        action: "went-back",
+        remarks: wentBackRemark,
+        salesmanLeadAction: "Went Back",
+        salesmanLeadActionAt: nowIso,
+        wentBackAt: nowIso,
+        updatedAt: nowIso,
+        lastUpdatedAt: nowIso,
+        updatedBy: { userId: user?.id || "", username: user?.name || "" },
+      });
       toast({ title: "Lead closed", description: "Lead marked as went-back." });
     } catch {
       toast({ variant: "destructive", title: "Error", description: "Failed to close lead." });
@@ -940,12 +957,17 @@ const  SalesmanDashboardV2 =() => {
     if (!returnCustomerLead || !walkinLeads.length) return;
     setIsSubmitting(true);
     try {
+      const nowIso = new Date().toISOString();
       const leadDoc = walkinLeads.find((l) => l.id === returnCustomerLead.id) || walkinLeads[0];
       const basePayload = {
         leadType: returnCustomerType,
         updatedBy: { userId: user?.id || "", username: user?.name || "" },
         status: "completed",
-        updatedAt: new Date().toISOString(),
+        updatedAt: nowIso,
+        lastUpdatedAt: nowIso,
+        action: `return:${returnCustomerType}`,
+        salesmanLeadAction: `Return - ${returnCustomerType}`,
+        salesmanLeadActionAt: nowIso,
       };
 
       if (isPaymentType(returnCustomerType)) {
@@ -2473,7 +2495,7 @@ const AdminDashboard = () => {
     };
 
     void syncSheets();
-    intervalId = setInterval(syncSheets, 60_000);
+    intervalId = setInterval(syncSheets, 3_600_000);
 
     return () => {
       if (intervalId) clearInterval(intervalId);

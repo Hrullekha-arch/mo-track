@@ -9,6 +9,8 @@ import {
   buildWorkflowFromLegacyMilestones,
   getNormalizedOrderMilestones,
 } from '@/lib/order-workflow';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 const sanitizeBcnDocId = (value: string) =>
   String(value ?? '').trim().replace(/\//g, '-');
@@ -808,4 +810,24 @@ export async function debugGetDiscountPercent(orderId: string, bcn: string, leng
     console.error("Error in debugGetDiscountPercent:", err);
     return null;
   }
+}
+
+
+//======================Bulk Bcn get for order items - for debugging only========================
+export async function getStockByBcns(bcns:string[]) {
+  if(!bcns.length){
+    return [];
+  }  
+  
+  const q = query(
+    collection(db,"stocks"),
+    where("bcn","in",bcns.slice(0,10))
+  );
+
+  const snap = await getDocs(q);
+
+  return snap.docs.map((doc)=>({
+    id:doc.id,
+    ...doc.data(),
+  }));
 }

@@ -5,6 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +37,7 @@ import {
   saveFurnitureDetailAction,
   updateFurnitureDetailAction,
   deleteFurnitureDetailAction,
+  importFurnitureDetailsJsonAction,
   uploadFurnitureImageAction,
   type FurnitureDetail,
   type FurnitureDetailPayload,
@@ -73,6 +82,53 @@ const MEASUREMENT_FIELDS: { key: keyof MeasurementValues; label: string; unit: s
   { key: "stichingThread", label: "STICHING THREAD", unit: "IN QTY." },
 ];
 
+type FoamFieldKey = "foamFull" | "foamHalf";
+type FoamDialogState = {
+  key: FoamFieldKey;
+  size: string;
+  density: string;
+  pcs: string;
+};
+
+const FOAM_SIZE_OPTIONS = [
+  '72*35*0.5"',
+  '72*35*1"',
+  '72*35*2"',
+  '72*35*3"',
+  '72*35*4"',
+  '21*22*3"',
+  '21*22*4"',
+];
+
+const FOAM_DENSITY_OPTIONS = ["D32", "D40"];
+
+const isFoamField = (key: keyof MeasurementValues): key is FoamFieldKey =>
+  key === "foamFull" || key === "foamHalf";
+
+const parseFoamValue = (value?: string): Omit<FoamDialogState, "key"> => {
+  const raw = String(value || "").trim();
+  if (!raw) return { size: "", density: "", pcs: "" };
+
+  const slashPattern = /^(.+?)\s*\/\s*(D32|D40)\s*\/\s*([0-9]+(?:\.[0-9]+)?)\s*pcs?$/i;
+  const pipePattern = /^(.+?)\s*\|\s*(D32|D40)\s*\|\s*([0-9]+(?:\.[0-9]+)?)\s*pcs?$/i;
+  const slashMatch = raw.match(slashPattern);
+  const pipeMatch = raw.match(pipePattern);
+  const match = slashMatch || pipeMatch;
+
+  if (match) {
+    return {
+      size: String(match[1] || "").trim(),
+      density: String(match[2] || "").trim().toUpperCase(),
+      pcs: String(match[3] || "").trim(),
+    };
+  }
+
+  return { size: "", density: "", pcs: raw };
+};
+
+const formatFoamValue = ({ size, density, pcs }: Omit<FoamDialogState, "key">): string =>
+  `${size} / ${density} / ${pcs} Pcs`;
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function emptyMeasurements(): MeasurementValues {
   return Object.fromEntries(MEASUREMENT_FIELDS.map((f) => [f.key, ""])) as MeasurementValues;
@@ -114,26 +170,150 @@ function MeasurementGrid({
   values: MeasurementValues;
   onChange: (key: keyof MeasurementValues, val: string) => void;
 }) {
+  const [foamDialog, setFoamDialog] = useState<FoamDialogState | null>(null);
+
+  const openFoamDialog = (key: FoamFieldKey) => {
+    const parsed = parseFoamValue(values[key]);
+    setFoamDialog({ key, ...parsed });
+  };
+
+  const closeFoamDialog = () => {
+    setFoamDialog(null);
+  };
+
+  const saveFoamDialog = () => {
+    if (!foamDialog) return;
+    if (!foamDialog.size || !foamDialog.density || !foamDialog.pcs.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Foam details required",
+        description: "Please select size, density, and enter pcs.",
+      });
+      return;
+    }
+    onChange(
+      foamDialog.key,
+      formatFoamValue({
+        size: foamDialog.size,
+        density: foamDialog.density,
+        pcs: foamDialog.pcs.trim(),
+      })
+    );
+    closeFoamDialog();
+  };
+
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-      {MEASUREMENT_FIELDS.map((f) => (
-        <div key={f.key}>
-          <Label className="text-xs leading-tight">
-            {f.label}
-            {f.unit ? <span className="text-muted-foreground ml-1">({f.unit})</span> : null}
-          </Label>
-          <Input
-            type="number"
-            min={0}
-            step="any"
-            className="mt-1 h-8 text-sm"
-            placeholder="0"
-            value={values[f.key] ?? ""}
-            onChange={(e) => onChange(f.key, e.target.value)}
-          />
-        </div>
-      ))}
-    </div>
+    <>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {MEASUREMENT_FIELDS.map((f) => (
+          <div key={f.key}>
+            <Label className="text-xs leading-tight">
+              {f.label}
+              {f.unit ? <span className="text-muted-foreground ml-1">({f.unit})</span> : null}
+            </Label>
+            {isFoamField(f.key) ? (
+              <button
+                type="button"
+                className="mt-1 h-8 w-full rounded-md border border-input bg-background px-3 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                onClick={() => openFoamDialog(f.key as FoamFieldKey)}
+              >
+                <span className={values[f.key] ? "" : "text-muted-foreground"}>
+                  {values[f.key] || "Select size / density / pcs"}
+                </span>
+              </button>
+            ) : (
+              <Input
+                type="number"
+                min={0}
+                step="any"
+                className="mt-1 h-8 text-sm"
+                placeholder="0"
+                value={values[f.key] ?? ""}
+                onChange={(e) => onChange(f.key, e.target.value)}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+
+      <Dialog open={Boolean(foamDialog)} onOpenChange={(open) => !open && closeFoamDialog()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {foamDialog?.key === "foamHalf" ? "FOAM (HALF)" : "FOAM (FULL)"} Details
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            <div>
+              <Label>Size</Label>
+              <Select
+                value={foamDialog?.size || undefined}
+                onValueChange={(value) =>
+                  setFoamDialog((prev) => (prev ? { ...prev, size: value } : prev))
+                }
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Select size" />
+                </SelectTrigger>
+                <SelectContent>
+                  {FOAM_SIZE_OPTIONS.map((size) => (
+                    <SelectItem key={size} value={size}>
+                      {size}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Density</Label>
+              <Select
+                value={foamDialog?.density || undefined}
+                onValueChange={(value) =>
+                  setFoamDialog((prev) => (prev ? { ...prev, density: value } : prev))
+                }
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Select density" />
+                </SelectTrigger>
+                <SelectContent>
+                  {FOAM_DENSITY_OPTIONS.map((density) => (
+                    <SelectItem key={density} value={density}>
+                      {density}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Pcs</Label>
+              <Input
+                type="number"
+                min={0}
+                step="1"
+                className="mt-1"
+                placeholder="Enter pcs"
+                value={foamDialog?.pcs ?? ""}
+                onChange={(e) =>
+                  setFoamDialog((prev) => (prev ? { ...prev, pcs: e.target.value } : prev))
+                }
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={closeFoamDialog}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={saveFoamDialog}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -416,6 +596,9 @@ export default function FurnitureDetailsPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importJsonText, setImportJsonText] = useState("");
+  const [importing, setImporting] = useState(false);
 
   const loadRecords = async () => {
     setLoading(true);
@@ -428,6 +611,10 @@ export default function FurnitureDetailsPage() {
 
   const openAdd = () => { setEditRecord(null); setDialogOpen(true); };
   const openEdit = (r: FurnitureDetail) => { setEditRecord(r); setDialogOpen(true); };
+  const openImport = () => {
+    setImportJsonText("");
+    setImportDialogOpen(true);
+  };
 
   const handleDelete = async () => {
     if (!deleteId) return;
@@ -451,6 +638,35 @@ export default function FurnitureDetailsPage() {
     });
   };
 
+  const handleImport = async () => {
+    const payload = importJsonText.trim();
+    if (!payload) {
+      toast({ variant: "destructive", title: "Please paste JSON to import." });
+      return;
+    }
+
+    setImporting(true);
+    try {
+      const res = await importFurnitureDetailsJsonAction(payload);
+      if (!res.success) {
+        throw new Error(res.message || "Import failed.");
+      }
+
+      toast({ title: "Import completed", description: res.message });
+      setImportDialogOpen(false);
+      setImportJsonText("");
+      await loadRecords();
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Import failed",
+        description: error?.message || "Unable to import JSON.",
+      });
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 space-y-4">
       {/* Header */}
@@ -459,10 +675,15 @@ export default function FurnitureDetailsPage() {
           <h1 className="text-xl font-bold">Furniture Details</h1>
           <p className="text-sm text-muted-foreground">Upload measurement data for furniture products</p>
         </div>
-        <Button onClick={openAdd}>
-          <PlusCircle className="mr-2 h-4 w-4" />
-          Add Product
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={openImport}>
+            Import JSON
+          </Button>
+          <Button onClick={openAdd}>
+            <PlusCircle className="mr-2 h-4 w-4" />
+            Add Product
+          </Button>
+        </div>
       </div>
 
       {/* Table */}
@@ -604,6 +825,46 @@ export default function FurnitureDetailsPage() {
         initial={editRecord}
         onSaved={loadRecords}
       />
+
+      <Dialog
+        open={importDialogOpen}
+        onOpenChange={(open) => {
+          if (importing) return;
+          setImportDialogOpen(open);
+        }}
+      >
+        <DialogContent className="max-w-2xl w-full">
+          <DialogHeader>
+            <DialogTitle>Import Furniture Details JSON</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Paste one object, an array, or an object with <code>records</code>/<code>data</code>/<code>items</code>.
+            </p>
+            <Textarea
+              className="min-h-[320px] font-mono text-xs"
+              placeholder='[{"productCategory":"Sofa","foamFull":"72*35*1\" / D32 / 2 Pcs"}]'
+              value={importJsonText}
+              onChange={(e) => setImportJsonText(e.target.value)}
+            />
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={importing}
+              onClick={() => setImportDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="button" disabled={importing} onClick={handleImport}>
+              {importing ? "Importing..." : "Import"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirm */}
       <AlertDialog open={Boolean(deleteId)} onOpenChange={(v) => !v && setDeleteId(null)}>

@@ -96,6 +96,183 @@ export type FurnitureDetail = FurnitureDetailPayload & {
   updatedAt: string;
 };
 
+const MEASUREMENT_KEYS: (keyof MeasurementValues)[] = [
+  "fabric",
+  "labourFullMaterialChange",
+  "labourHalfMaterialChange",
+  "foamFull",
+  "foamHalf",
+  "lace",
+  "fancyDori",
+  "fringe",
+  "pollyfillKg",
+  "pollyfillMtr",
+  "vall",
+  "others",
+  "bolstic",
+  "markin",
+  "casement",
+  "elastic2Inch",
+  "elastic3Inch",
+  "jute",
+  "zip",
+  "valcro",
+  "hessian",
+  "tingleNail",
+  "cardBoard",
+  "pipingDori",
+  "springs",
+  "crownNailSilver",
+  "crownNailGold",
+  "crownNailAntiqueGold",
+  "crownNailCopper",
+  "button",
+  "glueStick",
+  "stapplerPin",
+  "stichingThread",
+];
+
+function asOptionalString(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  const text = String(value).trim();
+  return text ? text : undefined;
+}
+
+function pickMeasurementValues(input: Record<string, any>): MeasurementValues {
+  const out: MeasurementValues = {};
+  MEASUREMENT_KEYS.forEach((key) => {
+    const value = asOptionalString(input?.[key]);
+    if (value !== undefined) {
+      out[key] = value;
+    }
+  });
+  return out;
+}
+
+function normalizeVariant(input: any): FurnitureVariant | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const variantName = asOptionalString(input.variantName);
+  if (!variantName) return null;
+  return {
+    variantName,
+    ...pickMeasurementValues(input),
+  };
+}
+
+function getImportRows(parsed: any): any[] {
+  if (Array.isArray(parsed)) return parsed;
+  if (parsed && typeof parsed === "object") {
+    const nested = parsed.records || parsed.data || parsed.items || parsed.furnitureDetails;
+    if (Array.isArray(nested)) return nested;
+    return [parsed];
+  }
+  return [];
+}
+
+function normalizeImportRow(row: any): {
+  docId?: string;
+  data: FurnitureDetailPayload & { createdAt: string; updatedAt: string };
+} | null {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+
+  const productCategory = asOptionalString(row.productCategory);
+  if (!productCategory) return null;
+
+  const now = new Date().toISOString();
+  const productImageUrl = asOptionalString(row.productImageUrl);
+  const variants = Array.isArray(row.variants)
+    ? row.variants.map(normalizeVariant).filter(Boolean) as FurnitureVariant[]
+    : [];
+  const docId = asOptionalString(row.id);
+
+  const data: FurnitureDetailPayload & { createdAt: string; updatedAt: string } = {
+    productCategory,
+    ...(productImageUrl ? { productImageUrl } : {}),
+    ...pickMeasurementValues(row),
+    ...(variants.length ? { variants } : {}),
+    createdAt: asOptionalString(row.createdAt) || now,
+    updatedAt: now,
+  };
+
+  return { docId, data };
+}
+
+export async function importFurnitureDetailsJsonAction(
+  jsonText: string
+): Promise<{ success: boolean; message: string; imported?: number; skipped?: number }> {
+  try {
+    const source = String(jsonText || "").trim();
+    if (!source) {
+      return { success: false, message: "JSON input is empty." };
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(source);
+    } catch {
+      return { success: false, message: "Invalid JSON format." };
+    }
+
+    const rows = getImportRows(parsed);
+    if (!rows.length) {
+      return { success: false, message: "No records found in JSON." };
+    }
+
+    const collectionRef = adminDb.collection("Furniture details");
+    let batch = adminDb.batch();
+    let pending = 0;
+    let imported = 0;
+    let skipped = 0;
+
+    const commitBatch = async () => {
+      if (!pending) return;
+      await batch.commit();
+      batch = adminDb.batch();
+      pending = 0;
+    };
+
+    for (const row of rows) {
+      const normalized = normalizeImportRow(row);
+      if (!normalized) {
+        skipped += 1;
+        continue;
+      }
+
+      const ref = normalized.docId
+        ? collectionRef.doc(normalized.docId)
+        : collectionRef.doc();
+      batch.set(ref, normalized.data, { merge: true });
+      pending += 1;
+      imported += 1;
+
+      if (pending >= 400) {
+        await commitBatch();
+      }
+    }
+
+    await commitBatch();
+
+    if (!imported) {
+      return {
+        success: false,
+        message: "No valid records to import. Ensure productCategory exists in each row.",
+        imported,
+        skipped,
+      };
+    }
+
+    return {
+      success: true,
+      message: `Imported ${imported} record(s).${skipped ? ` Skipped ${skipped}.` : ""}`,
+      imported,
+      skipped,
+    };
+  } catch (error: any) {
+    console.error("importFurnitureDetailsJsonAction error:", error);
+    return { success: false, message: error.message || "Failed to import JSON." };
+  }
+}
+
 export async function saveFurnitureDetailAction(
   payload: FurnitureDetailPayload
 ): Promise<{ success: boolean; message: string; id?: string }> {

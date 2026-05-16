@@ -84,7 +84,7 @@ export const usePmsAutoTasks = ({
     };
 
     syncWorkSheet();
-    intervalId = setInterval(syncWorkSheet, 60_000);
+    intervalId = setInterval(syncWorkSheet, 3_600_000);
 
     return () => {
       if (intervalId) clearInterval(intervalId);

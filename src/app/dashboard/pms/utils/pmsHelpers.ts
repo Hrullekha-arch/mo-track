@@ -28,7 +28,7 @@ import { isPmsSkillEligible } from "@/lib/pms/category-match";
 
 export const IST_TIMEZONE_OFFSET_MINUTES = 330;
 export const AUTO_ADVANCE_POLL_MS = 15_000;
-export const WORKSHEET_SYNC_MS = 60_000;
+export const WORKSHEET_SYNC_MS = 3_600_000;
 export const SKILL_DEBOUNCE_MS = 350;
 export const FIRESTORE_BATCH_LIMIT = 450;
 export const EMBELLISHMENT_HOURLY_CHARGE = 300;

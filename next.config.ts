@@ -1,24 +1,12 @@
+// next.config.ts
 import type { NextConfig } from "next";
 import withPWA from "next-pwa";
-
-const pwaConfig = withPWA({
-  dest: "public",
-  register: true,
-  skipWaiting: true,
-  disable: process.env.NODE_ENV === "development",
-});
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   devIndicators: false,
-  experimental: {
-    devtoolSegmentExplorer: false,
-  },
   typescript: {
     ignoreBuildErrors: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
   },
   images: {
     remotePatterns: [
@@ -36,6 +24,16 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  allowedDevOrigins: ['192.168.0.121'],
 };
 
-export default pwaConfig(nextConfig);
+// ✅ Only apply PWA in production
+const config = process.env.NODE_ENV === "production" 
+  ? withPWA({
+      dest: "public",
+      register: true,
+      skipWaiting: true,
+    })(nextConfig)
+  : nextConfig;
+
+export default config;

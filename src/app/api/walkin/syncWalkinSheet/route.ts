@@ -4,7 +4,9 @@ import { adminDb } from "@/lib/firebase-admin";
 
 const DEFAULT_SHEET_ID = "1wrA0GcLf9Kdqj2mbfJD_WR5NbjEuIYhdh_PuAc2T138";
 const DEFAULT_SHEET_NAME = "First_details";
-const SYNC_WALKIN_ROUTE_VERSION = "2026-03-20-walkin-sheet-v3";
+const SYNC_WALKIN_ROUTE_VERSION = "2026-05-04-walkin-sheet-v4";
+const SM_ACTION_COLUMN = "BW";
+const SM_ACTION_HEADER = "SM Action With Time";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -118,6 +120,15 @@ const pickFirst = (...values: unknown[]) => {
   return "";
 };
 
+const pickFirstValue = (...values: unknown[]) => {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === "string" && !value.trim()) continue;
+    return value;
+  }
+  return "";
+};
+
 const toBoolean = (value: unknown) => {
   if (typeof value === "boolean") return value;
   if (typeof value === "number") return value !== 0;
@@ -167,6 +178,19 @@ const formatWentBackFollowUpDates = (value: unknown) => {
     .map((date) => date.trim())
     .filter((date) => date && normalize(date) !== "not required")
     .join(", ");
+};
+
+const formatSalesmanActionWithTime = (walkin: Record<string, unknown>) => {
+  const acknowledgedStatus = toRecord(walkin.acknowledgedStatus);
+  return formatTimestampIfAny(
+    pickFirstValue(
+      walkin.salesmanLeadActionAt,
+      walkin.wentBackAt,
+      walkin.lastUpdatedAt,
+      walkin.updatedAt,
+      acknowledgedStatus.updatedAt
+    )
+  );
 };
 
 const toDateInstance = (value: unknown): Date | null => {
@@ -280,15 +304,25 @@ const getWalkinIdSortValue = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
 };
 
-const sortRowsByWalkinId = (rows: string[][]) => {
+const SHEET_LAST_COLUMN = getColumnLetter(canonicalHeader.length);
+const MAX_BATCH_UPDATE_ROWS = 500;
+const MAX_APPEND_ROWS = 1000;
+
+type FirestoreDocSnap = FirebaseFirestore.DocumentSnapshot<FirebaseFirestore.DocumentData>;
+type PreparedWalkinRow = {
+  row: string[];
+  smActionWithTime: string;
+};
+
+const sortPreparedRowsByWalkinId = (rows: PreparedWalkinRow[]) => {
   const walkinIdIndex = canonicalHeader.findIndex(
     (label) => normalize(label) === normalize(WALKIN_ID_HEADER)
   );
   if (walkinIdIndex < 0) return [...rows];
 
   return [...rows].sort((a, b) => {
-    const aId = String(a[walkinIdIndex] ?? "").trim();
-    const bId = String(b[walkinIdIndex] ?? "").trim();
+    const aId = String(a.row[walkinIdIndex] ?? "").trim();
+    const bId = String(b.row[walkinIdIndex] ?? "").trim();
     const aSort = getWalkinIdSortValue(aId);
     const bSort = getWalkinIdSortValue(bId);
 
@@ -296,12 +330,6 @@ const sortRowsByWalkinId = (rows: string[][]) => {
     return aId.localeCompare(bId);
   });
 };
-
-const SHEET_LAST_COLUMN = getColumnLetter(canonicalHeader.length);
-const MAX_BATCH_UPDATE_ROWS = 500;
-const MAX_APPEND_ROWS = 1000;
-
-type FirestoreDocSnap = FirebaseFirestore.DocumentSnapshot<FirebaseFirestore.DocumentData>;
 
 export async function POST() {
   try {
@@ -409,6 +437,7 @@ export async function POST() {
       const hasInstantSaleDetails =
         toBoolean(cashsale.created) ||
         !!pickFirst(cashsale.OrderId, cashsale.orderId, cashsale.orderID, cashsale.dealId, walkin.saleFlowType);
+      const smActionWithTime = formatSalesmanActionWithTime(walkin);
       const rowByHeader: Record<string, string> = {
         Timestamp: formatTimestamp(walkin.createdAt),
         "Full Name": fullName,
@@ -497,10 +526,15 @@ export async function POST() {
         "Is Deal Created Flag": formatYesNo(walkin.isDealCreated),
       };
 
-      return canonicalHeader.map((headerLabel) => rowByHeader[headerLabel] ?? "");
+      return {
+        row: canonicalHeader.map((headerLabel) => rowByHeader[headerLabel] ?? ""),
+        smActionWithTime,
+      };
     });
 
-    const sortedPreparedRows = sortRowsByWalkinId(preparedRows);
+    const sortedPreparedEntries = sortPreparedRowsByWalkinId(preparedRows);
+    const sortedPreparedRows = sortedPreparedEntries.map((entry) => entry.row);
+    const sortedSmActionValues = sortedPreparedEntries.map((entry) => entry.smActionWithTime);
 
     const existingResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
@@ -627,6 +661,35 @@ export async function POST() {
           },
         });
       }
+    }
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: `${sheetName}!${SM_ACTION_COLUMN}1`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[SM_ACTION_HEADER]],
+      },
+    });
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: sheetId,
+      range: `${sheetName}!${SM_ACTION_COLUMN}2:${SM_ACTION_COLUMN}`,
+    });
+
+    const smRowCount = Math.max(existingCanonicalRows.length, sortedPreparedRows.length);
+    if (smRowCount > 0) {
+      const smValues = Array.from({ length: smRowCount }, (_, index) => [
+        String(sortedSmActionValues[index] ?? ""),
+      ]);
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: `${sheetName}!${SM_ACTION_COLUMN}2:${SM_ACTION_COLUMN}${smRowCount + 1}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: smValues,
+        },
+      });
     }
 
     const cashsaleColIndex = canonicalHeader.findIndex(

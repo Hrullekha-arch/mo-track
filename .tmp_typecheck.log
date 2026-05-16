@@ -1,0 +1,563 @@
+﻿next.config.ts(2,21): error TS7016: Could not find a declaration file for module 'next-pwa'. 'D:/Mo_Track/node_modules/next-pwa/index.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/next-pwa` if it exists or add a new declaration (.d.ts) file containing `declare module 'next-pwa';`
+src/app/api/admin/daily-stats/route.ts(54,40): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/app/api/orders/syncCustomerRevenueSheet/route.ts(265,36): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/orders/syncCustomerRevenueSheet/route.ts(277,34): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/orders/syncCustomerRevenueSheet/route.ts(295,33): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/orders/syncCustomerRevenueSheet/route.ts(314,33): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/orders/syncCustomerRevenueSheet/route.ts(357,53): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/orders/syncCustomerRevenueSheet/route.ts(397,24): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/app/api/orders/syncCustomerRevenueSheet/route.ts(397,27): error TS7006: Parameter 'b' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(28,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(version: "v4"): Sheets', gave the following error.
+    Argument of type '{ version: string; auth: JWT | UserRefreshClient | BaseExternalAccountClient | ExternalAccountAuthorizedUserClient | ... 8 more ... | PassThroughClient; }' is not assignable to parameter of type '"v4"'.
+  Overload 2 of 2, '(options: Options): Sheets', gave the following error.
+    Type 'JWT | UserRefreshClient | BaseExternalAccountClient | ExternalAccountAuthorizedUserClient | ... 8 more ... | PassThroughClient' is not assignable to type 'string | BaseExternalAccountClient | GoogleAuth<JSONClient> | OAuth2Client | undefined'.
+      Type 'ExternalAccountAuthorizedUserClient' is not assignable to type 'string | BaseExternalAccountClient | GoogleAuth<JSONClient> | OAuth2Client | undefined'.
+        Type 'ExternalAccountAuthorizedUserClient' is missing the following properties from type 'OAuth2Client': certificateCache, certificateExpiry, certificateCacheFormat, refreshTokenPromises, and 27 more.
+src/app/api/orders/syncOrderSheet/route.ts(611,43): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(625,27): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(631,40): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(637,31): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(648,38): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(689,40): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(702,34): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(727,41): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(774,22): error TS7031: Binding element 'id' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(774,26): error TS7031: Binding element 'customerId' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(774,38): error TS7031: Binding element 'data' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(1020,36): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(1045,22): error TS7031: Binding element 'id' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(1045,26): error TS7031: Binding element 'customerId' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(1045,38): error TS7031: Binding element 'data' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(1074,22): error TS7031: Binding element 'id' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(1074,26): error TS7031: Binding element 'data' implicitly has an 'any' type.
+src/app/api/orders/syncOrderSheet/route.ts(1127,44): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/tracking/ping/route.ts(43,39): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/app/api/users/names/route.ts(26,22): error TS7006: Parameter 'snap' implicitly has an 'any' type.
+src/app/api/users/names/route.ts(26,28): error TS7006: Parameter 'idx' implicitly has an 'any' type.
+src/app/api/visits/syncVisitSheet/route.ts(41,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(version: "v4"): Sheets', gave the following error.
+    Argument of type '{ version: string; auth: JWT | UserRefreshClient | BaseExternalAccountClient | ExternalAccountAuthorizedUserClient | ... 8 more ... | PassThroughClient; }' is not assignable to parameter of type '"v4"'.
+  Overload 2 of 2, '(options: Options): Sheets', gave the following error.
+    Type 'JWT | UserRefreshClient | BaseExternalAccountClient | ExternalAccountAuthorizedUserClient | ... 8 more ... | PassThroughClient' is not assignable to type 'string | BaseExternalAccountClient | GoogleAuth<JSONClient> | OAuth2Client | undefined'.
+      Type 'ExternalAccountAuthorizedUserClient' is not assignable to type 'string | BaseExternalAccountClient | GoogleAuth<JSONClient> | OAuth2Client | undefined'.
+        Type 'ExternalAccountAuthorizedUserClient' is missing the following properties from type 'OAuth2Client': certificateCache, certificateExpiry, certificateCacheFormat, refreshTokenPromises, and 27 more.
+src/app/api/visits/syncVisitSheet/route.ts(291,45): error TS7006: Parameter 'docSnap' implicitly has an 'any' type.
+src/app/api/visits/syncVisitSheet/route.ts(310,21): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/visits/syncVisitSheet/route.ts(321,21): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/api/visits/syncVisitSheet/route.ts(329,23): error TS7031: Binding element 'visit' implicitly has an 'any' type.
+src/app/api/visits/syncVisitSheet/route.ts(341,23): error TS7031: Binding element 'visit' implicitly has an 'any' type.
+src/app/api/visits/syncVisitSheet/route.ts(341,30): error TS7031: Binding element 'customerId' implicitly has an 'any' type.
+src/app/api/visits/syncVisitSheet/route.ts(341,42): error TS7031: Binding element 'dealDocId' implicitly has an 'any' type.
+src/app/api/visits/syncVisitSheet/route.ts(341,53): error TS7031: Binding element 'visitId' implicitly has an 'any' type.
+src/app/dashboard/account/actions.ts(50,25): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/account/actions.ts(219,25): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/account/page.tsx(220,19): error TS2322: Type '{ children: Element; value: string; onValueChange: (value: any) => void; }' is not assignable to type 'DetailedHTMLProps<HTMLAttributes<HTMLDivElement>, HTMLDivElement>'.
+  Property 'value' does not exist on type 'DetailedHTMLProps<HTMLAttributes<HTMLDivElement>, HTMLDivElement>'.
+src/app/dashboard/account/page.tsx(221,35): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/app/dashboard/account/page.tsx(229,39): error TS2322: Type '{ children: string; key: string; value: string; }' is not assignable to type 'DetailedHTMLProps<HTMLAttributes<HTMLDivElement>, HTMLDivElement>'.
+  Property 'value' does not exist on type 'DetailedHTMLProps<HTMLAttributes<HTMLDivElement>, HTMLDivElement>'.
+src/app/dashboard/all-orders/page.tsx(3,32): error TS2307: Cannot find module '@/components/features/order-management/AllOrdersTable' or its corresponding type declarations.
+src/app/dashboard/approvals/actions.ts(186,22): error TS2339: Property 'customerId' does not exist on type 'Quotation & { dealId: string; }'.
+src/app/dashboard/approvals/actions.ts(205,79): error TS2339: Property 'customerId' does not exist on type 'Quotation & { dealId: string; }'.
+src/app/dashboard/approvals/page.tsx(159,15): error TS2561: Object literal may only specify known properties, but 'customerPhone' does not exist in type 'EnrichedQuotation'. Did you mean to write 'customerName'?
+src/app/dashboard/approvals/page.tsx(266,24): error TS2551: Property 'customerPhone' does not exist on type 'EnrichedQuotation'. Did you mean 'customerName'?
+src/app/dashboard/approvals/page.tsx(328,16): error TS2741: Property 'type' is missing in type '{ values: EnrichedQuotation; creatorName: string | undefined; salesmanName: string | undefined; }' but required in type 'PrintableQuotationProps'.
+src/app/dashboard/approvals/page.tsx(449,15): error TS18048: 'order.fabricDetails.length' is possibly 'undefined'.
+src/app/dashboard/approvals/page.tsx(483,22): error TS18048: 'items' is possibly 'undefined'.
+src/app/dashboard/complain-approval/page.tsx(615,76): error TS2339: Property 'createdBy' does not exist on type 'ComplaintVisitRow'.
+src/app/dashboard/complain-approval/page.tsx(684,89): error TS2339: Property 'createdBy' does not exist on type 'ComplaintVisitRow'.
+src/app/dashboard/customers/[customerId]/[dealId]/actions.ts(319,7): error TS2345: Argument of type '{ [k: string]: any; }' is not assignable to parameter of type '{ updatedAt: string; updatedBy?: { id?: string | undefined; name?: string | undefined; } | undefined; action?: string | undefined; message?: string | undefined; }'.
+  Property 'updatedAt' is missing in type '{ [k: string]: any; }' but required in type '{ updatedAt: string; updatedBy?: { id?: string | undefined; name?: string | undefined; } | undefined; action?: string | undefined; message?: string | undefined; }'.
+src/app/dashboard/customers/[customerId]/[dealId]/actions.ts(443,16): error TS2339: Property 'status' does not exist on type 'QuotationFormWithMeta'.
+src/app/dashboard/customers/[customerId]/[dealId]/actions.ts(999,46): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/customers/[customerId]/[dealId]/actions.ts(1507,42): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/customers/[customerId]/[dealId]/actions.ts(1640,7): error TS2322: Type '{ [k: string]: any; }[]' is not assignable to type 'VisitUpdateLog[]'.
+  Property 'updatedAt' is missing in type '{ [k: string]: any; }' but required in type 'VisitUpdateLog'.
+src/app/dashboard/customers/[customerId]/[dealId]/actions.ts(1664,7): error TS1117: An object literal cannot have multiple properties with the same name.
+src/app/dashboard/customers/[customerId]/[dealId]/actions.ts(1746,42): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/customers/[customerId]/[dealId]/actions.ts(1837,44): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/customers/[customerId]/[dealId]/actions.ts(1995,40): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/customers/[customerId]/[dealId]/actions.ts(2077,46): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/customers/[customerId]/[dealId]/actions.ts(2552,20): error TS18047: 'dealRef' is possibly 'null'.
+src/app/dashboard/customers/[customerId]/[dealId]/actions.ts(2567,19): error TS18047: 'visitRef' is possibly 'null'.
+src/app/dashboard/customers/[customerId]/[dealId]/actions.ts(2802,42): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/customers/[customerId]/[dealId]/components/tabs/AddedProductTab.tsx(384,55): error TS2339: Property 'isBlind' does not exist on type 'DealProduct & { originalIndex?: number | undefined; }'.
+src/app/dashboard/customers/[customerId]/[dealId]/components/tabs/OrdersTab.tsx(53,24): error TS2769: No overload matches this call.
+  Overload 1 of 4, '(value: string | number | Date): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number | Date'.
+      Type 'undefined' is not assignable to type 'string | number | Date'.
+  Overload 2 of 4, '(value: string | number): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number'.
+      Type 'undefined' is not assignable to type 'string | number'.
+src/app/dashboard/customers/[customerId]/[dealId]/components/tabs/OrdersTab.tsx(54,24): error TS2769: No overload matches this call.
+  Overload 1 of 4, '(value: string | number | Date): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number | Date'.
+      Type 'undefined' is not assignable to type 'string | number | Date'.
+  Overload 2 of 4, '(value: string | number): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number'.
+      Type 'undefined' is not assignable to type 'string | number'.
+src/app/dashboard/customers/[customerId]/[dealId]/dialogs.tsx/ScannerDialog.tsx(248,35): error TS2353: Object literal may only specify known properties, and 'useOffscreenCanvas' does not exist in type 'ExperimentalFeaturesConfig'.
+src/app/dashboard/customers/[customerId]/[dealId]/dialogs.tsx/Vasform.tsx(22,27): error TS7031: Binding element 'onSaveVas' implicitly has an 'any' type.
+src/app/dashboard/customers/[customerId]/[dealId]/dialogs.tsx/Vasform.tsx(22,38): error TS7031: Binding element 'form' implicitly has an 'any' type.
+src/app/dashboard/customers/[customerId]/[dealId]/dialogs.tsx/Vasform.tsx(54,32): error TS7006: Parameter 'category' implicitly has an 'any' type.
+src/app/dashboard/customers/[customerId]/[dealId]/dialogs.tsx/Vasform.tsx(125,37): error TS2345: Argument of type 'string' is not assignable to parameter of type 'SetStateAction<null>'.
+src/app/dashboard/customers/[customerId]/[dealId]/quotation/page.tsx(13,24): error TS2345: Argument of type '{ customerId: string; dealId: string; }' is not assignable to parameter of type 'Usable<unknown>'.
+src/app/dashboard/customers/[customerId]/[dealId]/quotation/page.tsx(14,13): error TS2339: Property 'customerId' does not exist on type 'unknown'.
+src/app/dashboard/customers/[customerId]/[dealId]/quotation/page.tsx(14,25): error TS2339: Property 'dealId' does not exist on type 'unknown'.
+src/app/dashboard/customers/[customerId]/[dealId]/summary/page.tsx(106,63): error TS2345: Argument of type '{ dealId: string; selectionId: string; rooms: { roomName: any; blinds: any; entries: any; }[]; itemDetails: never[]; createdBy: string; }' is not assignable to parameter of type 'MeasurementPayload'.
+  Property 'customerId' is missing in type '{ dealId: string; selectionId: string; rooms: { roomName: any; blinds: any; entries: any; }[]; itemDetails: never[]; createdBy: string; }' but required in type 'MeasurementPayload'.
+src/app/dashboard/customers/[customerId]/page.tsx(182,3): error TS2339: Property 'onEditClick' does not exist on type 'DealCardProps'.
+src/app/dashboard/customers/[customerId]/page.tsx(604,19): error TS2322: Type '{ key: string; deal: Deal; customerId: string; onDealDelete: (dealId: string) => Promise<void>; onEditClick: (dealId: string) => void; }' is not assignable to type 'IntrinsicAttributes & DealCardProps'.
+  Property 'onEditClick' does not exist on type 'IntrinsicAttributes & DealCardProps'.
+src/app/dashboard/customers/actions.ts(278,41): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/customers/actions.ts(301,46): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/customers/actions.ts(318,44): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/customers/actions.ts(485,34): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/app/dashboard/customers/actions.ts(759,34): error TS7006: Parameter 'orderDoc' implicitly has an 'any' type.
+src/app/dashboard/cutting/page.tsx(176,37): error TS2322: Type '{ bcn: any; length: any; mrp: any; rack: any; }' is not assignable to type 'IntrinsicAttributes & StockLengthStickerProps'.
+  Property 'mrp' does not exist on type 'IntrinsicAttributes & StockLengthStickerProps'.
+src/app/dashboard/inventory/actions.ts(204,23): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(231,23): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(466,41): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(1252,43): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(1279,15): error TS2322: Type 'null' is not assignable to type '{ orderId?: string | undefined; orderNo?: string | undefined; reservedQty?: number | undefined; reservedAt?: string | undefined; reservedBy?: string | undefined; } | undefined'.
+src/app/dashboard/inventory/actions.ts(1451,41): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(1491,25): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(1491,30): error TS7006: Parameter 'length' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(1494,25): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(1494,30): error TS7006: Parameter 'length' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(1809,41): error TS7006: Parameter 'transaction' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(1903,43): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(1905,42): error TS7006: Parameter 'reservedDoc' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(1936,73): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(1985,38): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(2232,78): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(2248,38): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(2354,18): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(2359,21): error TS7006: Parameter 'l' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(2360,20): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/app/dashboard/inventory/actions.ts(2360,22): error TS7006: Parameter 'b' implicitly has an 'any' type.
+src/app/dashboard/inventory/scan/page.tsx(13,14): error TS2304: Cannot find name 'Button'.
+src/app/dashboard/inventory/scan/page.tsx(15,15): error TS2304: Cannot find name 'Button'.
+src/app/dashboard/invoice/new/actions.ts(26,46): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/invoice/new/page.tsx(362,5): error TS2322: Type '{ quantity: string; rate: string; vasName: string; gstPercent?: string | number | undefined; }[] | undefined' is not assignable to type 'VasDetail[] | undefined'.
+  Type '{ quantity: string; rate: string; vasName: string; gstPercent?: string | number | undefined; }[]' is not assignable to type 'VasDetail[]'.
+    Type '{ quantity: string; rate: string; vasName: string; gstPercent?: string | number | undefined; }' is not assignable to type 'VasDetail'.
+      Types of property 'gstPercent' are incompatible.
+        Type 'string | number | undefined' is not assignable to type 'number | undefined'.
+          Type 'string' is not assignable to type 'number'.
+src/app/dashboard/invoice/page.tsx(939,25): error TS2353: Object literal may only specify known properties, and 'updatedAt' does not exist in type 'Omit<Invoice, "id">'.
+src/app/dashboard/invoice/page.tsx(940,25): error TS2339: Property 'displayName' does not exist on type 'User'.
+src/app/dashboard/orders/[orderId]/actions.ts(132,41): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/orders/[orderId]/actions.ts(164,43): error TS7006: Parameter 'transaction' implicitly has an 'any' type.
+src/app/dashboard/orders/[orderId]/actions.ts(232,54): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/orders/[orderId]/actions.ts(266,22): error TS7031: Binding element 'orderItem' implicitly has an 'any' type.
+src/app/dashboard/orders/[orderId]/actions.ts(280,19): error TS7031: Binding element 'index' implicitly has an 'any' type.
+src/app/dashboard/orders/[orderId]/actions.ts(282,22): error TS7031: Binding element 'orderItem' implicitly has an 'any' type.
+src/app/dashboard/orders/[orderId]/actions.ts(296,19): error TS7031: Binding element 'index' implicitly has an 'any' type.
+src/app/dashboard/orders/[orderId]/actions.ts(307,38): error TS7006: Parameter 'itemIndex' implicitly has an 'any' type.
+src/app/dashboard/orders/[orderId]/actions.ts(339,42): error TS2339: Property 'exists' does not exist on type '{}'.
+src/app/dashboard/orders/[orderId]/actions.ts(343,42): error TS2339: Property 'data' does not exist on type '{}'.
+src/app/dashboard/orders/[orderId]/actions.ts(491,41): error TS2339: Property 'ref' does not exist on type '{}'.
+src/app/dashboard/orders/[orderId]/actions.ts(492,42): error TS2339: Property 'data' does not exist on type '{}'.
+src/app/dashboard/orders/[orderId]/actions.ts(524,56): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/app/dashboard/orders/[orderId]/actions.ts(524,61): error TS7006: Parameter 'docSnap' implicitly has an 'any' type.
+src/app/dashboard/orders/[orderId]/actions.ts(528,55): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/app/dashboard/orders/[orderId]/actions.ts(528,60): error TS7006: Parameter 'docSnap' implicitly has an 'any' type.
+src/app/dashboard/orders/[orderId]/actions.ts(576,42): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/orders/[orderId]/actions.ts(648,40): error TS7006: Parameter 'requestDoc' implicitly has an 'any' type.
+src/app/dashboard/orders/[orderId]/page.tsx(189,15): error TS2322: Type 'Order | null' is not assignable to type 'Order'.
+  Type 'null' is not assignable to type 'Order'.
+src/app/dashboard/orders/[orderId]/page.tsx(194,15): error TS2322: Type 'Order | null' is not assignable to type 'Order'.
+  Type 'null' is not assignable to type 'Order'.
+src/app/dashboard/orders/[orderId]/page.tsx(200,30): error TS2322: Type 'Order | null' is not assignable to type 'Order'.
+  Type 'null' is not assignable to type 'Order'.
+src/app/dashboard/orders/[orderId]/page.tsx(206,15): error TS2322: Type 'Order | null' is not assignable to type 'Order'.
+  Type 'null' is not assignable to type 'Order'.
+src/app/dashboard/orders/bulk-complete/actions.ts(72,13): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/orders/bulk-complete/actions.ts(80,16): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/app/dashboard/orders/bulk-complete/actions.ts(81,14): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/app/dashboard/orders/bulk-complete/actions.ts(81,17): error TS7006: Parameter 'b' implicitly has an 'any' type.
+src/app/dashboard/orders/bulk-complete/actions.ts(135,40): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/orders/bulk-complete/actions.ts(136,26): error TS2783: 'id' is specified more than once, so this usage will be overwritten.
+src/app/dashboard/orders/bulk-complete/actions.ts(141,30): error TS2783: 'id' is specified more than once, so this usage will be overwritten.
+src/app/dashboard/orders/bulk-complete/actions.ts(225,25): error TS2783: 'id' is specified more than once, so this usage will be overwritten.
+src/app/dashboard/pending/page.tsx(5,35): error TS2307: Cannot find module '@/components/features/order-management/PendingOrdersList' or its corresponding type declarations.
+src/app/dashboard/pms/components/PmsOperationsTabs.tsx(187,42): error TS7006: Parameter 'row' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsOperationsTabs.tsx(468,53): error TS7006: Parameter 'row' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsOperationsTabs.tsx(494,55): error TS7006: Parameter 'status' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsOperationsTabs.tsx(582,58): error TS7006: Parameter 'row' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsOperationsTabs.tsx(672,49): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsOperationsTabs.tsx(677,37): error TS2304: Cannot find name 'buildEmbellishmentForm'.
+src/app/dashboard/pms/components/PmsOperationsTabs.tsx(879,53): error TS7006: Parameter 'row' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsOperationsTabs.tsx(1098,66): error TS7006: Parameter 'step' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsOperationsTabs.tsx(1098,72): error TS7006: Parameter 'index' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(178,54): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(214,46): error TS7006: Parameter 'product' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(264,55): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(288,64): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(294,42): error TS7006: Parameter 'cat' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(317,75): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(421,47): error TS7006: Parameter 'row' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(421,52): error TS7006: Parameter 'index' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(436,55): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(450,55): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(466,55): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(478,42): error TS7006: Parameter 'machine' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(482,45): error TS7006: Parameter 'machine' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(488,40): error TS7006: Parameter 'machine' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(505,55): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(520,59): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(520,81): error TS7006: Parameter '_' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(520,84): error TS7006: Parameter 'i' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(574,55): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(583,55): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(594,55): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(675,48): error TS7006: Parameter 'machine' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(791,44): error TS7006: Parameter 'm' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(791,64): error TS7006: Parameter 'machine' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(816,40): error TS7006: Parameter 'person' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(844,50): error TS7006: Parameter 'm' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(850,48): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(869,48): error TS7006: Parameter 'category' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(961,43): error TS7006: Parameter 'm' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(962,41): error TS7006: Parameter 'machine' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1030,64): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1035,64): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1059,65): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1064,65): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1110,78): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1162,50): error TS7006: Parameter 'group' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1162,57): error TS7006: Parameter 'groupIndex' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1172,47): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1173,61): error TS7006: Parameter 'm' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1174,58): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1176,33): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1213,63): error TS7006: Parameter 'skill' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1269,65): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1275,42): error TS7006: Parameter 'm' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1275,62): error TS7006: Parameter 'machine' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1291,58): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1300,58): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1311,56): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1377,34): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1377,37): error TS7006: Parameter 'b' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1378,33): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+src/app/dashboard/pms/components/PmsSetupTabs.tsx(1379,60): error TS7006: Parameter 'm' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(73,39): error TS7006: Parameter 'category' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(75,22): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(87,20): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(93,44): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(108,72): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(109,21): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(124,21): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(126,18): error TS7006: Parameter 'row' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(127,16): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(127,19): error TS7006: Parameter 'b' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(131,18): error TS7006: Parameter 'row' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(132,16): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(132,19): error TS7006: Parameter 'b' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(150,21): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(185,38): error TS7006: Parameter 'row' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(205,16): error TS7006: Parameter 'row' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(206,13): error TS7006: Parameter 'row' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(236,42): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(270,42): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(314,36): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(332,18): error TS7006: Parameter 'skill' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(343,23): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(477,21): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsConfigActions.ts(503,23): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsDerivedData.ts(277,29): error TS2339: Property 'pmsEta' does not exist on type 'Order'.
+src/app/dashboard/pms/hooks/usePmsDerivedData.ts(316,35): error TS2339: Property 'quantity' does not exist on type 'OrderItem'.
+src/app/dashboard/pms/hooks/usePmsSkillPanel.ts(23,28): error TS7006: Parameter 'cat' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsSkillPanel.ts(31,34): error TS7006: Parameter 'category' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsSkillPanel.ts(44,43): error TS7006: Parameter 'cat' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsSkillPanel.ts(48,37): error TS7006: Parameter 'category' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsSkillPanel.ts(54,72): error TS7006: Parameter 'm' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsSkillPanel.ts(60,34): error TS7006: Parameter 'category' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsSkillPanel.ts(71,15): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsSkillPanel.ts(72,12): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsSkillPanel.ts(82,17): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsSkillPanel.ts(83,14): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsSkillPanel.ts(86,35): error TS18046: 'pair' is of type 'unknown'.
+src/app/dashboard/pms/hooks/usePmsSkillPanel.ts(92,35): error TS7006: Parameter 'm' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsSkillPanel.ts(93,32): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsSkillPanel.ts(106,58): error TS7006: Parameter 'm' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsSkillPanel.ts(120,29): error TS7006: Parameter 'm' implicitly has an 'any' type.
+src/app/dashboard/pms/hooks/usePmsSkillPanel.ts(134,27): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/app/dashboard/po-tracking/actions.ts(177,32): error TS18047: 'inboundRef' is possibly 'null'.
+src/app/dashboard/po-tracking/actions.ts(178,44): error TS2352: Conversion of type 'DocumentData | undefined' to type 'null' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'DocumentData' is not comparable to type 'null'.
+src/app/dashboard/po-tracking/actions.ts(185,57): error TS2339: Property 'items' does not exist on type 'never'.
+src/app/dashboard/po-tracking/actions.ts(185,78): error TS2339: Property 'items' does not exist on type 'never'.
+src/app/dashboard/po-tracking/actions.ts(208,57): error TS2339: Property 'stockDetails' does not exist on type 'never'.
+src/app/dashboard/po-tracking/actions.ts(208,85): error TS2339: Property 'stockDetails' does not exist on type 'never'.
+src/app/dashboard/quotation-builder/actions.ts(192,13): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/quotation-builder/actions.ts(200,16): error TS7006: Parameter 'row' implicitly has an 'any' type.
+src/app/dashboard/quotation-builder/actions.ts(201,14): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/app/dashboard/quotation-builder/actions.ts(201,17): error TS7006: Parameter 'b' implicitly has an 'any' type.
+src/app/dashboard/quotation-builder/actions.ts(221,58): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/reports/actions.ts(142,63): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/reports/actions.ts(143,61): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/reports/actions.ts(235,52): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/reports/actions.ts(238,97): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/reports/actions.ts(243,26): error TS7006: Parameter 'stock' implicitly has an 'any' type.
+src/app/dashboard/reports/actions.ts(245,25): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/app/dashboard/reports/actions.ts(246,24): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/app/dashboard/reports/actions.ts(246,27): error TS7006: Parameter 'b' implicitly has an 'any' type.
+src/app/dashboard/reports/page.tsx(12,82): error TS2459: Module '"./actions"' declares 'Order' locally, but it is not exported.
+src/app/dashboard/reports/page.tsx(12,89): error TS2459: Module '"./actions"' declares 'StockTransaction' locally, but it is not exported.
+src/app/dashboard/reports/page.tsx(219,98): error TS2304: Cannot find name 'Badge'.
+src/app/dashboard/reports/page.tsx(219,244): error TS2304: Cannot find name 'Badge'.
+src/app/dashboard/sales-order/[orderId]/actions.ts(60,41): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/sales-order/[orderId]/actions.ts(92,43): error TS7006: Parameter 'transaction' implicitly has an 'any' type.
+src/app/dashboard/sales-order/[orderId]/actions.ts(160,54): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/sales-order/[orderId]/actions.ts(194,22): error TS7031: Binding element 'orderItem' implicitly has an 'any' type.
+src/app/dashboard/sales-order/[orderId]/actions.ts(208,19): error TS7031: Binding element 'index' implicitly has an 'any' type.
+src/app/dashboard/sales-order/[orderId]/actions.ts(210,22): error TS7031: Binding element 'orderItem' implicitly has an 'any' type.
+src/app/dashboard/sales-order/[orderId]/actions.ts(224,19): error TS7031: Binding element 'index' implicitly has an 'any' type.
+src/app/dashboard/sales-order/[orderId]/actions.ts(235,38): error TS7006: Parameter 'itemIndex' implicitly has an 'any' type.
+src/app/dashboard/sales-order/[orderId]/actions.ts(267,42): error TS2339: Property 'exists' does not exist on type '{}'.
+src/app/dashboard/sales-order/[orderId]/actions.ts(271,42): error TS2339: Property 'data' does not exist on type '{}'.
+src/app/dashboard/sales-order/[orderId]/actions.ts(419,41): error TS2339: Property 'ref' does not exist on type '{}'.
+src/app/dashboard/sales-order/[orderId]/actions.ts(420,42): error TS2339: Property 'data' does not exist on type '{}'.
+src/app/dashboard/sales-order/[orderId]/actions.ts(452,56): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/app/dashboard/sales-order/[orderId]/actions.ts(452,61): error TS7006: Parameter 'docSnap' implicitly has an 'any' type.
+src/app/dashboard/sales-order/[orderId]/actions.ts(456,55): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/app/dashboard/sales-order/[orderId]/actions.ts(456,60): error TS7006: Parameter 'docSnap' implicitly has an 'any' type.
+src/app/dashboard/sales-order/[orderId]/actions.ts(505,42): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/app/dashboard/visits/actions.ts(117,45): error TS7006: Parameter 'transaction' implicitly has an 'any' type.
+src/app/dashboard/visits/actions.ts(249,45): error TS7006: Parameter 'transaction' implicitly has an 'any' type.
+src/app/dashboard/visits/actions.ts(416,23): error TS7006: Parameter 'snapshot' implicitly has an 'any' type.
+src/app/dashboard/visits/actions.ts(425,23): error TS7006: Parameter 'snapshot' implicitly has an 'any' type.
+src/app/dashboard/visits/actions.ts(439,23): error TS7006: Parameter 'snapshot' implicitly has an 'any' type.
+src/app/dashboard/visits/actions.ts(448,23): error TS7006: Parameter 'snapshot' implicitly has an 'any' type.
+src/app/dashboard/visits/actions.ts(463,23): error TS7006: Parameter 'snapshot' implicitly has an 'any' type.
+src/app/dashboard/visits/actions.ts(472,23): error TS7006: Parameter 'snapshot' implicitly has an 'any' type.
+src/app/dashboard/visits/actions.ts(490,23): error TS7006: Parameter 'snapshot' implicitly has an 'any' type.
+src/app/dashboard/visits/actions.ts(500,23): error TS7006: Parameter 'snapshot' implicitly has an 'any' type.
+src/app/dashboard/visits/actions.ts(521,5): error TS2322: Type '{ id: any; name: string; phone: string | undefined; mobileNo: string | undefined; email: string | undefined; billingAddress: string | undefined; address: string | undefined; pincode: string | undefined; customerCode: string | undefined; source: string; }[]' is not assignable to type 'ComplaintCustomerSearchResult[]'.
+  Type '{ id: any; name: string; phone: string | undefined; mobileNo: string | undefined; email: string | undefined; billingAddress: string | undefined; address: string | undefined; pincode: string | undefined; customerCode: string | undefined; source: string; }' is not assignable to type 'ComplaintCustomerSearchResult'.
+    Types of property 'source' are incompatible.
+      Type 'string' is not assignable to type '"customers" | "walkin" | undefined'.
+src/app/dashboard/visits/actions.ts(563,5): error TS2322: Type '{ id: any; name: string; phone: string | undefined; mobileNo: string | undefined; email: string | undefined; billingAddress: string | undefined; address: string | undefined; pincode: string | undefined; customerCode: string | undefined; source: string; }[]' is not assignable to type 'ComplaintCustomerSearchResult[]'.
+  Type '{ id: any; name: string; phone: string | undefined; mobileNo: string | undefined; email: string | undefined; billingAddress: string | undefined; address: string | undefined; pincode: string | undefined; customerCode: string | undefined; source: string; }' is not assignable to type 'ComplaintCustomerSearchResult'.
+    Types of property 'source' are incompatible.
+      Type 'string' is not assignable to type '"customers" | "walkin" | undefined'.
+src/app/dashboard/visits/actions.ts(734,17): error TS2353: Object literal may only specify known properties, and 'cacheHit' does not exist in type 'ComplaintSearchDebugInfo'.
+src/app/dashboard/visits/actions.ts(774,13): error TS2353: Object literal may only specify known properties, and 'cacheHit' does not exist in type 'ComplaintSearchDebugInfo'.
+src/app/dashboard/walk-in/page.tsx(72,23): error TS2339: Property 'store' does not exist on type '{ id: string; name: string; email: string; }'.
+src/app/dashboard/walk-in/page.tsx(1139,66): error TS2367: This comparison appears to be unintentional because the types '"CRM" | "Allocators" | "PC" | undefined' and '"headsalesmanager"' have no overlap.
+src/app/dashboard/walk-in/page.tsx(1362,42): error TS2367: This comparison appears to be unintentional because the types '"Pending" | "Attended" | "Handed Over" | "Deal Created" | "Closed" | undefined' and '"went-back"' have no overlap.
+src/app/dashboard/walk-in/page.tsx(1362,91): error TS2367: This comparison appears to be unintentional because the types '"Pending" | "Attended" | "Handed Over" | "Deal Created" | "Closed" | undefined' and '"completed"' have no overlap.
+src/app/dashboard/walk-in/page.tsx(1371,43): error TS2367: This comparison appears to be unintentional because the types '"Pending" | "Attended" | "Handed Over" | "Deal Created" | "Closed" | undefined' and '"completed"' have no overlap.
+src/app/dashboard/walk-in/page.tsx(1372,43): error TS2367: This comparison appears to be unintentional because the types '"Pending" | "Attended" | "Handed Over" | "Deal Created" | "Closed" | undefined' and '"went-back"' have no overlap.
+src/app/dashboard/walk-in/page.tsx(1383,47): error TS2367: This comparison appears to be unintentional because the types '"Pending" | "Attended" | "Handed Over" | "Deal Created" | "Closed" | undefined' and '"completed"' have no overlap.
+src/app/dashboard/walk-in/page.tsx(1426,15): error TS2367: This comparison appears to be unintentional because the types '"Pending" | "Attended" | "Handed Over" | "Deal Created" | "Closed" | undefined' and '"went-back"' have no overlap.
+src/app/layout.tsx(29,6): error TS2322: Type '{ async: true; src: string; crossorigin: string; }' is not assignable to type 'DetailedHTMLProps<ScriptHTMLAttributes<HTMLScriptElement>, HTMLScriptElement>'.
+  Property 'crossorigin' does not exist on type 'DetailedHTMLProps<ScriptHTMLAttributes<HTMLScriptElement>, HTMLScriptElement>'. Did you mean 'crossOrigin'?
+src/components/features/customer/CompanyVisitDialog.tsx(228,7): error TS2741: Property 'complaint_visit' is missing in type '{ company_visit: { value: string; label: string; }[]; tailor_work: { value: string; label: string; }[]; }' but required in type 'Record<VisitCategory, { value: string; label: string; }[]>'.
+src/components/features/customer/CompanyVisitDialog.tsx(711,19): error TS2322: Type 'string' is not assignable to type 'number'.
+src/components/features/customer/CompanyVisitDialog.tsx(1709,46): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/components/features/customer/MeasurementForm.tsx(46,25): error TS2353: Object literal may only specify known properties, and 'rooms' does not exist in type 'AsyncDefaultValues<{ measurement: string; room: string; measurementReference: string; noOfUnits: string; file?: any; }> | { measurement?: string | undefined; room?: string | undefined; measurementReference?: string | undefined; noOfUnits?: string | undefined; file?: any; }'.
+src/components/features/customer/MeasurementForm.tsx(46,32): error TS2304: Cannot find name 'existingMeasurement'.
+src/components/features/customer/MeasurementForm.tsx(47,34): error TS2304: Cannot find name 'existingMeasurement'.
+src/components/features/customer/NewDealDialog.tsx(161,30): error TS2551: Property 'dealName' does not exist on type '{ DealName: any; DealAmount: any; Salesman: any; MeasurementRequired: any; AdvanceForMeasurment: any; }'. Did you mean 'DealName'?
+src/components/features/customer/NewDealDialog.tsx(161,51): error TS2339: Property 'title' does not exist on type '{ DealName: any; DealAmount: any; Salesman: any; MeasurementRequired: any; AdvanceForMeasurment: any; }'.
+src/components/features/customer/NewDealDialog.tsx(163,27): error TS2551: Property 'dealAmount' does not exist on type '{ DealName: any; DealAmount: any; Salesman: any; MeasurementRequired: any; AdvanceForMeasurment: any; }'. Did you mean 'DealAmount'?
+src/components/features/customer/NewDealDialog.tsx(163,50): error TS2339: Property 'expectedValue' does not exist on type '{ DealName: any; DealAmount: any; Salesman: any; MeasurementRequired: any; AdvanceForMeasurment: any; }'.
+src/components/features/customer/NewDealDialog.tsx(166,20): error TS2339: Property 'representativeId' does not exist on type '{ DealName: any; DealAmount: any; Salesman: any; MeasurementRequired: any; AdvanceForMeasurment: any; }'.
+src/components/features/customer/NewDealDialog.tsx(166,49): error TS2339: Property 'assignedSalesPerson' does not exist on type '{ DealName: any; DealAmount: any; Salesman: any; MeasurementRequired: any; AdvanceForMeasurment: any; }'.
+src/components/features/customer/NewDealDialog.tsx(168,33): error TS2339: Property 'description' does not exist on type '{ DealName: any; DealAmount: any; Salesman: any; MeasurementRequired: any; AdvanceForMeasurment: any; }'.
+src/components/features/customer/NewDealDialog.tsx(170,21): error TS2551: Property 'measurementRequired' does not exist on type '{ DealName: any; DealAmount: any; Salesman: any; MeasurementRequired: any; AdvanceForMeasurment: any; }'. Did you mean 'MeasurementRequired'?
+src/components/features/customer/NewDealDialog.tsx(173,21): error TS2551: Property 'advanceForMeasurement' does not exist on type '{ DealName: any; DealAmount: any; Salesman: any; MeasurementRequired: any; AdvanceForMeasurment: any; }'. Did you mean 'AdvanceForMeasurment'?
+src/components/features/customer/NewDealDialog.tsx(178,20): error TS2339: Property 'billingDetails' does not exist on type '{ DealName: any; DealAmount: any; Salesman: any; MeasurementRequired: any; AdvanceForMeasurment: any; }'.
+src/components/features/customer/NewDealDialog.tsx(186,22): error TS2339: Property 'billingDetails' does not exist on type '{ DealName: any; DealAmount: any; Salesman: any; MeasurementRequired: any; AdvanceForMeasurment: any; }'.
+src/components/features/customer/NewDealDialog.tsx(191,22): error TS2339: Property 'billingDetails' does not exist on type '{ DealName: any; DealAmount: any; Salesman: any; MeasurementRequired: any; AdvanceForMeasurment: any; }'.
+src/components/features/customer/NewDealDialog.tsx(196,22): error TS2339: Property 'billingDetails' does not exist on type '{ DealName: any; DealAmount: any; Salesman: any; MeasurementRequired: any; AdvanceForMeasurment: any; }'.
+src/components/features/customer/NewDealDialog.tsx(201,22): error TS2339: Property 'billingDetails' does not exist on type '{ DealName: any; DealAmount: any; Salesman: any; MeasurementRequired: any; AdvanceForMeasurment: any; }'.
+src/components/features/dashboard/AccountsDashboard.tsx(574,16): error TS2741: Property 'type' is missing in type '{ values: Quotation; creatorName: string | undefined; salesmanName: string | undefined; }' but required in type 'PrintableQuotationProps'.
+src/components/features/installer/CompletedVisitsList.tsx(83,57): error TS2769: No overload matches this call.
+  Overload 1 of 4, '(value: string | number | Date): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number | Date'.
+      Type 'undefined' is not assignable to type 'string | number | Date'.
+  Overload 2 of 4, '(value: string | number): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number'.
+      Type 'undefined' is not assignable to type 'string | number'.
+src/components/features/installer/CompletedVisitsList.tsx(83,89): error TS2769: No overload matches this call.
+  Overload 1 of 4, '(value: string | number | Date): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number | Date'.
+      Type 'undefined' is not assignable to type 'string | number | Date'.
+  Overload 2 of 4, '(value: string | number): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number'.
+      Type 'undefined' is not assignable to type 'string | number'.
+src/components/features/installer/CompletedVisitsList.tsx(119,160): error TS2769: No overload matches this call.
+  Overload 1 of 4, '(value: string | number | Date): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number | Date'.
+      Type 'undefined' is not assignable to type 'string | number | Date'.
+  Overload 2 of 4, '(value: string | number): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number'.
+      Type 'undefined' is not assignable to type 'string | number'.
+src/components/features/installer/InstallerVisitsList.tsx(34,105): error TS2304: Cannot find name 'measurementItems'.
+src/components/features/installer/InstallerVisitsList.tsx(34,127): error TS7006: Parameter 'mi' implicitly has an 'any' type.
+src/components/features/installer/InstallerVisitsList.tsx(41,55): error TS2304: Cannot find name 'subMeasurementBlinds'.
+src/components/features/installer/InstallerVisitsList.tsx(41,81): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/components/features/installer/InstallerVisitsList.tsx(49,56): error TS2304: Cannot find name 'subMeasurementCurtain'.
+src/components/features/installer/InstallerVisitsList.tsx(49,83): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/components/features/installer/InstallerVisitsList.tsx(85,63): error TS2769: No overload matches this call.
+  Overload 1 of 4, '(value: string | number | Date): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number | Date'.
+      Type 'undefined' is not assignable to type 'string | number | Date'.
+  Overload 2 of 4, '(value: string | number): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number'.
+      Type 'undefined' is not assignable to type 'string | number'.
+src/components/features/installer/InstallerVisitsList.tsx(159,57): error TS2769: No overload matches this call.
+  Overload 1 of 4, '(value: string | number | Date): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number | Date'.
+      Type 'undefined' is not assignable to type 'string | number | Date'.
+  Overload 2 of 4, '(value: string | number): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number'.
+      Type 'undefined' is not assignable to type 'string | number'.
+src/components/features/installer/InstallerVisitsList.tsx(159,89): error TS2769: No overload matches this call.
+  Overload 1 of 4, '(value: string | number | Date): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number | Date'.
+      Type 'undefined' is not assignable to type 'string | number | Date'.
+  Overload 2 of 4, '(value: string | number): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number'.
+      Type 'undefined' is not assignable to type 'string | number'.
+src/components/features/installer/InstallerVisitsList.tsx(202,160): error TS2769: No overload matches this call.
+  Overload 1 of 4, '(value: string | number | Date): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number | Date'.
+      Type 'undefined' is not assignable to type 'string | number | Date'.
+  Overload 2 of 4, '(value: string | number): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number'.
+      Type 'undefined' is not assignable to type 'string | number'.
+src/components/features/inventory/actions.ts(8,10): error TS2724: '"firebase-admin/firestore"' has no exported member named 'writeBatch'. Did you mean 'WriteBatch'?
+src/components/features/inventory/actions.ts(8,34): error TS2724: '"firebase-admin/firestore"' has no exported member named 'collectionGroup'. Did you mean 'CollectionGroup'?
+src/components/features/inventory/actions.ts(8,51): error TS2305: Module '"firebase-admin/firestore"' has no exported member 'getDocs'.
+src/components/features/inventory/actions.ts(18,50): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/components/features/inventory/actions.ts(135,43): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/components/features/inventory/actions.ts(157,43): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+src/components/features/inventory/actions.ts(169,15): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/components/features/inventory/actions.ts(170,15): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/components/features/inventory/actions.ts(233,74): error TS7006: Parameter 'soldDoc' implicitly has an 'any' type.
+src/components/features/inventory/actions.ts(246,56): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/components/features/inventory/actions.ts(273,59): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/components/features/inventory/actions.ts(273,114): error TS7006: Parameter 's' implicitly has an 'any' type.
+src/components/features/inventory/actions.ts(275,120): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/components/features/inventory/actions.ts(275,122): error TS7006: Parameter 'b' implicitly has an 'any' type.
+src/components/features/inventory/actions.ts(320,59): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/components/features/inventory/actions.ts(326,44): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/components/features/inventory/actions.ts(327,45): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/components/features/inventory/StockManagementV2.tsx(1294,52): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/components/features/inventory/StockManagementV2.tsx(1330,13): error TS2304: Cannot find name 'setUseCustomCategoryGroup'.
+src/components/features/inventory/StockManagementV2.tsx(1331,13): error TS2304: Cannot find name 'setCustomCategoryGroup'.
+src/components/features/order-management/autoQuotation.ts(14,8): error TS2552: Cannot find name 'selection'. Did you mean 'selections'?
+src/components/features/order-management/autoQuotation.ts(14,22): error TS2552: Cannot find name 'selection'. Did you mean 'selections'?
+src/components/features/order-management/autoQuotation.ts(17,17): error TS2552: Cannot find name 'selection'. Did you mean 'selections'?
+src/components/features/order-management/autoQuotation.ts(26,16): error TS2554: Expected 4 arguments, but got 2.
+src/components/features/order-management/PrintableQuotationProfessional.tsx(309,52): error TS2339: Property 'id' does not exist on type 'CalculatedItem | CalculatedVas'.
+  Property 'id' does not exist on type 'CalculatedVas'.
+src/components/features/order-management/PrintableSelection.tsx(45,45): error TS18046: 'roomProducts' is of type 'unknown'.
+src/components/features/order-management/PrintableSelection.tsx(45,66): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/components/features/order-management/PrintableSelection.tsx(45,71): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/components/features/order-management/PrintableSelection.tsx(46,44): error TS18046: 'roomProducts' is of type 'unknown'.
+src/components/features/order-management/PrintableSelection.tsx(64,38): error TS18046: 'roomProducts' is of type 'unknown'.
+src/components/features/order-management/PrintableSelection.tsx(64,55): error TS7006: Parameter 'p' implicitly has an 'any' type.
+src/components/features/orders/AllocateDialog.tsx(191,36): error TS2339: Property 'bcn' does not exist on type '{ success: boolean; message: string; }'.
+src/components/features/orders/CustomerInfoCard.tsx(130,19): error TS2551: Property 'customerEmail' does not exist on type 'Order'. Did you mean 'customerId'?
+src/components/features/orders/CustomerInfoCard.tsx(130,53): error TS2339: Property 'email' does not exist on type '{ name?: string | undefined; phone?: string | undefined; gstin?: string | undefined; billingAddress?: CustomerAddress | undefined; shippingAddress?: CustomerAddress | undefined; billingDetails?: CustomerBillingDetail | undefined; }'.
+src/components/features/orders/CustomerInfoCard.tsx(134,28): error TS2551: Property 'customerEmail' does not exist on type 'Order'. Did you mean 'customerId'?
+src/components/features/orders/CustomerInfoCard.tsx(134,62): error TS2339: Property 'email' does not exist on type '{ name?: string | undefined; phone?: string | undefined; gstin?: string | undefined; billingAddress?: CustomerAddress | undefined; shippingAddress?: CustomerAddress | undefined; billingDetails?: CustomerBillingDetail | undefined; }'.
+src/components/features/orders/CustomerInfoCard.tsx(142,62): error TS2339: Property 'address' does not exist on type '{ name?: string | undefined; phone?: string | undefined; gstin?: string | undefined; billingAddress?: CustomerAddress | undefined; shippingAddress?: CustomerAddress | undefined; billingDetails?: CustomerBillingDetail | undefined; }'.
+src/components/features/orders/CustomerInfoCard.tsx(172,49): error TS2339: Property 'assignedSalesman' does not exist on type 'Order'.
+src/components/features/orders/CustomerInfoCard.tsx(205,19): error TS2339: Property 'paymentMethod' does not exist on type 'Order'.
+src/components/features/orders/CustomerInfoCard.tsx(205,42): error TS2339: Property 'deliveryDate' does not exist on type 'Order'.
+src/components/features/orders/CustomerInfoCard.tsx(209,24): error TS2339: Property 'paymentMethod' does not exist on type 'Order'.
+src/components/features/orders/CustomerInfoCard.tsx(213,34): error TS2339: Property 'paymentMethod' does not exist on type 'Order'.
+src/components/features/orders/CustomerInfoCard.tsx(216,24): error TS2339: Property 'deliveryDate' does not exist on type 'Order'.
+src/components/features/orders/CustomerInfoCard.tsx(221,36): error TS2339: Property 'deliveryDate' does not exist on type 'Order'.
+src/components/features/orders/CustomerInfoCard.tsx(222,42): error TS2339: Property 'deliveryDate' does not exist on type 'Order'.
+src/components/features/orders/CustomerInfoCard.tsx(239,19): error TS2339: Property 'storeLocation' does not exist on type 'Order'.
+src/components/features/orders/CustomerInfoCard.tsx(243,24): error TS2339: Property 'storeLocation' does not exist on type 'Order'.
+src/components/features/orders/CustomerInfoCard.tsx(247,34): error TS2339: Property 'storeLocation' does not exist on type 'Order'.
+src/components/features/orders/CustomerInfoCard.tsx(264,16): error TS2339: Property 'specialInstructions' does not exist on type 'Order'.
+src/components/features/orders/CustomerInfoCard.tsx(272,24): error TS2339: Property 'specialInstructions' does not exist on type 'Order'.
+src/components/features/orders/MilestoneCard.tsx(194,11): error TS2322: Type 'string | null | undefined' is not assignable to type 'UserRole | null | undefined'.
+  Type 'string' is not assignable to type 'UserRole | null | undefined'.
+src/components/features/orders/MilestoneCard.tsx(227,28): error TS2339: Property 'updatedAt' does not exist on type 'OrderWorkflow'.
+src/components/features/orders/MilestoneCard.tsx(231,42): error TS2339: Property 'updatedAt' does not exist on type 'OrderWorkflow'.
+src/components/features/orders/OrderItemRow.tsx(168,14): error TS18048: 'stock.reservedQty' is possibly 'undefined'.
+src/components/features/orders/OrderItemRow.tsx(170,28): error TS18048: 'stock.reservedQty' is possibly 'undefined'.
+src/components/features/orders/OrderItemRow.tsx(234,13): error TS2322: Type 'Stock | null' is not assignable to type 'Stock'.
+  Type 'null' is not assignable to type 'Stock'.
+src/components/features/orders/OrderItemsTable.tsx(374,33): error TS2339: Property 'lineId' does not exist on type 'OrderItem'.
+  Property 'lineId' does not exist on type 'FurnitureDetail & { type: "Fabric" | "Furniture"; }'.
+src/components/features/orders/VasDetailsTable.tsx(93,48): error TS2339: Property 'quantity' does not exist on type 'VasItem | { description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+  Property 'quantity' does not exist on type '{ description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+src/components/features/orders/VasDetailsTable.tsx(95,55): error TS2339: Property 'gstPercent' does not exist on type 'VasItem | { description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+  Property 'gstPercent' does not exist on type '{ description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+src/components/features/orders/VasDetailsTable.tsx(155,58): error TS2339: Property 'quantity' does not exist on type 'VasItem | { description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+  Property 'quantity' does not exist on type '{ description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+src/components/features/orders/VasDetailsTable.tsx(157,65): error TS2339: Property 'gstPercent' does not exist on type 'VasItem | { description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+  Property 'gstPercent' does not exist on type '{ description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+src/components/features/orders/VasDetailsTable.tsx(165,24): error TS2339: Property 'itemName' does not exist on type 'VasItem | { description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+  Property 'itemName' does not exist on type '{ description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+src/components/features/orders/VasDetailsTable.tsx(168,48): error TS2339: Property 'roomName' does not exist on type 'VasItem | { description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+  Property 'roomName' does not exist on type '{ description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+src/components/features/orders/VasDetailsTable.tsx(169,46): error TS2339: Property 'hsnCode' does not exist on type 'VasItem | { description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+  Property 'hsnCode' does not exist on type '{ description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+src/components/features/orders/VasDetailsTable.tsx(192,31): error TS2339: Property 'category' does not exist on type 'VasItem | { description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+  Property 'category' does not exist on type '{ description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+src/components/features/orders/VasDetailsTable.tsx(197,35): error TS2339: Property 'category' does not exist on type 'VasItem | { description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+  Property 'category' does not exist on type '{ description: any; vasName: any; qty: number; rate: number; gst: number; hsn: any; unit: any; room: any; }'.
+src/components/features/purchase/action.ts(334,45): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/components/features/purchase/action.ts(360,31): error TS2339: Property 'vendorId' does not exist on type 'FabricDetail'.
+src/components/features/purchase/action.ts(432,50): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/components/features/purchase/action.ts(438,42): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/components/features/purchase/action.ts(444,42): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/components/features/purchase/action.ts(450,54): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/components/features/purchase/action.ts(471,46): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/components/features/purchase/PoGenTable.tsx(105,96): error TS2339: Property 'createdAt' does not exist on type 'PurchaseStatus'.
+src/components/features/visits/AllVisitsTable.tsx(311,29): error TS2345: Argument of type 'Record<string, unknown>' is not assignable to parameter of type '{ [x: string]: FieldValue | Partial<unknown> | undefined; }'.
+  'string' index signatures are incompatible.
+    Type 'unknown' is not assignable to type 'FieldValue | Partial<unknown> | undefined'.
+src/components/features/visits/AllVisitsTable.tsx(374,64): error TS2322: Type '{ value: string | undefined; label: string | undefined; }' is not assignable to type '{ value: string; label: string; }'.
+  Types of property 'value' are incompatible.
+    Type 'string | undefined' is not assignable to type 'string'.
+      Type 'undefined' is not assignable to type 'string'.
+src/components/features/visits/AllVisitsTable.tsx(443,33): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/components/features/visits/EditVisitDialog.tsx(84,23): error TS2339: Property 'remark' does not exist on type 'EnrichedDealVisit'.
+src/components/features/visits/VisitDetailsDialog.tsx(161,20): error TS2339: Property 'remark' does not exist on type 'EnrichedDealVisit'.
+src/components/features/visits/VisitDetailsDialog.tsx(166,69): error TS2339: Property 'remark' does not exist on type 'EnrichedDealVisit'.
+src/hooks/visits/useVisitsData.ts(113,54): error TS2339: Property 'address' does not exist on type 'Customer'.
+src/lib/pms/start-gate.ts(128,48): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/lib/pms/start-gate.ts(128,53): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/lib/server/stock.ts(35,38): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+src/lib/types.ts(1023,5): error TS2300: Duplicate identifier 'status'.
+src/lib/types.ts(1047,5): error TS2300: Duplicate identifier 'status'.
+src/lib/types.ts(1047,5): error TS2717: Subsequent property declarations must have the same type.  Property 'status' must be of type 'string | undefined', but here has type '"completed" | "requested" | "approved" | "CWC" | undefined'.
+src/services/google-sheets.ts(29,19): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(version: "v4"): Sheets', gave the following error.
+    Argument of type '{ version: string; auth: JWT | UserRefreshClient | BaseExternalAccountClient | ExternalAccountAuthorizedUserClient | ... 8 more ... | PassThroughClient; }' is not assignable to parameter of type '"v4"'.
+  Overload 2 of 2, '(options: Options): Sheets', gave the following error.
+    Type 'JWT | UserRefreshClient | BaseExternalAccountClient | ExternalAccountAuthorizedUserClient | ... 8 more ... | PassThroughClient' is not assignable to type 'string | BaseExternalAccountClient | GoogleAuth<JSONClient> | OAuth2Client | undefined'.
+      Type 'ExternalAccountAuthorizedUserClient' is not assignable to type 'string | BaseExternalAccountClient | GoogleAuth<JSONClient> | OAuth2Client | undefined'.
+        Type 'ExternalAccountAuthorizedUserClient' is missing the following properties from type 'OAuth2Client': certificateCache, certificateExpiry, certificateCacheFormat, refreshTokenPromises, and 27 more.
+src/services/measurement-selection-middleware.ts(54,26): error TS18048: 'payload.itemDetails.length' is possibly 'undefined'.
+src/services/mo-space-tally.ts(32,64): error TS18048: 'item.quantityAllocated' is possibly 'undefined'.
+src/services/mo-space-tally.ts(51,42): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/services/mo-space-tally.ts(65,13): error TS2339: Property 'roundedTotal' does not exist on type '{ subTotal: number; discount?: number | undefined; totalDiscount?: number | undefined; taxableValue: number; cgst: number; sgst: number; igst: number; roundOff: number; grandTotal: number; totalGst?: number | undefined; }'.
+src/services/tally.ts(138,44): error TS2352: Conversion of type 'PrintableInvoicePayload' to type 'Invoice' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'PrintableInvoicePayload' is missing the following properties from type 'Invoice': id, invoiceNo, orderId, salesPerson, and 2 more.
+src/services/tally.ts(189,13): error TS2339: Property 'roundedTotal' does not exist on type '{ subTotal: number; discount: number; taxableValue: number; cgst: number; sgst: number; igst: number; roundOff: number; grandTotal: number; totalGst: number; }'.
+src/store/slices/visitsSlice.ts(2,10): error TS2305: Module '"@/lib/types"' has no exported member 'InstallerTracking'.

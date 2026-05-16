@@ -908,9 +908,19 @@ export async function createInstantQuotationOrderAction(
             latestOrderId: createdOrder.id,
             invoiceNo: resolvedInvoiceNo,
             action: `instant-sale:${instantSaleKind}`,
+            salesmanLeadAction:
+              instantSaleKind === 'cashsale'
+                ? 'Instant Sale - Cashsale'
+                : 'Instant Sale - Walkin Sale',
+            salesmanLeadActionAt: nowIso,
             leadType: instantSaleLeadType,
             saleFlowType: instantSaleKind,
             saleFlowSource: 'walkin',
+            updatedAt: nowIso,
+            updatedBy: {
+              userId: String(payload?.salesmanId || payload?.creator?.id || '').trim(),
+              username: String(salesmanName || payload?.creator?.name || '').trim(),
+            },
             lastUpdatedAt: nowIso,
           },
           { merge: true }

@@ -3,19 +3,14 @@
 'use server'
 
 import { adminDb, adminStorage } from '@/lib/firebase-admin';
-import { Deal, DealProduct, DealProductsDoc, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus, MeasurementEntry, O2DProcess, Selection, Stock, Receipt } from '@/lib/types';
+import { Deal, DealProduct, DealProductsDoc, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, OrderType, Order, O2DStatus, Selection, Receipt } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
 
 import { getMilestonesForOrder } from '@/lib/constants';
 import { buildWorkflowMilestones } from '@/lib/order-workflow';
 import { dedupeO2DMilestones, upsertO2DMilestone } from '@/lib/o2d-milestones';
 import { FieldValue } from 'firebase-admin/firestore';
-import { Readable } from 'stream';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { firebase } from 'googleapis/build/src/apis/firebase';
-import { db } from '@/lib/firebase';
-import { firestore } from 'firebase-admin';
-import { VisitFormValues } from '@/components/features/customer/VisitForm';
+import { VisitFormValues } from '@/app/dashboard/customers/[customerId]/[dealId]/dialogs.tsx/VisitForm';
 import { CpdFormValues } from '@/components/features/customer/CpdForm';
 import { getNextSequenceValue } from '@/lib/id-sequence';
 import { upsertVasStockItemsAction } from '@/app/dashboard/inventory/actions';
@@ -356,96 +351,216 @@ export async function updateDealProducts(
 
 type QuotationFormWithMeta = QuotationFormValues & { createdBy?: string };
 
-export async function createQuotationAction(customerId: string, dealId: string, values: QuotationFormWithMeta, totalAmount: number): Promise<{ success: boolean; message: string, quotationId?: string, quotation?: Quotation }> {
+export async function createQuotationAction(
+  customerId: string,
+  dealId: string,
+  values: QuotationFormWithMeta,
+  totalAmount: number
+): Promise<{
+  success: boolean;
+  message: string;
+  quotationId?: string;
+  quotation?: Quotation;
+}> {
   try {
-    const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
- 
-    const quotationRef = dealRef.collection('quotations').doc();
-    let quotationNo = "";
-    for (let attempt = 0; attempt < 1000; attempt++) {
-      const candidate = await getNextSequenceValue("quotationNo");
-      const existing = await adminDb
-        .collectionGroup("quotations")
-        .where("quotationNo", "==", candidate)
-        .limit(1)
-        .get();
-      if (existing.empty) {
-        quotationNo = candidate;
-        break;
-      }
-    }
+    // ================= REFS =================
+    const dealRef = adminDb
+      .collection("customers")
+      .doc(customerId)
+      .collection("deals")
+      .doc(dealId);
+
+    const quotationRef =
+      dealRef.collection("quotations").doc();
+
+    const o2dProcessRef =
+      adminDb.collection("o2d").doc(dealId);
+
+    // ================= TIMESTAMP =================
+    const now = new Date().toISOString();
+
+    // ================= QUOTATION NO =================
+    // ASSUMING getNextSequenceValue IS SAFE + UNIQUE
+    const quotationNo =
+      await getNextSequenceValue(
+        "quotationNo"
+      );
 
     if (!quotationNo) {
-      throw new Error("Unable to allocate a unique quotation number.");
+      throw new Error(
+        "Failed to generate quotation number."
+      );
     }
 
-    const vasRowsForStock = (Array.isArray(values?.vasDetails) ? values.vasDetails : [])
+    // ================= VAS STOCK SYNC =================
+    const vasRowsForStock = (
+      Array.isArray(values?.vasDetails)
+        ? values.vasDetails
+        : []
+    )
       .map((vas: any) => ({
-        vasName: String(vas?.vasName || "").trim(),
+        vasName: String(
+          vas?.vasName || ""
+        ).trim(),
+
         rate: Number(vas?.rate) || 0,
-        gstPercent: Number(vas?.gstPercent) || 0,
-        hsnCode: String(vas?.hsnCode || "").trim() || undefined,
+
+        gstPercent:
+          Number(vas?.gstPercent) || 0,
+
+        hsnCode:
+          String(
+            vas?.hsnCode || ""
+          ).trim() || undefined,
       }))
       .filter((vas) => vas.vasName);
 
     if (vasRowsForStock.length > 0) {
-      const syncResult = await upsertVasStockItemsAction(vasRowsForStock);
+      const syncResult =
+        await upsertVasStockItemsAction(
+          vasRowsForStock
+        );
+
       if (!syncResult.success) {
-        throw new Error(syncResult.message || "Failed to sync VAS stock catalog.");
+        throw new Error(
+          syncResult.message ||
+            "Failed to sync VAS stock catalog."
+        );
       }
     }
 
+    // ================= QUOTATION OBJECT =================
     const newQuotation: Quotation = {
-        id: quotationRef.id,
-        quotationNo,
-        ...values,
-        createdAt: new Date().toISOString(),
-        status: 'Approved', // Already approved since it goes directly to order creation
-        totalAmount: totalAmount,
-        cpdId: values.selectedCpdId || "No CPD ID",
+      id: quotationRef.id,
+
+      quotationNo,
+
+      ...values,
+
+      createdAt: now,
+
+      status:
+        values.status || "Approved",
+
+      totalAmount,
+
+      cpdId:
+        values.selectedCpdId ||
+        "No CPD ID",
     };
-    
-    // Automation: Mark Quotation Making (4) as complete in O2D
-    const o2dProcessRef = adminDb.collection('o2d').doc(dealId);
-    const o2dProcessDoc = await o2dProcessRef.get();
+
+    // ================= BATCH =================
     const batch = adminDb.batch();
 
-    batch.set(quotationRef, newQuotation);
+    // ================= SAVE QUOTATION =================
+    batch.set(
+      quotationRef,
+      newQuotation
+    );
+
+    // ================= UPDATE DEAL SUMMARY =================
+    batch.set(
+      dealRef,
+      {
+        recent: {
+          quotations:
+            admin.firestore.FieldValue.arrayUnion({
+              quotationId:
+                quotationRef.id,
+
+              quotationNo,
+
+              totalAmount,
+
+              updatedAt: now,
+            }),
+        },
+      },
+      { merge: true }
+    );
+
+    // ================= O2D AUTOMATION =================
+    const o2dProcessDoc =
+      await o2dProcessRef.get();
 
     if (o2dProcessDoc.exists) {
-        const quotationStepId = 4; // Corresponds to "Quotation Making"
-        const existingMilestones = dedupeO2DMilestones(
-            (o2dProcessDoc.data()?.milestones || []) as O2DStatus[]
+      const quotationStepId = 4;
+
+      const existingMilestones =
+        dedupeO2DMilestones(
+          (o2dProcessDoc.data()
+            ?.milestones ||
+            []) as O2DStatus[]
         );
-        
-        // Avoid adding duplicate milestones
-        if (!existingMilestones.some(m => m.stepId === quotationStepId)) {
-            const newMilestone: O2DStatus = {
-                stepId: quotationStepId,
-                status: 'completed',
-                completedAt: new Date().toISOString(),
-                completedBy: values.createdBy || 'System',
-                remarks: `Quotation #${newQuotation.quotationNo} created.`,
-                selection: 'Done'
-            };
-            batch.update(o2dProcessRef, {
-                milestones: upsertO2DMilestone(existingMilestones, newMilestone)
-            });
-        }
+
+      // AVOID DUPLICATE
+      if (
+        !existingMilestones.some(
+          (m) =>
+            m.stepId ===
+            quotationStepId
+        )
+      ) {
+        const newMilestone: O2DStatus =
+          {
+            stepId:
+              quotationStepId,
+
+            status: "completed",
+
+            completedAt: now,
+
+            completedBy:
+              values.createdBy ||
+              "System",
+
+            remarks: `Quotation #${quotationNo} created.`,
+
+            selection: "Done",
+          };
+
+        batch.update(
+          o2dProcessRef,
+          {
+            milestones:
+              upsertO2DMilestone(
+                existingMilestones,
+                newMilestone
+              ),
+          }
+        );
+      }
     }
-    
+
+    // ================= COMMIT =================
     await batch.commit();
 
-    return { 
-        success: true, 
-        message: 'Quotation created successfully!', 
-        quotationId: quotationRef.id,
-        quotation: JSON.parse(JSON.stringify(newQuotation))
-    };
+    // ================= RESPONSE =================
+    return {
+      success: true,
 
+      message:
+        "Quotation created successfully!",
+
+      quotationId:
+        quotationRef.id,
+
+      quotation: newQuotation,
+    };
   } catch (error: any) {
-    console.error("Error creating quotation:", error);
-    return { success: false, message: `Failed to create quotation: ${error.message}` };
+    console.error(
+      "Error creating quotation:",
+      error
+    );
+
+    return {
+      success: false,
+
+      message: `Failed to create quotation: ${
+        error?.message ||
+        "Unknown error"
+      }`,
+    };
   }
 }
 
@@ -2295,36 +2410,64 @@ export async function updateItemsAction({
       items.forEach(item => {
         let id = item.id;
 
-        // If item has no valid ID → generate new one
+        // If item has no valid ID -> generate new one
         if (!id) {
           id = adminDb.collection("_").doc().id;
         }
 
         // Find existing document
         const index = updatedProducts.findIndex(p => p.id === id);
+        const existing = index !== -1 ? updatedProducts[index] : {};
+
+        const resolvedCollectionBrand =
+          item.collectionBrand ??
+          item.bcn ??
+          existing.collectionBrand ??
+          existing.bcn ??
+          "";
+
+        const resolvedQuantity =
+          item.quantity ??
+          item.qty ??
+          existing.quantity ??
+          existing.qty ??
+          "1";
 
         const itemData = {
+          ...existing,
           id,
-          room: roomName,
-          itemType: item.itemType || "",
-          itemName: item.itemName || "",
-          noOfPannel: item.noOfPannel || "",
-          height: item.height || "",
-          width: item.width || "",
-          remark: item.remark || "",
-          casement: item.casement || null,
-          marking: item.marking || null,
-          niwar: item.niwar || null,
-          isBlind: false,
-          isSofa: false,
-          quantity: "0",
-          noOfPcs: "1",
-          collectionBrand: "",
-          mrp: "0",
-          remarks: "",
-          salesDescription: "",
-          verticalRepeat: "",
-          horizontalRepeat: ""
+          room: item.room ?? existing.room ?? roomName,
+          itemType: item.itemType ?? existing.itemType ?? "",
+          itemName: item.itemName ?? existing.itemName ?? "",
+          noOfPannel:
+            item.noOfPannel ??
+            item.noOfSeat ??
+            existing.noOfPannel ??
+            existing.noOfSeat ??
+            "",
+          height: item.height ?? existing.height ?? "",
+          width: item.width ?? existing.width ?? "",
+          remark: item.remark ?? existing.remark ?? "",
+          casement: item.casement ?? existing.casement ?? null,
+          marking: item.marking ?? existing.marking ?? null,
+          niwar: item.niwar ?? existing.niwar ?? null,
+          isBlind: item.isBlind ?? existing.isBlind ?? false,
+          isSofa: item.isSofa ?? existing.isSofa ?? false,
+          quantity: resolvedQuantity,
+          qty: resolvedQuantity,
+          noOfPcs: item.noOfPcs ?? existing.noOfPcs ?? "1",
+          collectionBrand: resolvedCollectionBrand,
+          bcn: item.bcn ?? existing.bcn ?? resolvedCollectionBrand,
+          mrp: item.mrp ?? existing.mrp ?? "0",
+          remarks: item.remarks ?? existing.remarks ?? "",
+          salesDescription:
+            item.salesDescription ??
+            existing.salesDescription ??
+            item.itemName ??
+            existing.itemName ??
+            "",
+          verticalRepeat: item.verticalRepeat ?? existing.verticalRepeat ?? "",
+          horizontalRepeat: item.horizontalRepeat ?? existing.horizontalRepeat ?? ""
         };
 
         if (index !== -1) {
@@ -2333,7 +2476,6 @@ export async function updateItemsAction({
           updatedProducts.push(itemData);
         }
       });
-
 
     // ----------------------------
     // SAVE
@@ -2682,3 +2824,6 @@ export async function startVisitAction(customerId: string, dealDocId: string, vi
     return { success: false, message: `Failed to start visit: ${error.message}` };
   }
 }
+
+
+
