@@ -886,7 +886,7 @@ export function PmsOperationsTabs({ vm }: PmsOperationsTabsProps) {
                             Boolean(row.currentJobId);
                           const manualDoneLabel = canManualDone
                             ? "Manual Done"
-                            : "Manual Done only after Cutting / Assembly";
+                            : "Manual Done only after Cutting / Packaging";
                           return (
                             <Fragment key={row.key}>
                               <TableRow>

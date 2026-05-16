@@ -296,6 +296,22 @@ function EditCustomerDialog({
   const [instantOrderId,      setInstantOrderId]      = useState("");
   const [instantOrderAmount,  setInstantOrderAmount]  = useState("");
   const [instantInvoiceNo,    setInstantInvoiceNo]    = useState("");
+  const [dealPickerOpen,      setDealPickerOpen]      = useState(false);
+  const [dealPickerLoading,   setDealPickerLoading]   = useState(false);
+  const [dealPickerError,     setDealPickerError]     = useState("");
+  const [dealPickerSearch,    setDealPickerSearch]    = useState("");
+  const [dealOptions,         setDealOptions]         = useState<Array<{
+    docId: string;
+    customerId: string;
+    dealId: string;
+    dealName: string;
+    status: string;
+    measurementRequired: string;
+    advanceForMeasurement: string;
+    createdAtLabel: string;
+    createdAtMs: number;
+  }>>([]);
+  const [selectedDealDocId,   setSelectedDealDocId]   = useState("");
   const [useDifferentBillingDetails, setUseDifferentBillingDetails] = useState(false);
   const [billingName,         setBillingName]         = useState("");
   const [billingPhone,        setBillingPhone]        = useState("");
@@ -342,7 +358,7 @@ function EditCustomerDialog({
     setMeasurementRequired(c.measurementRequired || ds.measurementRequired || "");
     setLatestDealId(c.latestDealId || ds.dealId || "");
     setLatestDealDocId(c.latestDealDocId || ds.dealDocId || "");
-    setDealCustomerId(ds.customerId || "");
+    setDealCustomerId(ds.customerId || c.dealCustomerId || c.customerId || "");
     setDealName(ds.dealName || "");
     setDealMode(hasInstantSale ? "instant_sale" : "deal");
     setInstantDealNo(String(cashsale?.dealId || c.latestDealId || ds.dealId || ""));
@@ -362,14 +378,149 @@ function EditCustomerDialog({
     setPaymentAmount(c.paymentAmount != null ? String(c.paymentAmount) : "");
     setPaymentMethod(c.paymentMethod || "");
     setPaymentNote(c.paymentNote || "");
+    setDealPickerOpen(false);
+    setDealPickerLoading(false);
+    setDealPickerError("");
+    setDealPickerSearch("");
+    setDealOptions([]);
+    setSelectedDealDocId("");
     setActiveSection("basic");
   }, [customer?.id]);
-
-  if (!customer) return null;
 
   const isPayment = PAYMENT_TYPES.includes(leadType);
   const isDealCreated = status === "Deal Created";
   const isInstantSale = isDealCreated && dealMode === "instant_sale";
+  const normalizeYesNoField = (value: string, fallback: string) => {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (normalized === "yes") return "Yes";
+    if (normalized === "no") return "No";
+    if (normalized === "old") return "Yes";
+    return fallback;
+  };
+
+  useEffect(() => {
+    if (!dealPickerOpen) return;
+    const customerId = dealCustomerId.trim();
+    if (!customerId) {
+      setDealPickerError("Customer ID is required to fetch deals.");
+      setDealPickerLoading(false);
+      setDealOptions([]);
+      setSelectedDealDocId("");
+      return;
+    }
+
+    const parseDealDate = (value: any): Date | null => {
+      if (!value) return null;
+      if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+      if (typeof value?.toDate === "function") {
+        const fromTimestamp = value.toDate();
+        if (fromTimestamp instanceof Date && !Number.isNaN(fromTimestamp.getTime())) {
+          return fromTimestamp;
+        }
+      }
+      if (typeof value === "string" || typeof value === "number") {
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+      }
+      if (typeof value?.seconds === "number") {
+        const parsed = new Date(value.seconds * 1000);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+      }
+      return null;
+    };
+
+    let cancelled = false;
+    const loadDeals = async () => {
+      setDealPickerLoading(true);
+      setDealPickerError("");
+      try {
+        const dealsSnap = await getDocs(collection(db, "customers", customerId, "deals"));
+        if (cancelled) return;
+        const parsedDeals = dealsSnap.docs
+          .map((dealDoc) => {
+            const data = (dealDoc.data() || {}) as Record<string, any>;
+            const createdAtDate = parseDealDate(data.createdAt || data?.dates?.createdAt || data.lastUpdatedAt);
+            return {
+              docId: dealDoc.id,
+              customerId: String(data?.customer?.id || data.customerId || customerId).trim(),
+              dealId: String(data.dealId || dealDoc.id || "").trim(),
+              dealName: String(data.dealName || data.title || "").trim(),
+              status: String(data.status || "").trim(),
+              measurementRequired: String(data.measurementRequired || "").trim(),
+              advanceForMeasurement: String(data.advanceForMeasurement || "").trim(),
+              createdAtLabel: createdAtDate ? format(createdAtDate, "dd MMM yyyy, hh:mm a") : "—",
+              createdAtMs: createdAtDate ? createdAtDate.getTime() : 0,
+            };
+          })
+          .sort((a, b) => b.createdAtMs - a.createdAtMs);
+
+        setDealOptions(parsedDeals);
+        if (!parsedDeals.length) {
+          setDealPickerError("No deals found for this customer.");
+          setSelectedDealDocId("");
+          return;
+        }
+
+        setSelectedDealDocId((previousValue) => {
+          if (previousValue && parsedDeals.some((deal) => deal.docId === previousValue)) return previousValue;
+          const mappedLatestDocId = latestDealDocId.trim();
+          if (mappedLatestDocId && parsedDeals.some((deal) => deal.docId === mappedLatestDocId)) return mappedLatestDocId;
+          return parsedDeals[0].docId;
+        });
+      } catch (error) {
+        console.error("Failed to load customer deals for walkin edit dialog:", error);
+        if (cancelled) return;
+        setDealOptions([]);
+        setSelectedDealDocId("");
+        setDealPickerError("Unable to load deals right now. Try again.");
+      } finally {
+        if (!cancelled) setDealPickerLoading(false);
+      }
+    };
+
+    void loadDeals();
+    return () => {
+      cancelled = true;
+    };
+  }, [dealPickerOpen, dealCustomerId, latestDealDocId]);
+
+  if (!customer) return null;
+
+  const filteredDealOptions = dealOptions.filter((deal) => {
+    const keyword = dealPickerSearch.trim().toLowerCase();
+    if (!keyword) return true;
+    return [deal.dealId, deal.docId, deal.dealName, deal.status]
+      .map((value) => value.toLowerCase())
+      .some((value) => value.includes(keyword));
+  });
+
+  const handleOpenDealPicker = () => {
+    setValidationError("");
+    setDealPickerError("");
+    if (!dealCustomerId.trim()) {
+      setValidationError("Customer ID is required before selecting a deal.");
+      return;
+    }
+    setDealPickerSearch("");
+    setDealPickerOpen(true);
+  };
+
+  const handleApplySelectedDeal = () => {
+    const selectedDeal = dealOptions.find((deal) => deal.docId === selectedDealDocId);
+    if (!selectedDeal) {
+      setDealPickerError("Select a deal first.");
+      return;
+    }
+    setLatestDealId(selectedDeal.dealId || latestDealId);
+    setLatestDealDocId(selectedDeal.docId || latestDealDocId);
+    setDealCustomerId(selectedDeal.customerId || dealCustomerId);
+    setDealName(selectedDeal.dealName || dealName || "WalkIn");
+    setMeasurementRequired(normalizeYesNoField(selectedDeal.measurementRequired, measurementRequired || "No"));
+    setAdvanceReceived(normalizeYesNoField(selectedDeal.advanceForMeasurement, advanceReceived || "No"));
+    setInquiryStatus((previousValue) => previousValue.trim() || "Inquery made");
+    setValidationError("");
+    setDealPickerOpen(false);
+  };
 
   const handleSave = async () => {
     setValidationError("");
@@ -588,6 +739,9 @@ function EditCustomerDialog({
                     setStatus(value);
                     setValidationError("");
                     if (value === "Deal Created" && !inquiryStatus.trim()) setInquiryStatus("Inquery made");
+                    if (value === "Deal Created" && dealMode === "deal" && dealCustomerId.trim()) {
+                      setDealPickerOpen(true);
+                    }
                   }}
                 >
                   <SelectTrigger className="rounded-xl border-slate-200 h-9 text-sm"><SelectValue placeholder="Select status" /></SelectTrigger>
@@ -614,7 +768,16 @@ function EditCustomerDialog({
                   </div>
                   <div className="space-y-1.5">
                     <FL req>Deal Flow</FL>
-                    <Select value={dealMode} onValueChange={(value) => setDealMode(value as "deal" | "instant_sale")}>
+                    <Select
+                      value={dealMode}
+                      onValueChange={(value) => {
+                        const nextMode = value as "deal" | "instant_sale";
+                        setDealMode(nextMode);
+                        if (nextMode === "deal" && status === "Deal Created" && dealCustomerId.trim()) {
+                          setDealPickerOpen(true);
+                        }
+                      }}
+                    >
                       <SelectTrigger className="rounded-xl border-emerald-200 h-9 text-sm bg-white"><SelectValue placeholder="Select flow" /></SelectTrigger>
                       <SelectContent className="rounded-xl">
                         <SelectItem value="deal">Regular Deal</SelectItem>
@@ -645,14 +808,31 @@ function EditCustomerDialog({
                     </div>
                   </div>
                   {!isInstantSale && (
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <FL req>Latest Deal ID</FL>
-                        <Input value={latestDealId} onChange={e => setLatestDealId(e.target.value)} placeholder="e.g. DEAL-043" className="rounded-xl border-emerald-200 h-9 text-sm bg-white font-mono" />
+                    <div className="space-y-3 rounded-xl border border-emerald-200/70 bg-white/70 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-[11px] font-semibold text-emerald-800">Pick Existing Deal</p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleOpenDealPicker}
+                          className="h-7 rounded-lg border-emerald-300 text-emerald-700 hover:bg-emerald-100"
+                        >
+                          Select Deal
+                        </Button>
                       </div>
-                      <div className="space-y-1.5">
-                        <FL req>Latest Deal Doc ID</FL>
-                        <Input value={latestDealDocId} onChange={e => setLatestDealDocId(e.target.value)} placeholder="Firestore deal doc id" className="rounded-xl border-emerald-200 h-9 text-sm bg-white font-mono" />
+                      <p className="text-[10px] text-emerald-700/80">
+                        Open dialog, select a deal card, and fields below auto-fill.
+                      </p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <FL req>Latest Deal ID</FL>
+                          <Input value={latestDealId} onChange={e => setLatestDealId(e.target.value)} placeholder="e.g. DEAL-043" className="rounded-xl border-emerald-200 h-9 text-sm bg-white font-mono" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <FL req>Latest Deal Doc ID</FL>
+                          <Input value={latestDealDocId} onChange={e => setLatestDealDocId(e.target.value)} placeholder="Firestore deal doc id" className="rounded-xl border-emerald-200 h-9 text-sm bg-white font-mono" />
+                        </div>
                       </div>
                     </div>
                   )}
@@ -833,6 +1013,96 @@ function EditCustomerDialog({
           </Button>
         </div>
       </DialogContent>
+
+      <Dialog open={dealPickerOpen} onOpenChange={setDealPickerOpen}>
+        <DialogContent className="sm:max-w-2xl rounded-2xl border-slate-200 p-0 overflow-hidden max-h-[88vh] flex flex-col">
+          <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
+            <DialogHeader>
+              <DialogTitle className="text-slate-900 text-base">Select Deal</DialogTitle>
+              <p className="text-xs text-slate-500">
+                Customer ID: <span className="font-mono">{dealCustomerId || "—"}</span>
+              </p>
+            </DialogHeader>
+            <div className="mt-3">
+              <Input
+                value={dealPickerSearch}
+                onChange={(event) => setDealPickerSearch(event.target.value)}
+                placeholder="Search by deal id, doc id, name, status..."
+                className="h-9 rounded-xl border-slate-200 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+            {dealPickerLoading ? (
+              [...Array(4)].map((_, idx) => (
+                <Skeleton key={idx} className="h-24 rounded-xl w-full" />
+              ))
+            ) : dealPickerError ? (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 flex items-start gap-2">
+                <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                <span>{dealPickerError}</span>
+              </div>
+            ) : filteredDealOptions.length ? (
+              filteredDealOptions.map((deal) => {
+                const isSelected = selectedDealDocId === deal.docId;
+                return (
+                  <button
+                    key={deal.docId}
+                    type="button"
+                    onClick={() => setSelectedDealDocId(deal.docId)}
+                    className={`w-full text-left rounded-xl border p-3 transition-colors ${
+                      isSelected
+                        ? "border-indigo-300 bg-indigo-50/70"
+                        : "border-slate-200 bg-white hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{deal.dealName || "Untitled Deal"}</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Deal ID <span className="font-mono text-slate-700">{deal.dealId || "—"}</span>
+                          {" · "}
+                          Doc <span className="font-mono text-slate-700">{deal.docId}</span>
+                        </p>
+                      </div>
+                      {isSelected && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
+                          <CheckCircle2 className="h-3 w-3" />
+                          Selected
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-slate-500">
+                      <span>Status: <span className="font-semibold text-slate-700">{deal.status || "—"}</span></span>
+                      <span>Measurement: <span className="font-semibold text-slate-700">{deal.measurementRequired || "—"}</span></span>
+                      <span>Advance: <span className="font-semibold text-slate-700">{deal.advanceForMeasurement || "—"}</span></span>
+                      <span>Created: <span className="font-semibold text-slate-700">{deal.createdAtLabel}</span></span>
+                    </div>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-6 text-center text-xs text-slate-500">
+                No deals matched your search.
+              </div>
+            )}
+          </div>
+
+          <div className="px-5 py-4 border-t border-slate-100 bg-white flex items-center justify-end gap-2">
+            <Button variant="outline" onClick={() => setDealPickerOpen(false)} className="rounded-xl border-slate-200">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleApplySelectedDeal}
+              disabled={dealPickerLoading || !selectedDealDocId}
+              className="rounded-xl bg-indigo-600 hover:bg-indigo-700"
+            >
+              Use Selected Deal
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

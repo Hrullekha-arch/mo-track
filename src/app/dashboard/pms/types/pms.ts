@@ -288,15 +288,19 @@ export type LiveVasStats = {
 
 export type PmsNextDayPlanRow = {
   key: string;
+  planId: string;
   orderNo: string;
   customer: string;
   vasName: string;
   process: string;
+  personId: string;
   person: string;
+  machineId: string;
   machine: string;
   plannedStart?: string;
   plannedEnd?: string;
   qty: number;
+  dateKey: string;
 };
 
 export type PmsStats = {

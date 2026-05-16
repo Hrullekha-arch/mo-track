@@ -44,6 +44,9 @@ export interface MecaVisitRow {
   status: string;
   attended: boolean;
   visitType: string;
+  dealId?: string;
+  dealDocId?: string;
+  converted?: boolean;
 }
 
 export interface MecaSalesmanMetric {
@@ -123,6 +126,7 @@ const EMPTY_RESPONSE: MecaResponse = {
 };
 
 const normalizeText = (value: unknown): string => String(value ?? "").trim().toLowerCase();
+const isOutsideVisitType = (value: unknown): boolean => normalizeText(value).includes("outside");
 
 const asNonEmptyString = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined;
@@ -371,6 +375,16 @@ const shouldSkipWalkinMeeting = (walkin: RawDoc): boolean => {
   return false;
 };
 
+const isWalkinFollowUpClosedStatus = (status: unknown): boolean => {
+  const normalized = normalizeText(status);
+  if (!normalized) return false;
+  if (normalized.includes("completed")) return true;
+  if (normalized.includes("purchased")) return true;
+  if (normalized.includes("installation done")) return true;
+  if (normalized.includes("closed")) return true;
+  return false;
+};
+
 const isOrderClosedStatus = (statusLabel: string): boolean => {
   const normalized = normalizeText(statusLabel);
   if (!normalized) return false;
@@ -532,6 +546,21 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
 
     const metricsBySalesmanId = new Map<string, MutableSalesmanMetric>();
     const attendedMeetingSignalsBySalesman = new Map<string, AttendedMeetingSignals>();
+    const convertedOrderDealKeysBySalesman = new Map<string, Set<string>>();
+    const convertedOrderWalkinKeysBySalesman = new Map<string, Set<string>>();
+    const addKeysBySalesman = (
+      storage: Map<string, Set<string>>,
+      salesmanId: string,
+      values: string[]
+    ) => {
+      if (!values.length) return;
+      const bucket = storage.get(salesmanId) ?? new Set<string>();
+      values.forEach((value) => {
+        const key = normalizeKey(value);
+        if (key) bucket.add(key);
+      });
+      storage.set(salesmanId, bucket);
+    };
     const ensureMetric = (salesman: MecaSalesmanOption): MutableSalesmanMetric => {
       let metric = metricsBySalesmanId.get(salesman.id);
       if (!metric) {
@@ -580,6 +609,12 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
 
     (walkinsSnap?.docs ?? []).forEach((doc) => {
       const walkin = doc.data() as RawDoc;
+      const assignedOwnerType = normalizeText(walkin.assignedOwnerType);
+      const hasSalesmanAssignment =
+        Boolean(asNonEmptyString(walkin.salesmanId)) ||
+        (assignedOwnerType === "salesman" && Boolean(asNonEmptyString(walkin.assignedOwnerId)));
+      if (!hasSalesmanAssignment) return;
+
       const meetingDate =
         walkin.assignedAt ??
         walkin.createdAt ??
@@ -588,7 +623,7 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
       if (shouldSkipWalkinMeeting(walkin)) return;
 
       const salesman = registerSalesman(
-        walkin.salesmanId ?? walkin.assignedOwnerId,
+        walkin.salesmanId ?? (assignedOwnerType === "salesman" ? walkin.assignedOwnerId : undefined),
         walkin.salesmanName ?? walkin.handoverToName
       );
       if (!salesman) return;
@@ -627,6 +662,20 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
         asNonEmptyString(walkin.status) ??
         (attended ? "Attended" : "Pending");
       const walkinId = asNonEmptyString(walkin.walkinId) ?? doc.id;
+      const walkinDealSnapshot = asRecord(walkin.dealSnapshot);
+      const walkinDealRef = asRecord(walkin.dealRef);
+      const walkinCashsale = asRecord(walkin.cashsale);
+      const visitDealId =
+        asNonEmptyString(walkin.latestDealId) ??
+        asNonEmptyString(walkin.dealId) ??
+        asNonEmptyString(walkinDealSnapshot.dealId) ??
+        asNonEmptyString(walkinDealRef.dealId) ??
+        asNonEmptyString(walkinCashsale.dealId);
+      const visitDealDocId =
+        asNonEmptyString(walkin.latestDealDocId) ??
+        asNonEmptyString(walkinDealSnapshot.dealDocId) ??
+        asNonEmptyString(walkinDealRef.dealDocId);
+      const outsideVisit = isOutsideVisitType(visitType);
 
       metric.visitRows.push({
         visitId: walkinId,
@@ -635,6 +684,9 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
         status: visitStatus,
         attended,
         visitType,
+        dealId: visitDealId,
+        dealDocId: visitDealDocId,
+        converted: outsideVisit ? undefined : false,
       });
     });
 
@@ -651,12 +703,13 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
       const metric = ensureMetric(salesman);
       metric.convertedOrders += 1;
       metric.totalRevenue += resolveOrderAmount(order);
+      addKeysBySalesman(convertedOrderDealKeysBySalesman, salesman.id, collectOrderDealKeys(order));
+      addKeysBySalesman(convertedOrderWalkinKeysBySalesman, salesman.id, collectOrderLeadKeys(order));
       const convertedFromMeeting = isOrderAttributedToMeeting(
         order,
         attendedMeetingSignalsBySalesman.get(salesman.id)
       );
-      if (convertedFromMeeting) metric.convertedFromMeetings += 1;
-      else metric.convertedOutsideMeetings += 1;
+      if (!convertedFromMeeting) metric.convertedOutsideMeetings += 1;
 
       const dealId = asNonEmptyString(order.dealId);
       const orderMilestones = dealId
@@ -696,6 +749,35 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
       } else {
         metric.completedOrders += 1;
       }
+    });
+
+    metricsBySalesmanId.forEach((entry, salesmanId) => {
+      const convertedDealKeys = convertedOrderDealKeysBySalesman.get(salesmanId) ?? new Set<string>();
+      const convertedWalkinKeys = convertedOrderWalkinKeysBySalesman.get(salesmanId) ?? new Set<string>();
+      let convertedFromWalkinMeetings = 0;
+
+      entry.visitRows = entry.visitRows.map((visit) => {
+        if (isOutsideVisitType(visit.visitType)) {
+          return { ...visit, converted: undefined };
+        }
+
+        const visitKeys = [
+          normalizeKey(visit.visitId),
+          normalizeKey(visit.dealId),
+          normalizeKey(visit.dealDocId),
+        ].filter((key): key is string => Boolean(key));
+
+        const convertedByOrder = visitKeys.some(
+          (key) => convertedWalkinKeys.has(key) || convertedDealKeys.has(key)
+        );
+        const convertedByClosedStatus = isWalkinFollowUpClosedStatus(visit.status);
+        const converted = convertedByOrder || convertedByClosedStatus;
+
+        if (convertedByOrder) convertedFromWalkinMeetings += 1;
+        return { ...visit, converted };
+      });
+
+      entry.convertedFromMeetings = convertedFromWalkinMeetings;
     });
 
     let salesmen = Array.from(metricsBySalesmanId.values());

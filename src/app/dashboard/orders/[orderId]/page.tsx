@@ -105,6 +105,7 @@ import { getStockById } from "@/app/dashboard/inventory/actions";
 import {
   allocateStockToAction,
   getAvailableStockLengths,
+  createPurchaseRequestForOrderItemsAction,
 } from "./actions";
 import {
   Dialog,
@@ -151,6 +152,7 @@ type ItemStatus =
   | { kind: "invoiced"; tallyNo: string }
   | { kind: "allocated" }
   | { kind: "in_stock" }
+  | { kind: "pr_created" }
   | { kind: "po_generated"; poNumber: string }
   | { kind: "pending_po" };
 
@@ -443,7 +445,7 @@ function useOrderItems(
         getDocs(
           query(
             collection(db, "purchaseRequests"),
-            where("dealId", "==", order.crmOrderNo)
+            where("dealId", "==", order.crmOrderNo || order.dealId || order.id)
           )
         ),
         getDocs(
@@ -537,18 +539,24 @@ function useOrderItems(
             status = { kind: "in_stock" };
           } else {
             let poFound = false;
+            let prFound = false;
             for (const poDoc of poSnaps.docs) {
               const poData = poDoc.data() as PurchaseRequest;
               const poItem = poData.fabricDetails?.find(
                 (pi) => pi.fabricName === itemName
               );
+              if (poItem) {
+                prFound = true;
+              }
               if (poItem?.poNumber) {
                 status = { kind: "po_generated", poNumber: poItem.poNumber };
                 poFound = true;
                 break;
               }
             }
-            if (!poFound) status = { kind: "pending_po" };
+            if (!poFound) {
+              status = prFound ? { kind: "pr_created" } : { kind: "pending_po" };
+            }
           }
         }
 
@@ -917,6 +925,12 @@ function StatusBadge({
           <Package className="h-3 w-3" /> In Stock
         </Badge>
       );
+    case "pr_created":
+      return (
+        <Badge variant="outline" className="gap-1">
+          <Package className="h-3 w-3" /> PR Created
+        </Badge>
+      );
     case "po_generated":
       return (
         <Badge variant="outline" className="gap-1">
@@ -941,11 +955,19 @@ function OrderItemRow({
   order,
   orderId,
   onAllocationSuccess,
+  showSelection,
+  selectionChecked,
+  selectionDisabled,
+  onSelectionChange,
 }: {
   resolved: ResolvedOrderItem;
   order: Order;
   orderId: string;
   onAllocationSuccess: () => void;
+  showSelection?: boolean;
+  selectionChecked?: boolean;
+  selectionDisabled?: boolean;
+  onSelectionChange?: (checked: boolean) => void;
 }) {
   const { item, stock, allocatedQty, imsQty, imsDate, status, index } =
     resolved;
@@ -957,6 +979,16 @@ function OrderItemRow({
 
   return (
     <TableRow className="group hover:bg-muted/30 transition-colors">
+      {showSelection && (
+        <TableCell className="w-10">
+          <Checkbox
+            checked={!!selectionChecked}
+            disabled={selectionDisabled}
+            onCheckedChange={(checked) => onSelectionChange?.(Boolean(checked))}
+            aria-label={`Select ${name}`}
+          />
+        </TableCell>
+      )}
       <TableCell className="text-muted-foreground text-xs w-8">
         {index + 1}
       </TableCell>
@@ -1067,12 +1099,137 @@ function AllocateOrderTable({
   refreshKey: number;
 }) {
   const { toast } = useToast();
+  const { user, role } = useAuth();
+  const isAdmin = role === "admin";
   const [isPrintingLabels, setIsPrintingLabels] = useState(false);
+  const [isCreatingPr, setIsCreatingPr] = useState(false);
+  const [selectedPrItems, setSelectedPrItems] = useState<Record<string, boolean>>({});
   const { resolvedItems, isLoading } = useOrderItems(order, order.id, refreshKey);
   const allocatedItemsForLabels = useMemo(
     () => getAllocatedItemsForLabels(order),
     [order]
   );
+
+  const getPrSelectionKey = useCallback((resolved: ResolvedOrderItem) => {
+    const lineId = String((resolved.item as any)?.lineId || "").trim();
+    if (lineId) return `line:${lineId}`;
+    return `name:${normalizeItemKey(getItemName(resolved.item))}`;
+  }, []);
+
+  const isPrSelectableItem = useCallback(
+    (resolved: ResolvedOrderItem) =>
+      resolved.item.type === "Fabric" && resolved.status.kind === "pending_po",
+    []
+  );
+
+  const prSelectableRows = useMemo(
+    () => resolvedItems.filter((row) => isPrSelectableItem(row)),
+    [resolvedItems, isPrSelectableItem]
+  );
+
+  const selectedPrRows = useMemo(
+    () =>
+      prSelectableRows.filter((row) => selectedPrItems[getPrSelectionKey(row)]),
+    [prSelectableRows, selectedPrItems, getPrSelectionKey]
+  );
+
+  const allSelectableSelected =
+    prSelectableRows.length > 0 && selectedPrRows.length === prSelectableRows.length;
+
+  useEffect(() => {
+    const allowedKeys = new Set(prSelectableRows.map((row) => getPrSelectionKey(row)));
+    setSelectedPrItems((prev) => {
+      const next: Record<string, boolean> = {};
+      Object.entries(prev).forEach(([key, checked]) => {
+        if (checked && allowedKeys.has(key)) {
+          next[key] = true;
+        }
+      });
+      return next;
+    });
+  }, [prSelectableRows, getPrSelectionKey]);
+
+  const toggleSelectAllPrRows = useCallback(
+    (checked: boolean) => {
+      if (!checked) {
+        setSelectedPrItems({});
+        return;
+      }
+      const next: Record<string, boolean> = {};
+      prSelectableRows.forEach((row) => {
+        next[getPrSelectionKey(row)] = true;
+      });
+      setSelectedPrItems(next);
+    },
+    [prSelectableRows, getPrSelectionKey]
+  );
+
+  const handleCreatePrForSelected = useCallback(async () => {
+    if (!isAdmin) {
+      toast({
+        variant: "destructive",
+        title: "Permission Denied",
+        description: "Only admin can create PR from selected items.",
+      });
+      return;
+    }
+    if (!user?.id) {
+      toast({
+        variant: "destructive",
+        title: "Missing user",
+        description: "Please login again and retry.",
+      });
+      return;
+    }
+    if (!selectedPrRows.length) {
+      toast({
+        variant: "destructive",
+        title: "No items selected",
+        description: "Select at least one pending PO item.",
+      });
+      return;
+    }
+
+    setIsCreatingPr(true);
+    try {
+      const result = await createPurchaseRequestForOrderItemsAction({
+        orderId: order.id,
+        actor: {
+          id: user.id,
+          name: user.name || "Admin",
+        },
+        items: selectedPrRows.map((row) => ({
+          lineId: String((row.item as any)?.lineId || "").trim() || undefined,
+          bcn: getBcnFromItem(row.item) || undefined,
+          itemName: getItemName(row.item),
+          quantity: String(getItemQty(row.item)),
+        })),
+      });
+
+      if (result.success) {
+        setSelectedPrItems({});
+        toast({
+          title: "PR Created",
+          description: result.message,
+        });
+        onAllocationSuccess();
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Could not create PR",
+          description: result.message,
+        });
+      }
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error?.message || "Failed to create purchase request.",
+      });
+    } finally {
+      setIsCreatingPr(false);
+    }
+  }, [isAdmin, onAllocationSuccess, order.id, selectedPrRows, toast, user?.id, user?.name]);
 
   const handlePrintAllocationLabels = useCallback(async () => {
     if (!allocatedItemsForLabels.length) {
@@ -1216,26 +1373,61 @@ function AllocateOrderTable({
             {isLoading ? "loading…" : "up to date"}
           </CardDescription>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void handlePrintAllocationLabels()}
-          disabled={!allocatedItemsForLabels.length || isPrintingLabels}
-          className="shrink-0"
-        >
-          {isPrintingLabels ? (
-            <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Printer className="mr-2 h-3.5 w-3.5" />
+        <div className="flex flex-wrap items-center gap-2">
+          {isAdmin && (
+            <Button
+              size="sm"
+              onClick={() => void handleCreatePrForSelected()}
+              disabled={!selectedPrRows.length || isCreatingPr}
+              className="shrink-0"
+            >
+              {isCreatingPr ? (
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              {isCreatingPr
+                ? "Creating PR…"
+                : `Create PR (${selectedPrRows.length})`}
+            </Button>
           )}
-          {isPrintingLabels ? "Preparing…" : "Print Labels"}
-        </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handlePrintAllocationLabels()}
+            disabled={!allocatedItemsForLabels.length || isPrintingLabels}
+            className="shrink-0"
+          >
+            {isPrintingLabels ? (
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Printer className="mr-2 h-3.5 w-3.5" />
+            )}
+            {isPrintingLabels ? "Preparing…" : "Print Labels"}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         <div className="border-t">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
+                {isAdmin && (
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={
+                        allSelectableSelected
+                          ? true
+                          : selectedPrRows.length > 0
+                          ? "indeterminate"
+                          : false
+                      }
+                      onCheckedChange={(checked) =>
+                        toggleSelectAllPrRows(Boolean(checked))
+                      }
+                      disabled={!prSelectableRows.length || isCreatingPr}
+                      aria-label="Select all pending PO items"
+                    />
+                  </TableHead>
+                )}
                 <TableHead className="w-8">#</TableHead>
                 <TableHead>BCN / Item</TableHead>
                 <TableHead>Serial No</TableHead>
@@ -1255,12 +1447,21 @@ function AllocateOrderTable({
                     order={order}
                     orderId={order.id}
                     onAllocationSuccess={onAllocationSuccess}
+                    showSelection={isAdmin}
+                    selectionChecked={!!selectedPrItems[getPrSelectionKey(r)]}
+                    selectionDisabled={!isPrSelectableItem(r) || isCreatingPr}
+                    onSelectionChange={(checked) =>
+                      setSelectedPrItems((prev) => ({
+                        ...prev,
+                        [getPrSelectionKey(r)]: checked,
+                      }))
+                    }
                   />
                 ))
               ) : (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={isAdmin ? 9 : 8}
                     className="h-24 text-center text-muted-foreground text-sm"
                   >
                     No items in this order.

@@ -63,6 +63,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -111,6 +112,9 @@ const normalizeCustomerNameKey = (value: unknown): string | undefined => {
   if (!normalized || normalized === "customer" || normalized === "unknown") return undefined;
   return normalized;
 };
+
+const isOutsideVisitType = (value?: string): boolean =>
+  String(value ?? "").trim().toLowerCase().includes("outside");
 
 const EMPTY_SUMMARY: MecaSummary = {
   meetings: 0,
@@ -742,6 +746,9 @@ function SalesmanDetailView({
   const detailConversionRatio =
     meetingBaseTotal > 0 ? (sm.convertedOrders / meetingBaseTotal) * 100 : 0;
   const [orderSourceFilter, setOrderSourceFilter] = useState<"all" | "meeting" | "outside">("all");
+  const [nonConvertedSourceFilter, setNonConvertedSourceFilter] = useState<
+    "all" | "walkin" | "outside"
+  >("all");
   const displayedConvertedOrders =
     orderSourceFilter === "all"
       ? myConvertedOrders
@@ -750,6 +757,17 @@ function SalesmanDetailView({
     (sum, order) => sum + order.totalAmount,
     0
   );
+  const nonConvertedWalkinVisits = useMemo(() => {
+    const visits = sm.visits ?? [];
+    if (visits.length === 0) return [] as MecaVisitRow[];
+    return visits.filter((visit) => !isOutsideVisitType(visit.visitType) && !visit.converted);
+  }, [sm.visits]);
+  const walkinNonConvertedCount = nonConvertedWalkinVisits.length;
+  const outsideNonConvertedCount = 0;
+  const nonConvertedTotalCount = walkinNonConvertedCount + outsideNonConvertedCount;
+  const displayedNonConvertedVisits =
+    nonConvertedSourceFilter === "outside" ? [] : nonConvertedWalkinVisits;
+  const nonConvertedMappingGap = 0;
   const customerMeetingSummary = useMemo(() => {
     const summaryMap = new Map<
       string,
@@ -863,6 +881,10 @@ function SalesmanDetailView({
           <TabsTrigger value="pipeline" className="flex items-center gap-1.5">
             <Clock className="h-3.5 w-3.5" /> Active Pipeline
             <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{activeOrders}</Badge>
+          </TabsTrigger>
+          <TabsTrigger value="non_converted" className="flex items-center gap-1.5">
+            <XCircle className="h-3.5 w-3.5" /> Not Converted
+            <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{nonConvertedTotalCount}</Badge>
           </TabsTrigger>
         </TabsList>
 
@@ -1159,6 +1181,134 @@ function SalesmanDetailView({
         <TabsContent value="pipeline" className="mt-4">
           <PipelineListView sm={sm} orders={myInProcessOrders} loading={loading} />
         </TabsContent>
+
+        {/* Not Converted Tab */}
+        <TabsContent value="non_converted" className="mt-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <CardTitle className="text-sm font-semibold">Non-Converted Follow-ups</CardTitle>
+                  <CardDescription className="text-xs">
+                    {meetingBaseTotal} total opportunities | {totalOrders} converted | {nonConvertedTotalCount} non-converted
+                  </CardDescription>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <div className="inline-flex items-center gap-1 text-xs text-rose-600 font-semibold">
+                    <XCircle className="h-3.5 w-3.5" /> {nonConvertedTotalCount} pending
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-2">
+                {(
+                  [
+                    { key: "all", label: "All", count: nonConvertedTotalCount },
+                    { key: "walkin", label: "Walk-in", count: walkinNonConvertedCount },
+                    { key: "outside", label: "Outside", count: outsideNonConvertedCount },
+                  ] as const
+                ).map((source) => (
+                  <button
+                    key={source.key}
+                    onClick={() => setNonConvertedSourceFilter(source.key)}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold border transition-all",
+                      nonConvertedSourceFilter === source.key
+                        ? "bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-900/40 dark:text-rose-200"
+                        : "bg-muted/40 text-muted-foreground border-border hover:bg-muted"
+                    )}
+                  >
+                    {source.label}
+                    <span className="bg-white/60 dark:bg-black/30 rounded-full px-1.5 py-0.5 text-[10px] font-bold">
+                      {source.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </CardHeader>
+
+            <CardContent className="space-y-3">
+              {nonConvertedSourceFilter === "outside" ? (
+                <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  Outside non-converted is {outsideNonConvertedCount} for this range.
+                </div>
+              ) : displayedNonConvertedVisits.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  No walk-in follow-up records found.
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border max-h-[380px] overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/40 sticky top-0">
+                        <TableHead className="w-10 text-center">#</TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-center">Date</TableHead>
+                        <TableHead className="text-center">Follow-up</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {displayedNonConvertedVisits.map((visit, idx) => (
+                        <TableRow key={`${visit.visitId}-${idx}`}>
+                          <TableCell className="text-center text-xs text-muted-foreground">
+                            {idx + 1}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            <div className="space-y-0.5">
+                              <p>{visit.customerName}</p>
+                              <p className="font-mono text-[10px] text-muted-foreground">
+                                WalkIn: {visit.visitId}
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-xs capitalize">
+                              {visit.visitType}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-xs capitalize text-muted-foreground">
+                              {visit.status}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-center text-xs text-muted-foreground">
+                            {visit.scheduledDate && visit.scheduledDate !== new Date(0).toISOString()
+                              ? format(new Date(visit.scheduledDate), "dd MMM yy")
+                              : "-"}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Badge className="bg-rose-100 text-rose-800 border border-rose-300 dark:bg-rose-900/40 dark:text-rose-200">
+                              Pending
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              <div className="mt-1 flex items-center justify-between px-3 py-2 bg-muted/40 rounded-lg text-xs">
+                <span>
+                  Walk-in non-converted: <strong>{walkinNonConvertedCount}</strong> | Outside non-converted:{" "}
+                  <strong>{outsideNonConvertedCount}</strong>
+                </span>
+                <span className="font-semibold">
+                  Total: {nonConvertedTotalCount}
+                </span>
+              </div>
+
+              {Math.abs(nonConvertedMappingGap) > 0 ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Showing {nonConvertedWalkinVisits.length} identifiable walk-in follow-up record(s). Metric count is{" "}
+                  {walkinNonConvertedCount}; difference can happen when meeting-to-order mapping is incomplete.
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
     </div>
   );
@@ -1167,6 +1317,7 @@ function SalesmanDetailView({
 // --- Main Page ---
 
 export default function MecaPage() {
+  const { user, role, loading: authLoading } = useAuth();
   const { toast } = useToast();
 
   const [dateRange, setDateRange] = useState<DateRange | undefined>(INITIAL_RANGE);
@@ -1174,8 +1325,17 @@ export default function MecaPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<MecaResponse>(EMPTY_DATA);
+  const isAdmin = role === "admin";
+  const effectiveSalesmanId = !isAdmin ? user?.id ?? null : selectedSalesmanId;
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!isAdmin && !user?.id) {
+      setData(EMPTY_DATA);
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
     const load = async () => {
       setLoading(true);
@@ -1183,6 +1343,7 @@ export default function MecaPage() {
         const response = await getMecaData({
           from: dateRange?.from ? startOfDay(dateRange.from).toISOString() : undefined,
           to: dateRange?.to ? endOfDay(dateRange.to).toISOString() : undefined,
+          salesmanId: effectiveSalesmanId ?? undefined,
         });
         if (!cancelled) setData(response);
       } catch {
@@ -1194,19 +1355,32 @@ export default function MecaPage() {
     };
     load();
     return () => { cancelled = true; };
-  }, [dateRange?.from, dateRange?.to, refreshKey, toast]);
+  }, [
+    authLoading,
+    dateRange?.from,
+    dateRange?.to,
+    effectiveSalesmanId,
+    isAdmin,
+    refreshKey,
+    toast,
+    user?.id,
+  ]);
 
   // Clear selected salesman if they no longer exist in data
   useEffect(() => {
+    if (!isAdmin) return;
     if (!selectedSalesmanId) return;
     if (!data.salesmanOptions.some((o) => o.id === selectedSalesmanId))
       setSelectedSalesmanId(null);
-  }, [data.salesmanOptions, selectedSalesmanId]);
+  }, [data.salesmanOptions, isAdmin, selectedSalesmanId]);
 
-  const selectedSalesman = useMemo(
-    () => data.salesmen.find((s) => s.salesmanId === selectedSalesmanId) ?? null,
-    [data.salesmen, selectedSalesmanId],
-  );
+  const selectedSalesman = useMemo(() => {
+    if (!isAdmin) {
+      if (!user?.id) return null;
+      return data.salesmen.find((s) => s.salesmanId === user.id) ?? data.salesmen[0] ?? null;
+    }
+    return data.salesmen.find((s) => s.salesmanId === selectedSalesmanId) ?? null;
+  }, [data.salesmen, isAdmin, selectedSalesmanId, user?.id]);
 
   const s = data.summary;
   const uniqueCustomers = useMemo(() => {
@@ -1238,7 +1412,7 @@ export default function MecaPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          {selectedSalesman && (
+          {isAdmin && selectedSalesman && (
             <Button
               variant="ghost"
               size="sm"
@@ -1273,7 +1447,7 @@ export default function MecaPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {!selectedSalesman && (
+          {isAdmin && !selectedSalesman && (
             <Select
               value={selectedSalesmanId ?? "all"}
               onValueChange={(v) => setSelectedSalesmanId(v === "all" ? null : v)}
@@ -1310,6 +1484,14 @@ export default function MecaPage() {
           convertedOrders={data.convertedOrders}
           loading={loading}
         />
+      ) : !isAdmin ? (
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground">
+            {loading
+              ? "Loading your MeCA details..."
+              : "No MeCA data found for your account in the selected date range."}
+          </CardContent>
+        </Card>
       ) : (
         <>
           {/* Team KPI Cards */}

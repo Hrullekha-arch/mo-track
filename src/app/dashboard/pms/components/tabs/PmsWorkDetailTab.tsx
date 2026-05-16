@@ -88,7 +88,7 @@ export function PmsWorkDetailTab({ ctx }: Props) {
                       Boolean(row.currentJobId);
                     const manualDoneTooltip = canManualDone
                       ? "Manual Done"
-                      : "Manual Done is only available for the two checkpoint steps after Cutting and after Assembly.";
+                      : "Manual Done is only available for the two checkpoint steps after Cutting and after Packaging.";
                     const isExpanded = Boolean(ctx.expandedWorkRows?.[row.key]);
 
                     return (

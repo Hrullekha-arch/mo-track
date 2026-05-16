@@ -100,6 +100,8 @@ function SidebarNav({ className }: { className?: string }) {
       .replace(/[\s_-]/g, "");
     const isHeadSalesManager =
       normalizedRole === "headsalesmanager" || normalizedDesignation === "headsalesmanager";
+    const isAllocator =
+      normalizedDesignation === "allocators" || normalizedDesignation === "allocator";
 
     return navItems.filter(item => {
       if (!user) return false;
@@ -108,6 +110,8 @@ function SidebarNav({ className }: { className?: string }) {
       if (role === 'Hr' && item.href === "/dashboard/hr") return true;
       // Headsalesmanager can always access complain approval page.
       if (isHeadSalesManager && item.href === "/dashboard/complain-approval") return true;
+      // Allocators should always have access to inbound.
+      if (isAllocator && item.href === "/dashboard/inbound") return true;
       // For other roles, check the permissions array
       return user.permissions?.includes(item.href);
     });
@@ -288,10 +292,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, role } = useAuth();
   const mobileNavItems = React.useMemo(() => {
+    const normalizedDesignation = String((user as any)?.designation || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]/g, "");
+    const isAllocator =
+      normalizedDesignation === "allocators" || normalizedDesignation === "allocator";
+
     return navItems.filter((item) => {
       if (!user) return false;
       if (role === "admin") return true;
-      if (role === "Hr" && item.href === "/dashboard/hr") return true;
+      if (isAllocator && item.href === "/dashboard/inbound") return true;
       return user.permissions?.includes(item.href);
     });
   }, [user, role]);

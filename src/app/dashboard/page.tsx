@@ -1,4 +1,4 @@
-
+﻿
 "use client";
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -31,8 +31,12 @@ import {
   ShoppingBag,
   Users,
   RotateCcw,
+  TrendingUp,
+  XCircle,
+  Bell,
 } from "lucide-react";
 import { useEffect, useState, useMemo, useRef, use, useCallback } from "react";
+import { DateRange } from "react-day-picker";
 import {
   collection,
   onSnapshot,
@@ -62,7 +66,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { InboundRequest, Order, Quotation, PurchaseRequest, Walkin_Customer } from "@/lib/types";
 import { getFollowUpItems } from "./po-tracking/actions";
 import { useAuth } from "@/context/AuthContext";
-import { format, formatDistanceToNow } from "date-fns";
+import { endOfDay, format, formatDistanceToNow, startOfDay, subDays } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import CrmDashboard from "@/components/features/dashboard/CrmDashboard";
@@ -78,7 +82,16 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { getNormalizedOrderMilestones, isOrderComplete as isOrderWorkflowComplete } from "@/lib/order-workflow";
+import {
+  getMecaData,
+  type MecaResponse,
+  type MecaSalesmanMetric,
+  type MecaVisitRow,
+} from "./meca/actions";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 type DashboardOrderRisk = "critical" | "watch" | "stable";
 
@@ -125,6 +138,17 @@ interface TimesheetHourEntry {
   workDetail: string;
   updatedAt?: string;
   updatedBy?: { id?: string; name?: string };
+}
+
+type SalesmanUpdateCategory = "order" | "lead" | "quotation" | "purchase";
+
+interface SalesmanUpdateItem {
+  id: string;
+  category: SalesmanUpdateCategory;
+  title: string;
+  description: string;
+  href: string;
+  timestamp: Date | null;
 }
 
 const normalizeText = (value?: string) => String(value || "").trim().toLowerCase();
@@ -320,17 +344,28 @@ function StatCard({
   accent?: string;
   icon: React.ElementType;
 }) {
+  const isRed = accent?.includes("red");
+  const isGreen = accent?.includes("emerald");
+  const isOrange = accent?.includes("orange");
+
   return (
-    <div className={`rounded-2xl border bg-white px-4 py-3 shadow-sm flex items-center gap-3 ${accent || "border-slate-200"}`}>
-      <div className={`h-9 w-9 rounded-xl flex items-center justify-center flex-shrink-0 ${accent ? accent.replace("border-", "bg-").replace("-200", "-50") : "bg-slate-50"}`}>
-        <Icon className={`h-4 w-4 ${accent ? accent.replace("border-", "text-").replace("-200", "-600") : "text-slate-500"}`} />
+    <div className={`flex items-center gap-3 rounded-xl border p-3 bg-white ${accent || "border-slate-200"}`}>
+      <div className={`h-8 w-8 flex-shrink-0 rounded-lg flex items-center justify-center ${
+        isRed ? "bg-red-100 text-red-600" :
+        isGreen ? "bg-emerald-100 text-emerald-600" :
+        isOrange ? "bg-orange-100 text-orange-600" :
+        "bg-slate-100 text-slate-600"
+      }`}>
+        <Icon className="h-3.5 w-3.5" />
       </div>
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+      <div className="min-w-0">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 truncate">{label}</p>
         {loading ? (
-          <Skeleton className="h-6 w-10 mt-0.5" />
+          <Skeleton className="h-5 w-10 mt-0.5" />
         ) : (
-          <p className="text-xl font-bold text-slate-900 leading-tight">{value}</p>
+          <p className={`text-base font-bold leading-tight ${
+            isRed ? "text-red-700" : isGreen ? "text-emerald-700" : isOrange ? "text-orange-700" : "text-slate-900"
+          }`}>{value}</p>
         )}
       </div>
     </div>
@@ -339,15 +374,14 @@ function StatCard({
 
 // ─── Sub: Quick Action Card ───────────────────────────────────────────────────
 
-function QuickAction({ title, href, icon: Icon, accent }: { title: string; href: string; icon: React.ElementType; accent: string }) {
+function QuickAction({ title, href, icon: Icon }: { title: string; href: string; icon: React.ElementType; accent?: string }) {
   return (
-    <Link href={href} className="group block">
-      <div className={`flex items-center justify-between rounded-2xl border bg-white px-4 py-3.5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${accent}`}>
-        <div className="flex items-center gap-2.5">
-          <Icon className="h-4 w-4 text-orange-600" />
-          <span className="text-sm font-semibold text-slate-800">{title}</span>
+    <Link href={href} className="group flex-1 min-w-[72px]">
+      <div className="flex flex-col items-center gap-1.5 rounded-xl border border-slate-200 bg-white p-3 text-center transition-all hover:border-orange-200 hover:bg-orange-50 group-hover:-translate-y-0.5 group-hover:shadow-sm">
+        <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center group-hover:bg-orange-100 transition-colors">
+          <Icon className="h-4 w-4 text-slate-600 group-hover:text-orange-600 transition-colors" />
         </div>
-        <ChevronRight className="h-4 w-4 text-slate-400 transition-transform group-hover:translate-x-0.5" />
+        <span className="text-[11px] font-semibold text-slate-700 leading-tight">{title}</span>
       </div>
     </Link>
   );
@@ -373,81 +407,82 @@ function LeadCard({
   const isReturning = lead.customerType === "Returning-Customer";
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-orange-200 hover:shadow transition-all">
-      {/* Header row */}
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className={`h-10 w-10 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0 ${isReturning ? "bg-blue-50 text-blue-600" : "bg-orange-50 text-orange-600"}`}>
-            {(lead.firstName || "?")[0].toUpperCase()}
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <p className="font-semibold text-slate-900 truncate">{lead.firstName} {lead.familyName}</p>
-              <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${isReturning ? "bg-blue-100 text-blue-700" : "bg-orange-100 text-orange-700"}`}>
-                {isReturning ? "Returning" : "New"}
-              </span>
-            </div>
-            <p className="text-xs text-slate-500">{lead.mobile}</p>
-          </div>
+    <div className="relative flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-orange-200 hover:shadow transition-all">
+      <div className={`absolute left-0 top-4 bottom-4 w-[3px] rounded-r-full ${isReturning ? "bg-blue-400" : "bg-orange-400"}`} />
+
+      {/* Header */}
+      <div className="flex items-start gap-3 pl-3">
+        <div className={`h-9 w-9 flex-shrink-0 rounded-xl flex items-center justify-center text-sm font-bold ${isReturning ? "bg-blue-100 text-blue-700" : "bg-orange-100 text-orange-700"}`}>
+          {(lead.firstName || "?")[0].toUpperCase()}
         </div>
-
-        {/* Action buttons */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" className="h-8 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs px-3 shadow-sm">
-                Actions
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="rounded-xl border-slate-200 shadow-xl w-48">
-              <DropdownMenuGroup>
-                <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-400">Main</DropdownMenuLabel>
-                <DropdownMenuItem onClick={onInstantSale} className="rounded-lg text-sm gap-2">
-                  <Zap className="h-3.5 w-3.5 text-orange-500" /> Instant Sale
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onCreateDeal} disabled={isCreatingDeal} className="rounded-lg text-sm gap-2">
-                  <Briefcase className="h-3.5 w-3.5 text-indigo-500" /> Create Deal
-                </DropdownMenuItem>
-
-                {isReturning && (
-                  <>
-                    <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-400 mt-1">Payment</DropdownMenuLabel>
-                    {PAYMENT_TYPES.map((t) => (
-                      <DropdownMenuItem key={t} onClick={() => onReturnAction(t)} className="rounded-lg text-sm gap-2">
-                        <CreditCard className="h-3.5 w-3.5 text-emerald-500" /> {t}
-                      </DropdownMenuItem>
-                    ))}
-                    <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-400 mt-1">Fabric</DropdownMenuLabel>
-                    {FABRIC_TYPES.map((t) => (
-                      <DropdownMenuItem key={t} onClick={() => onReturnAction(t)} className="rounded-lg text-sm gap-2">
-                        <Layers className="h-3.5 w-3.5 text-violet-500" /> {t}
-                      </DropdownMenuItem>
-                    ))}
-                    <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-400 mt-1">Collection</DropdownMenuLabel>
-                    {COLLECTION_TYPES.map((t) => (
-                      <DropdownMenuItem key={t} onClick={() => onReturnAction(t)} className="rounded-lg text-sm gap-2">
-                        <Package className="h-3.5 w-3.5 text-blue-500" /> {t}
-                      </DropdownMenuItem>
-                    ))}
-                  </>
-                )}
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <Button size="sm" variant="outline" onClick={onClose} className="h-8 rounded-xl border-slate-200 text-slate-600 text-xs px-3">
-            <X className="h-3.5 w-3.5" />
-          </Button>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className="font-semibold text-slate-900 text-sm truncate">{lead.firstName} {lead.familyName}</p>
+            <span className={`flex-shrink-0 text-[9px] font-bold uppercase tracking-wider rounded-full px-1.5 py-0.5 ${isReturning ? "bg-blue-100 text-blue-700" : "bg-orange-100 text-orange-700"}`}>
+              {isReturning ? "Returning" : "New"}
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-0.5 tabular-nums">{lead.mobile}</p>
+          {lead.lookingFor && (
+            <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+              <span className="font-medium text-slate-600">{lead.lookingFor}</span>
+            </p>
+          )}
         </div>
       </div>
 
-      {/* Info row */}
-      {lead.lookingFor && (
-        <div className="flex items-center gap-1.5 mt-1">
-          <Search className="h-3 w-3 text-slate-400" />
-          <p className="text-xs text-slate-500 truncate">Looking for: <span className="font-medium text-slate-700">{lead.lookingFor}</span></p>
-        </div>
-      )}
+      {/* Actions */}
+      <div className="flex items-center gap-1.5 flex-wrap pl-3">
+        <button
+          type="button"
+          onClick={onInstantSale}
+          className="flex items-center gap-1 rounded-lg border border-orange-200 bg-orange-50 px-2 py-1.5 text-[11px] font-semibold text-orange-700 hover:bg-orange-100 transition-colors"
+        >
+          <Zap className="h-3 w-3" /> Instant Sale
+        </button>
+        <button
+          type="button"
+          onClick={onCreateDeal}
+          disabled={isCreatingDeal}
+          className="flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors disabled:opacity-50"
+        >
+          <Briefcase className="h-3 w-3" /> Deal
+        </button>
+        {isReturning && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <RotateCcw className="h-3 w-3" /> Return
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="rounded-xl border-slate-200 shadow-xl w-44">
+              <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-400">Payment</DropdownMenuLabel>
+              {PAYMENT_TYPES.map((t) => (
+                <DropdownMenuItem key={t} onClick={() => onReturnAction(t)} className="rounded-lg text-xs gap-2">
+                  <CreditCard className="h-3 w-3 text-emerald-500" /> {t}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-400">Fabric / Collection</DropdownMenuLabel>
+              {[...FABRIC_TYPES, ...COLLECTION_TYPES].map((t) => (
+                <DropdownMenuItem key={t} onClick={() => onReturnAction(t)} className="rounded-lg text-xs gap-2">
+                  <Package className="h-3 w-3 text-blue-500" /> {t}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          className="ml-auto flex items-center justify-center h-7 w-7 rounded-lg border border-rose-200 bg-rose-50 text-rose-500 hover:bg-rose-100 transition-colors"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -464,6 +499,7 @@ const  SalesmanDashboardV2 =() => {
   const [quotations, setQuotations] = useState<any[]>([]);
   const [purchaseRequests, setPurchaseRequests] = useState<any[]>([]);
   const [walkinLeads, setWalkinLeads] = useState<any[]>([]);
+  const [allSalesmanWalkins, setAllSalesmanWalkins] = useState<any[]>([]);
   const [timesheetRemark, setTimesheetRemark] = useState("");
   const [timesheetEntries, setTimesheetEntries] = useState<TimesheetHourEntry[]>([]);
   const [savedTimesheetEntries, setSavedTimesheetEntries] = useState<TimesheetHourEntry[]>([]);
@@ -501,6 +537,13 @@ const  SalesmanDashboardV2 =() => {
   const [selectedOrders, setSelectedOrders] = useState<any[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [mecaData, setMecaData] = useState<MecaResponse | null>(null);
+  const [mecaLoading, setMecaLoading] = useState(false);
+  const [mecaDateRange, setMecaDateRange] = useState<DateRange | undefined>({
+    from: startOfDay(subDays(new Date(), 29)),
+    to: endOfDay(new Date()),
+  });
+  const [mecaNonConvertedTab, setMecaNonConvertedTab] = useState<"all" | "walkin" | "outside">("all");
 
   // ── Full reset for return customer dialog ──
   const resetReturnDialog = useCallback(() => {
@@ -753,8 +796,13 @@ const  SalesmanDashboardV2 =() => {
       (snap) => { setWalkinLeads(snap.docs.map((d) => ({ id: d.id, ...d.data() }))); loadedLeads = true; markLoaded(); },
       () => { loadedLeads = true; markLoaded(); }
     );
+    const unsubAllWalkins = onSnapshot(
+      query(collection(db, "Walkin_Customer"), where("salesmanId", "==", user.id)),
+      (snap) => setAllSalesmanWalkins(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setAllSalesmanWalkins([])
+    );
 
-    return () => { unsubOrders(); unsubQuotations(); unsubPurchase(); unsubLeads(); };
+    return () => { unsubOrders(); unsubQuotations(); unsubPurchase(); unsubLeads(); unsubAllWalkins(); };
   }, [user]);
 
   // ── Fetch return customer deals ──
@@ -785,6 +833,41 @@ const  SalesmanDashboardV2 =() => {
       .catch(() => setLeadOrders([]))
       .finally(() => setLoadingOrders(false));
   }, [selectedDeals]);
+
+  // ── Fetch salesman MeCA snapshot (last 30 days) ──
+  useEffect(() => {
+    if (!user?.id) {
+      setMecaData(null);
+      setMecaLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const loadMeca = async () => {
+      setMecaLoading(true);
+      try {
+        const response = await getMecaData({
+          salesmanId: user.id,
+          from: mecaDateRange?.from
+            ? startOfDay(mecaDateRange.from).toISOString()
+            : undefined,
+          to: mecaDateRange?.to
+            ? endOfDay(mecaDateRange.to).toISOString()
+            : undefined,
+        });
+        if (!cancelled) setMecaData(response);
+      } catch {
+        if (!cancelled) setMecaData(null);
+      } finally {
+        if (!cancelled) setMecaLoading(false);
+      }
+    };
+
+    loadMeca();
+    return () => {
+      cancelled = true;
+    };
+  }, [mecaDateRange?.from, mecaDateRange?.to, user?.id]);
 
   // ── Deal creation ──
   const openDealCreationDialog = (lead: any) => {
@@ -1035,6 +1118,170 @@ const  SalesmanDashboardV2 =() => {
     );
   }, [walkinLeads, leadSearch]);
 
+  const instantUpdates = useMemo<SalesmanUpdateItem[]>(() => {
+    const items: SalesmanUpdateItem[] = [];
+
+    orders.forEach((order: any) => {
+      const timestamp =
+        toDateSafe(order.lastUpdatedAt) ||
+        toDateSafe(order.updatedAt) ||
+        toDateSafe(order.orderDate) ||
+        toDateSafe(order.createdAt);
+      const orderNo = String(order.crmOrderNo || order.orderId || order.id || "").trim();
+      const orderStatus =
+        String(order.status || "").trim() ||
+        (isOrderWorkflowComplete(order as Order) ? "Completed" : "In Progress");
+      const allocationStatus = String(order.allocationStatus || order.allocation || "").trim();
+      const statusLabel = allocationStatus ? `${orderStatus} · ${allocationStatus}` : orderStatus;
+      const customerName = String(order.customerName || "Customer").trim();
+
+      items.push({
+        id: `order-${order.id}`,
+        category: "order",
+        title: `Order ${orderNo ? `#${orderNo}` : "updated"}`.trim(),
+        description: `${customerName} · ${statusLabel}`,
+        href: order.id ? `/dashboard/orders/${order.id}` : "/dashboard/orders",
+        timestamp,
+      });
+    });
+
+    allSalesmanWalkins.forEach((lead: any) => {
+      const timestamp =
+        toDateSafe(lead.updatedAt) ||
+        toDateSafe(lead.dealSnapshot?.createdAt) ||
+        toDateSafe(lead.createdAt);
+      const customerName = `${String(lead.firstName || "").trim()} ${String(lead.familyName || "").trim()}`.trim()
+        || String(lead.customerName || "Walk-in Lead").trim();
+      const walkinId = String(lead.walkinId || lead.id || "").trim();
+      const leadStatus = String(lead.status || lead.action || "Updated").trim() || "Updated";
+
+      items.push({
+        id: `lead-${lead.id}`,
+        category: "lead",
+        title: `${customerName}${walkinId ? ` · ${walkinId}` : ""}`,
+        description: `Lead ${leadStatus}`,
+        href: "/dashboard/walk-in",
+        timestamp,
+      });
+    });
+
+    quotations.forEach((quotation: any) => {
+      const timestamp =
+        toDateSafe(quotation.updatedAt) ||
+        toDateSafe(quotation.approvedAt) ||
+        toDateSafe(quotation.createdAt) ||
+        toDateSafe(quotation.date);
+      const quotationNo = String(quotation.quotationNo || quotation.id || "").trim();
+      const quotationStatus = String(quotation.status || "Updated").trim() || "Updated";
+      const customerName = String(quotation.customerName || "Customer").trim();
+
+      items.push({
+        id: `quotation-${quotation.id}`,
+        category: "quotation",
+        title: `Quotation ${quotationNo ? `#${quotationNo}` : "updated"}`.trim(),
+        description: `${customerName} · ${quotationStatus}`,
+        href: "/dashboard/customers",
+        timestamp,
+      });
+    });
+
+    purchaseRequests.forEach((purchase: any) => {
+      const timestamp =
+        toDateSafe(purchase.updatedAt) ||
+        toDateSafe(purchase.lastUpdatedAt) ||
+        toDateSafe(purchase.createdAt);
+      const purchaseId = String(purchase.purchaseRequestId || purchase.id || "").trim();
+      const purchaseStatus = String(purchase.status || "Updated").trim() || "Updated";
+      const customerName = String(purchase.customerName || purchase.customerSnapshot?.name || "").trim();
+      const lineCount = Array.isArray(purchase.fabricDetails)
+        ? purchase.fabricDetails.length
+        : Array.isArray(purchase.items)
+          ? purchase.items.length
+          : 0;
+      const lineCountLabel = lineCount > 0 ? `${lineCount} item${lineCount === 1 ? "" : "s"}` : "";
+      const details = [purchaseStatus, customerName, lineCountLabel].filter(Boolean).join(" · ");
+
+      items.push({
+        id: `purchase-${purchase.id}`,
+        category: "purchase",
+        title: `PR ${purchaseId ? `#${purchaseId}` : "updated"}`.trim(),
+        description: details || "Purchase request updated",
+        href: "/dashboard/po-tracking",
+        timestamp,
+      });
+    });
+
+    return items
+      .sort((a, b) => (b.timestamp?.getTime() ?? 0) - (a.timestamp?.getTime() ?? 0))
+      .slice(0, 12);
+  }, [allSalesmanWalkins, orders, purchaseRequests, quotations]);
+
+  const instantUpdateCounts = useMemo<Record<SalesmanUpdateCategory, number>>(() => {
+    const counts: Record<SalesmanUpdateCategory, number> = {
+      order: 0,
+      lead: 0,
+      quotation: 0,
+      purchase: 0,
+    };
+    instantUpdates.forEach((item) => {
+      counts[item.category] += 1;
+    });
+    return counts;
+  }, [instantUpdates]);
+
+  const mecaSalesman = useMemo<MecaSalesmanMetric | null>(() => {
+    if (!mecaData?.salesmen?.length) return null;
+    return mecaData.salesmen.find((row) => row.salesmanId === user?.id) ?? mecaData.salesmen[0] ?? null;
+  }, [mecaData?.salesmen, user?.id]);
+
+  const isOutsideVisitType = useCallback((visitType?: string) => {
+    const normalizedType = normalizeText(visitType);
+    return normalizedType.includes("outside");
+  }, []);
+
+  const isClosedWalkinFollowUpStatus = useCallback((status?: string) => {
+    const normalizedStatus = normalizeText(status);
+    if (!normalizedStatus) return false;
+    if (normalizedStatus.includes("completed")) return true;
+    if (normalizedStatus.includes("purchased")) return true;
+    if (normalizedStatus.includes("installation done")) return true;
+    if (normalizedStatus.includes("closed")) return true;
+    return false;
+  }, []);
+
+  const nonConvertedWalkinRows = useMemo<MecaVisitRow[]>(() => {
+    const visits = mecaSalesman?.visits ?? [];
+    if (visits.length === 0) return [];
+
+    return visits.filter((visit) => {
+      if (isOutsideVisitType(visit.visitType)) return false;
+      if (isClosedWalkinFollowUpStatus(visit.status)) return false;
+      return !visit.converted;
+    });
+  }, [isClosedWalkinFollowUpStatus, isOutsideVisitType, mecaSalesman?.visits]);
+
+  const nonConvertedWalkinOnlyRows = useMemo<MecaVisitRow[]>(
+    () => nonConvertedWalkinRows.filter((row) => !isOutsideVisitType(row.visitType)),
+    [isOutsideVisitType, nonConvertedWalkinRows]
+  );
+
+  const nonConvertedOutsideRows = useMemo<MecaVisitRow[]>(() => [], []);
+
+  const nonConvertedVisibleRows = useMemo<MecaVisitRow[]>(() => {
+    if (mecaNonConvertedTab === "walkin") return nonConvertedWalkinOnlyRows;
+    if (mecaNonConvertedTab === "outside") return nonConvertedOutsideRows;
+    return nonConvertedWalkinRows;
+  }, [mecaNonConvertedTab, nonConvertedOutsideRows, nonConvertedWalkinOnlyRows, nonConvertedWalkinRows]);
+
+  const mecaMeetingsTotal = mecaSalesman
+    ? mecaSalesman.meetings + mecaSalesman.convertedOutsideMeetings
+    : 0;
+  const mecaConvertedTotal = mecaSalesman?.convertedOrders ?? 0;
+  const mecaWalkinNonConverted = nonConvertedWalkinOnlyRows.length;
+  const mecaOutsideNonConverted = 0;
+  const mecaNonConvertedTotal = mecaWalkinNonConverted + mecaOutsideNonConverted;
+  const mecaNonConvertedMappingGap = 0;
+
   const criticalCount = activeOrderRows.filter((r) => r.risk === "critical").length;
   const completedCount = Math.max(0, orderRows.length - activeOrderRows.length);
   const avgProgress = activeOrderRows.length ? Math.round(activeOrderRows.reduce((s, r) => s + r.progress, 0) / activeOrderRows.length) : 0;
@@ -1046,343 +1293,570 @@ const  SalesmanDashboardV2 =() => {
     (entry) => entry.endMinutes <= currentMinutes && entry.workDetail.trim()
   ).length;
   const totalTimesheetFilledCount = timesheetEntries.filter((entry) => entry.workDetail.trim()).length;
-  const firstPendingTimesheetSlot = timesheetEntries.find(
-    (entry) => entry.endMinutes <= currentMinutes && !entry.workDetail.trim()
-  );
   const timesheetStatValue = timesheetEnabled
     ? `${requiredTimesheetFilledCount}/${requiredTimesheetCount || 0}`
     : "Off";
+  const mecaBusy = loading || mecaLoading;
+  const mecaRangeLabel = useMemo(() => {
+    if (!mecaDateRange?.from) return "All time";
+    if (mecaDateRange.to) {
+      return `${format(mecaDateRange.from, "dd MMM")} - ${format(mecaDateRange.to, "dd MMM yyyy")}`;
+    }
+    return format(mecaDateRange.from, "dd MMM yyyy");
+  }, [mecaDateRange?.from, mecaDateRange?.to]);
 
   // ── Return dialog type colors ──
   const rtColor = returnTypeColor(returnCustomerType);
   const RtIcon = returnTypeIcon(returnCustomerType);
+  const updateCategoryMeta: Record<
+    SalesmanUpdateCategory,
+    {
+      icon: any;
+      chipClass: string;
+      iconWrapClass: string;
+      iconClass: string;
+      label: string;
+    }
+  > = {
+    order: {
+      icon: ListOrdered,
+      chipClass: "bg-blue-100 text-blue-700",
+      iconWrapClass: "bg-blue-100 border-blue-200",
+      iconClass: "text-blue-600",
+      label: "Order",
+    },
+    lead: {
+      icon: UserPlus,
+      chipClass: "bg-orange-100 text-orange-700",
+      iconWrapClass: "bg-orange-100 border-orange-200",
+      iconClass: "text-orange-600",
+      label: "Lead",
+    },
+    quotation: {
+      icon: Briefcase,
+      chipClass: "bg-indigo-100 text-indigo-700",
+      iconWrapClass: "bg-indigo-100 border-indigo-200",
+      iconClass: "text-indigo-600",
+      label: "Quotation",
+    },
+    purchase: {
+      icon: PackageCheck,
+      chipClass: "bg-violet-100 text-violet-700",
+      iconWrapClass: "bg-violet-100 border-violet-200",
+      iconClass: "text-violet-600",
+      label: "Purchase",
+    },
+  };
 
-  console.log("Rendering dashboard with orders:", filteredOrderRows, "and walk-in leads:", walkinLeads);
+    console.log("Rendering dashboard with orders:", filteredOrderRows, "and walk-in leads:", walkinLeads);
 
   return (
     <>
-      <div className="min-h-screen bg-[#f8f9fb]">
-        <div className="max-w-screen-2xl mx-auto p-4 md:p-6 space-y-6">
+      <div className="min-h-screen bg-[#f5f6f8]">
+        <div className="max-w-screen-2xl mx-auto p-3 md:p-5 space-y-4">
 
           {/* ── Hero Header ── */}
-          <div className="rounded-2xl border border-orange-200 bg-gradient-to-br from-orange-50 via-white to-amber-50 p-6 shadow-sm">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-widest text-orange-600 mb-1">Salesman Command Desk</p>
-                <h1 className="text-2xl font-bold tracking-tight text-slate-900 md:text-3xl">
-                  Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"},{" "}
-                  <span className="text-orange-600">{user?.name?.split(" ")[0] || "Salesman"}</span>
-                </h1>
-                <p className="mt-1 text-sm text-slate-500">Convert leads fast, track risky orders, stay on top every day.</p>
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <div className="rounded-2xl border border-orange-200 bg-white px-4 py-3 shadow-sm text-center min-w-[80px]">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Leads</p>
-                  {loading ? <Skeleton className="h-7 w-8 mx-auto mt-1" /> : <p className="text-2xl font-bold text-orange-600">{walkinLeads.length}</p>}
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm text-center min-w-[80px]">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Orders</p>
-                  {loading ? <Skeleton className="h-7 w-8 mx-auto mt-1" /> : <p className="text-2xl font-bold text-slate-900">{activeOrderRows.length}</p>}
-                </div>
-                <div
-                  className={`rounded-2xl border px-4 py-3 shadow-sm text-center min-w-[80px] ${
-                    timesheetEnabled ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white"
-                  }`}
-                >
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Timesheet</p>
-                  <p className={`text-2xl font-bold ${timesheetEnabled ? "text-emerald-700" : "text-slate-500"}`}>
-                    {timesheetEnabled ? `${requiredTimesheetFilledCount}/${requiredTimesheetCount || 0}` : "Off"}
-                  </p>
-                </div>
-              </div>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl border border-orange-200/70 bg-gradient-to-r from-orange-50 via-white to-amber-50/60 px-5 py-4 shadow-sm">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-orange-500 mb-0.5">Salesman Command Desk</p>
+              <h1 className="text-xl font-bold tracking-tight text-slate-900">
+                {new Date().getHours() < 12 ? "Good morning" : new Date().getHours() < 17 ? "Good afternoon" : "Good evening"},{" "}
+                <span className="text-orange-600">{user?.name?.split(" ")[0] || "Salesman"}</span>
+              </h1>
             </div>
-          </div>
-
-          {/* ── Quick Actions ── */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {[
-              { title: "My Customers", href: "/dashboard/customers", icon: Users, accent: "border-slate-200 hover:border-orange-200" },
-              { title: "Walk-in Desk", href: "/dashboard/walk-in", icon: UserPlus, accent: "border-slate-200 hover:border-orange-200" },
-              { title: "My Orders", href: "/dashboard/orders", icon: ListOrdered, accent: "border-slate-200 hover:border-orange-200" },
-              { title: "Visits", href: "/dashboard/visits", icon: CalendarCheck, accent: "border-slate-200 hover:border-orange-200" },
-            ].map((a) => (
-              <QuickAction key={a.href} {...a} />
-            ))}
-          </div>
-
-          {/* ── Stats row ── */}
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-            <StatCard label="Critical" value={criticalCount} loading={loading} icon={AlertTriangle} accent="border-red-200" />
-            <StatCard label="Avg Progress" value={`${avgProgress}%`} loading={loading} icon={ClipboardList} />
-            <StatCard label="Completed" value={completedCount} loading={loading} icon={CheckCircle2} accent="border-emerald-200" />
-            <StatCard label="PO Generated" value={poGeneratedCount} loading={loading} icon={ShoppingBag} />
-            <StatCard label="Quotations" value={quotations.length} loading={loading} icon={Briefcase} />
-            <StatCard
-              label="Timesheet"
-              value={timesheetStatValue}
-              loading={loading}
-              icon={Clock3}
-              accent={timesheetEnabled ? "border-emerald-200" : "border-slate-200"}
-            />
-          </div>
-
-          {/* ── PRIORITY: Active Leads (full width, top) ── */}
-          <div className="rounded-2xl border border-orange-200 bg-white shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-orange-100 bg-gradient-to-r from-orange-50 to-amber-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <div className="h-7 w-7 rounded-lg bg-orange-500 flex items-center justify-center">
-                    <UserPlus className="h-4 w-4 text-white" />
-                  </div>
-                  <h2 className="text-base font-bold text-slate-900">Active Leads</h2>
-                  {!loading && walkinLeads.length > 0 && (
-                    <span className="rounded-full bg-orange-500 text-white text-[11px] font-bold px-2 py-0.5">{walkinLeads.length}</span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5 ml-9">Your priority — convert, close, or log action for each lead.</p>
-              </div>
-              <div className="relative w-full sm:w-64">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                <Input
-                  value={leadSearch}
-                  onChange={(e) => setLeadSearch(e.target.value)}
-                  placeholder="Search name, phone…"
-                  className="pl-8 h-8 rounded-xl border-orange-200 focus-visible:ring-orange-300 text-sm"
-                />
-              </div>
-            </div>
-
-            <div className="p-4">
-              {loading ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                  {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-2xl" />)}
-                </div>
-              ) : filteredLeads.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
-                  <div className="h-14 w-14 rounded-2xl bg-orange-50 flex items-center justify-center">
-                    <UserPlus className="h-6 w-6 text-orange-300" />
-                  </div>
-                  <p className="text-sm font-medium">No active leads assigned</p>
-                  <p className="text-xs text-slate-400">Check back after the next walk-in handover.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                  {filteredLeads.map((lead) => (
-                    <LeadCard
-                      key={lead.id}
-                      lead={lead}
-                      onCreateDeal={() => openDealCreationDialog(lead)}
-                      onClose={() => setClosingLead(lead)}
-                      onReturnAction={(type) => openReturnAction(lead, type)}
-                      onInstantSale={() => router.push(`/dashboard/quotation-builder?payload=${encodeURIComponent(JSON.stringify(lead))}`)}
-                      isCreatingDeal={isCreatingDeal}
-                    />
-                  ))}
-                </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 rounded-xl border border-orange-200 bg-white px-3 py-1.5 text-sm shadow-sm">
+                <span className="h-2 w-2 rounded-full bg-orange-500 animate-pulse" />
+                <span className="font-semibold text-orange-700">{walkinLeads.length}</span>
+                <span className="text-slate-500 text-xs">leads</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm">
+                <ListOrdered className="h-3.5 w-3.5 text-slate-500" />
+                <span className="font-semibold text-slate-800">{activeOrderRows.length}</span>
+                <span className="text-slate-500 text-xs">orders</span>
+              </span>
+              {timesheetEnabled && (
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm shadow-sm">
+                  <Clock3 className="h-3.5 w-3.5 text-emerald-600" />
+                  <span className="font-semibold text-emerald-700">{requiredTimesheetFilledCount}/{requiredTimesheetCount || 0}</span>
+                  <span className="text-emerald-600 text-xs">timesheet</span>
+                </span>
+              )}
+              {criticalCount > 0 && (
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-sm shadow-sm">
+                  <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+                  <span className="font-semibold text-red-700">{criticalCount}</span>
+                  <span className="text-red-600 text-xs">critical</span>
+                </span>
               )}
             </div>
           </div>
 
-          {/* ── Lower: Orders + Timesheet ── */}
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-            {/* Order Queue */}
-            <div className="xl:col-span-2 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
+          {/* ── Quick Actions + Stats ── */}
+          <div className="space-y-2">
+            <div className="flex gap-2 flex-wrap">
+              {[
+                { title: "Customers", href: "/dashboard/customers", icon: Users },
+                { title: "Walk-in", href: "/dashboard/walk-in", icon: UserPlus },
+                { title: "Orders", href: "/dashboard/orders", icon: ListOrdered },
+                { title: "Visits", href: "/dashboard/visits", icon: CalendarCheck },
+              ].map((a) => (
+                <QuickAction key={a.href} {...a} />
+              ))}
+            </div>
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+              <StatCard label="Critical" value={criticalCount} loading={loading} icon={AlertTriangle} accent="border-red-200" />
+              <StatCard label="Avg Progress" value={`${avgProgress}%`} loading={loading} icon={ClipboardList} />
+              <StatCard label="Completed" value={completedCount} loading={loading} icon={CheckCircle2} accent="border-emerald-200" />
+              <StatCard label="PO Generated" value={poGeneratedCount} loading={loading} icon={ShoppingBag} />
+              <StatCard label="Quotations" value={quotations.length} loading={loading} icon={Briefcase} />
+              <StatCard
+                label="Timesheet"
+                value={timesheetStatValue}
+                loading={loading}
+                icon={Clock3}
+                accent={timesheetEnabled ? "border-emerald-200" : "border-slate-200"}
+              />
+            </div>
+          </div>
+
+          {/* ── Main Body: Leads + Activity Feed ── */}
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+
+            {/* Active Leads Panel */}
+            <div className="xl:col-span-7 rounded-2xl border border-orange-200 bg-white shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-orange-100 bg-gradient-to-r from-orange-50/80 to-amber-50/40 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="h-7 w-7 rounded-lg bg-slate-800 flex items-center justify-center">
-                    <ListOrdered className="h-4 w-4 text-white" />
+                  <div className="h-7 w-7 rounded-lg bg-orange-500 flex items-center justify-center flex-shrink-0">
+                    <UserPlus className="h-3.5 w-3.5 text-white" />
                   </div>
-                  <h2 className="text-base font-bold text-slate-900">Order Queue</h2>
-                  {criticalCount > 0 && (
-                    <span className="rounded-full bg-red-100 text-red-700 text-[11px] font-bold px-2 py-0.5">
-                      {criticalCount} critical
-                    </span>
-                  )}
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <h2 className="text-sm font-bold text-slate-900">Active Leads</h2>
+                      {!loading && walkinLeads.length > 0 && (
+                        <span className="rounded-full bg-orange-500 text-white text-[10px] font-bold px-1.5 py-0.5 leading-none">{walkinLeads.length}</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500">Convert leads fast — every minute counts.</p>
+                  </div>
                 </div>
-                <div className="relative w-full sm:w-60">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <div className="relative w-full sm:w-52">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
                   <Input
-                    value={orderSearch}
-                    onChange={(e) => setOrderSearch(e.target.value)}
-                    placeholder="Search order, customer…"
-                    className="pl-8 h-8 rounded-xl border-slate-200 text-sm"
+                    value={leadSearch}
+                    onChange={(e) => setLeadSearch(e.target.value)}
+                    placeholder="Search name, phone…"
+                    className="pl-7 h-7 text-xs rounded-xl border-orange-200 focus-visible:ring-orange-300"
                   />
                 </div>
               </div>
+              <div className="p-3">
+                {loading ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}
+                  </div>
+                ) : filteredLeads.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 gap-2 text-slate-400">
+                    <div className="h-12 w-12 rounded-2xl bg-orange-50 flex items-center justify-center">
+                      <UserPlus className="h-5 w-5 text-orange-300" />
+                    </div>
+                    <p className="text-sm font-medium">No active leads</p>
+                    <p className="text-xs">Check back after the next walk-in handover.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {filteredLeads.map((lead) => (
+                      <LeadCard
+                        key={lead.id}
+                        lead={lead}
+                        onCreateDeal={() => openDealCreationDialog(lead)}
+                        onClose={() => setClosingLead(lead)}
+                        onReturnAction={(type) => openReturnAction(lead, type)}
+                        onInstantSale={() => router.push(`/dashboard/quotation-builder?payload=${encodeURIComponent(JSON.stringify(lead))}`)}
+                        isCreatingDeal={isCreatingDeal}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
 
-              <ScrollArea className="h-[28rem]">
-                <div className="p-4 space-y-3">
+            {/* Right: Activity Feed + MeCA */}
+            <div className="xl:col-span-5 flex flex-col gap-4">
+
+              {/* Instant Updates / Notification Panel */}
+              <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-100 bg-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Bell className="h-4 w-4 text-orange-400" />
+                    <h2 className="text-sm font-bold text-white">Instant Updates</h2>
+                  </div>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-300">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    {loading ? "Syncing" : `${instantUpdates.length} Updates`}
+                  </span>
+                </div>
+
+                <div className="px-4 py-2 border-b border-slate-100 bg-slate-50 flex items-center gap-1.5 flex-wrap">
+                  {(
+                    [
+                      ["order", instantUpdateCounts.order],
+                      ["lead", instantUpdateCounts.lead],
+                      ["quotation", instantUpdateCounts.quotation],
+                      ["purchase", instantUpdateCounts.purchase],
+                    ] as Array<[SalesmanUpdateCategory, number]>
+                  ).map(([category, count]) => (
+                    <span
+                      key={category}
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${updateCategoryMeta[category].chipClass}`}
+                    >
+                      {updateCategoryMeta[category].label}
+                      <span className="rounded-full bg-white/80 px-1 py-0 text-[9px]">{count}</span>
+                    </span>
+                  ))}
+                </div>
+
+                <ScrollArea className="h-[320px]">
+                  <div className="divide-y divide-slate-100">
+                    {loading ? (
+                      <div className="p-4 space-y-3">
+                        {[...Array(5)].map((_, i) => (
+                          <div key={i} className="flex items-center gap-3">
+                            <Skeleton className="h-7 w-7 rounded-lg flex-shrink-0" />
+                            <div className="flex-1 space-y-1.5">
+                              <Skeleton className="h-3 w-32" />
+                              <Skeleton className="h-2.5 w-48" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : instantUpdates.length > 0 ? (
+                      instantUpdates.map((item) => {
+                        const meta = updateCategoryMeta[item.category];
+                        const Icon = meta.icon;
+                        const relativeTime = item.timestamp
+                          ? formatDistanceToNow(item.timestamp, { addSuffix: true })
+                          : "just now";
+                        const absoluteTime = item.timestamp ? format(item.timestamp, "dd MMM, hh:mm a") : "";
+
+                        return (
+                          <div key={item.id} className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50/70 transition-colors">
+                            <div className={`h-7 w-7 rounded-lg border flex items-center justify-center flex-shrink-0 mt-0.5 ${meta.iconWrapClass}`}>
+                              <Icon className={`h-3.5 w-3.5 ${meta.iconClass}`} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold text-slate-800 truncate">{item.title}</p>
+                              <p className="text-[11px] text-slate-500 mt-0.5 truncate">{item.description}</p>
+                              <p className="text-[10px] text-slate-400 mt-1">
+                                {relativeTime}
+                                {absoluteTime ? ` · ${absoluteTime}` : ""}
+                              </p>
+                            </div>
+                            <Link
+                              href={item.href}
+                              className="text-[10px] font-semibold text-slate-600 hover:text-slate-900 shrink-0 mt-0.5 whitespace-nowrap"
+                            >
+                              Open →
+                            </Link>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-8 gap-2 text-slate-400">
+                        <div className="h-10 w-10 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center">
+                          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                        </div>
+                        <p className="text-xs font-semibold text-emerald-600">No fresh updates</p>
+                        <p className="text-[11px]">Order and lead activity will appear here instantly.</p>
+                      </div>
+                    )}
+                  </div>
+                </ScrollArea>
+              </div>
+
+              {/* MeCA Mini Panel */}
+              <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-100 bg-gradient-to-r from-indigo-50/60 to-rose-50/40 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <h2 className="text-sm font-bold text-slate-900">MeCA Snapshot</h2>
+                  <DateRangePicker date={mecaDateRange} onDateChange={setMecaDateRange} />
+                </div>
+                <div className="p-3 space-y-3">
+                  <p className="text-[10px] text-slate-400">{mecaRangeLabel}</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {mecaBusy ? (
+                      [...Array(3)].map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)
+                    ) : (
+                      <>
+                        <div className="rounded-xl bg-indigo-50 border border-indigo-100 p-2.5 text-center">
+                          <p className="text-[10px] font-bold uppercase text-indigo-500 tracking-wider">Meetings</p>
+                          <p className="text-xl font-bold text-indigo-800 mt-0.5 tabular-nums">{mecaMeetingsTotal}</p>
+                        </div>
+                        <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-2.5 text-center">
+                          <p className="text-[10px] font-bold uppercase text-emerald-500 tracking-wider">Converted</p>
+                          <p className="text-xl font-bold text-emerald-800 mt-0.5 tabular-nums">{mecaConvertedTotal}</p>
+                        </div>
+                        <div className="rounded-xl bg-rose-50 border border-rose-100 p-2.5 text-center">
+                          <p className="text-[10px] font-bold uppercase text-rose-500 tracking-wider">Pending</p>
+                          <p className="text-xl font-bold text-rose-800 mt-0.5 tabular-nums">{mecaNonConvertedTotal}</p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <Tabs
+                    value={mecaNonConvertedTab}
+                    onValueChange={(value) => setMecaNonConvertedTab(value as "all" | "walkin" | "outside")}
+                  >
+                    <TabsList className="h-7 bg-slate-50 border border-slate-200 w-full">
+                      <TabsTrigger value="all" className="flex-1 text-[11px] h-6">
+                        All <Badge variant="secondary" className="ml-1 h-4 px-1 text-[9px]">{mecaBusy ? "-" : mecaNonConvertedTotal}</Badge>
+                      </TabsTrigger>
+                      <TabsTrigger value="walkin" className="flex-1 text-[11px] h-6">
+                        Walk-in <Badge variant="secondary" className="ml-1 h-4 px-1 text-[9px]">{mecaBusy ? "-" : mecaWalkinNonConverted}</Badge>
+                      </TabsTrigger>
+                      <TabsTrigger value="outside" className="flex-1 text-[11px] h-6">
+                        Outside <Badge variant="secondary" className="ml-1 h-4 px-1 text-[9px]">{mecaBusy ? "-" : mecaOutsideNonConverted}</Badge>
+                      </TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+
+                  {mecaBusy ? (
+                    <div className="space-y-1.5">
+                      {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+                    </div>
+                  ) : nonConvertedVisibleRows.length === 0 ? (
+                    <p className="text-center text-xs text-slate-400 py-4">No non-converted rows in this range.</p>
+                  ) : (
+                    <div className="max-h-[200px] overflow-y-auto rounded-xl border border-slate-100">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-slate-50">
+                            <TableHead className="text-[10px] h-7 px-2">Customer</TableHead>
+                            <TableHead className="text-[10px] h-7 px-2">Type</TableHead>
+                            <TableHead className="text-[10px] h-7 px-2 text-center">Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {nonConvertedVisibleRows.map((row, idx) => (
+                            <TableRow key={`${row.visitId}-${idx}`}>
+                              <TableCell className="text-[11px] font-medium text-slate-800 px-2 py-1.5">{row.customerName || "-"}</TableCell>
+                              <TableCell className="px-2 py-1.5">
+                                <Badge variant="outline" className="text-[10px] px-1 py-0">{row.visitType || "Walk-In"}</Badge>
+                              </TableCell>
+                              <TableCell className="text-center px-2 py-1.5">
+                                <Badge className="bg-rose-100 text-rose-700 border border-rose-300 hover:bg-rose-100 text-[10px] px-1 py-0">Pending</Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+
+                  {!mecaBusy && mecaNonConvertedMappingGap > 0 && (
+                    <p className="text-[10px] text-slate-400">{mecaNonConvertedMappingGap} non-converted walk-in(s) not fully mapped.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Orders + Timesheet ── */}
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+
+            {/* Order Queue */}
+            <div className="xl:col-span-8 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-7 w-7 rounded-lg bg-slate-800 flex items-center justify-center">
+                    <ListOrdered className="h-3.5 w-3.5 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900">Order Queue</h2>
+                    <p className="text-[11px] text-slate-500">Production status · Live</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {criticalCount > 0 && (
+                    <span className="flex items-center gap-1 rounded-full bg-red-100 text-red-700 text-[11px] font-semibold px-2.5 py-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-600 animate-pulse" />
+                      {criticalCount} Critical
+                    </span>
+                  )}
+                  <div className="relative w-44">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
+                    <Input
+                      value={orderSearch}
+                      onChange={(e) => setOrderSearch(e.target.value)}
+                      placeholder="Search orders…"
+                      className="pl-7 h-7 text-xs rounded-xl border-slate-200"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <ScrollArea className="h-[520px]">
+                <div className="p-3 space-y-2">
                   {loading ? (
-                    [...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-2xl" />)
-                  ) : filteredOrderRows.length ? (
+                    [...Array(5)].map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)
+                  ) : filteredOrderRows.length > 0 ? (
                     filteredOrderRows.map((row) => {
                       const fabricSummary = getOrderFabricSummary(row.order);
+                      const isCritical = row.risk === "critical";
+                      const isWatch = row.risk === "watch";
                       return (
-                      <div key={row.order.id} className={`rounded-2xl border p-4 ${riskContainerClassMap[row.risk]}`}>
-                        <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <p className="font-semibold text-slate-900">{row.order.customerName || "—"}</p>
-                              <Badge variant="secondary" className="text-[10px]">{row.order.orderType || "—"}</Badge>
+                        <div
+                          key={row.order.id}
+                          className={`relative rounded-xl border bg-white p-3 transition-all hover:shadow-sm overflow-hidden ${isCritical ? "border-red-200 bg-red-50/20" : isWatch ? "border-amber-200 bg-amber-50/10" : "border-slate-200"}`}
+                        >
+                          <div className={`absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full ${isCritical ? "bg-red-500" : isWatch ? "bg-amber-400" : "bg-emerald-400"}`} />
+                          <div className="pl-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p className="text-sm font-semibold text-slate-900 truncate">{row.order.customerName}</p>
+                                  <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4">{row.order.orderType}</Badge>
+                                  <Badge variant="outline" className={`text-[10px] px-1 py-0 h-4 ${isCritical ? "border-red-300 text-red-700 bg-red-50" : isWatch ? "border-amber-300 text-amber-700 bg-amber-50" : "border-emerald-300 text-emerald-700 bg-emerald-50"}`}>
+                                    {isCritical ? "Critical" : isWatch ? "Watch" : "On Track"}
+                                  </Badge>
+                                </div>
+                                <p className="text-[11px] text-slate-500 mt-0.5">#{row.order.crmOrderNo} · Deal #{row.order.dealId} · {row.ageDays}d old</p>
+                              </div>
+                              <Button asChild size="sm" variant="outline" className="rounded-lg h-7 text-xs border-slate-200 hover:bg-slate-50 shrink-0">
+                                <Link href={`/dashboard/orders/${row.order.id}`}>Open</Link>
+                              </Button>
                             </div>
-                            <p className="text-xs text-slate-500 mt-0.5">
-                              Order #{row.order.crmOrderNo || row.order.id} · Deal #{row.order.dealId || "—"}
-                            </p>
-                          </div>
-                          <Badge variant="outline" className={riskBadgeClassMap[row.risk]}>{riskLabelMap[row.risk]}</Badge>
-                        </div>
-                        <Progress value={row.progress} className="h-1.5 mb-2" />
-                        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500 mb-3">
-                          <span>Now: <span className="font-semibold text-slate-800">{row.currentStep}</span></span>
-                          <span>Next: <span className="font-semibold text-slate-800">{row.nextStep}</span></span>
-                          <span>Age: <span className="font-semibold text-slate-800">{row.ageDays}d</span></span>
-                        </div>
-                        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 mb-3">
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-3 gap-y-1">
-                            <p className="text-xs text-slate-500">
-                              Total Fabric Count: <span className="font-semibold text-slate-800">{fabricSummary.totalFabricCount}</span>
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              In Stock: <span className="font-semibold text-emerald-700">{fabricSummary.inStockFabricCount}</span>
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              For PR: <span className="font-semibold text-amber-700">{fabricSummary.prFabricCount}</span>
-                            </p>
-                          </div>
-                          {fabricSummary.prItems.length > 0 ? (
-                            <div className="mt-2 space-y-1">
-                              {fabricSummary.prItems.slice(0, 3).map((item, index) => {
-                                const expectedDateLabel = formatFabricDate(item.expectedDeliveryDate);
-                                return (
-                                  <p key={`${row.order.id}-${item.fabricName}-${index}`} className="text-[11px] text-slate-500 leading-relaxed">
-                                    <span className="font-medium text-slate-700">{item.fabricName}</span>:{" "}
-                                    {item.received
-                                      ? `Received at ${item.receivedLocation || "Inventory"}`
-                                      : expectedDateLabel
-                                        ? `Expected by ${expectedDateLabel}`
-                                        : item.poNumber
-                                          ? `PR ${item.poNumber} in process`
-                                          : "PR pending"}
-                                  </p>
-                                );
-                              })}
-                              {fabricSummary.prItems.length > 3 && (
-                                <p className="text-[11px] text-slate-400">
-                                  +{fabricSummary.prItems.length - 3} more PR item(s)
-                                </p>
-                              )}
+                            <div className="mt-2 flex items-center gap-2">
+                              <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${isCritical ? "bg-red-500" : isWatch ? "bg-amber-400" : "bg-emerald-500"}`}
+                                  style={{ width: `${Math.round(row.progress)}%` }}
+                                />
+                              </div>
+                              <span className="text-[11px] font-semibold text-slate-600 tabular-nums w-8 text-right">{Math.round(row.progress)}%</span>
                             </div>
-                          ) : (
-                            <p className="text-[11px] text-slate-400 mt-2">No fabrics waiting on PR.</p>
-                          )}
+                            <div className="mt-1.5 flex items-center gap-4 text-[11px] text-slate-500">
+                              <span>Now: <span className="font-medium text-slate-700">{row.currentStep}</span></span>
+                              <span className="text-slate-300">→</span>
+                              <span>Next: <span className="font-medium text-slate-700">{row.nextStep}</span></span>
+                            </div>
+                            {fabricSummary.prItems.length > 0 && (
+                              <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[10px] text-slate-400">Fabric PR:</span>
+                                {fabricSummary.prItems.slice(0, 2).map((item, idx) => (
+                                  <span key={idx} className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium border ${item.received ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-amber-50 border-amber-200 text-amber-700"}`}>
+                                    {item.fabricName} {item.received ? "✓" : item.expectedDeliveryDate ? `→ ${formatFabricDate(item.expectedDeliveryDate)}` : "pending"}
+                                  </span>
+                                ))}
+                                {fabricSummary.prItems.length > 2 && <span className="text-[10px] text-slate-400">+{fabricSummary.prItems.length - 2} more</span>}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex justify-end">
-                          <Button asChild size="sm" variant="outline" className="rounded-xl h-7 text-xs border-slate-200">
-                            <Link href={`/dashboard/orders/${row.order.id}`}>Open Order</Link>
-                          </Button>
-                        </div>
-                      </div>
                       );
                     })
                   ) : (
-                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
-                      <CheckCircle2 className="h-8 w-8 opacity-30" />
-                      <p className="text-sm">No active orders in queue.</p>
+                    <div className="py-16 text-center">
+                      <CheckCircle2 className="mx-auto h-10 w-10 text-slate-300" />
+                      <p className="mt-3 text-sm text-slate-500">All orders are moving smoothly</p>
                     </div>
                   )}
                 </div>
               </ScrollArea>
             </div>
 
-            {/* Timesheet */}
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
-                <div className="h-7 w-7 rounded-lg bg-slate-100 flex items-center justify-center">
-                  <Clock3 className="h-4 w-4 text-slate-600" />
+            {/* Timesheet Panel */}
+            <div className="xl:col-span-4 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden flex flex-col">
+              <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-7 w-7 rounded-lg bg-emerald-500 flex items-center justify-center">
+                    <Clock3 className="h-3.5 w-3.5 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900">Timesheet</h2>
+                    <p className="text-[11px] text-slate-500">{format(new Date(), "EEEE, dd MMM")}</p>
+                  </div>
                 </div>
-                <h2 className="text-base font-bold text-slate-900">Timesheet Update</h2>
-                <span className="rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold px-1.5 py-0.5 ml-auto">
-                  {format(new Date(), "dd MMM")}
+                <span className="text-[11px] bg-white border border-slate-200 rounded-lg px-2 py-1 font-mono text-slate-500">
+                  {timesheetDutyStart}–{timesheetDutyEnd}
                 </span>
               </div>
-              <ScrollArea className="h-[28rem]">
-                <div className="p-4 space-y-3">
+
+              <ScrollArea className="flex-1">
+                <div className="p-3 space-y-3">
                   {loading || timesheetLoading ? (
-                    [...Array(3)].map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)
-                  ) : !timesheetEnabled ? (
-                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
-                      Timesheet is not enabled for your user.
-                    </div>
-                  ) : !timesheetConfigValid ? (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-                      Duty time is not configured. Ask admin to set start and end time.
+                    [...Array(4)].map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)
+                  ) : !timesheetEnabled || !timesheetConfigValid ? (
+                    <div className="rounded-xl bg-amber-50 border border-amber-200 p-5 text-center text-amber-700 text-xs">
+                      Timesheet configuration needed. Contact admin.
                     </div>
                   ) : (
-                    <div className="space-y-3">
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Duty Window</p>
-                        <p className="mt-1 text-sm font-medium text-slate-800">
-                          {timesheetDutyStart} - {timesheetDutyEnd}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          Required filled: {requiredTimesheetFilledCount}/{requiredTimesheetCount || 0}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          Total filled slots: {totalTimesheetFilledCount}/{timesheetEntries.length}
-                        </p>
-                        {firstPendingTimesheetSlot && (
-                          <p className="mt-1 text-xs text-amber-700">
-                            Pending hour: {firstPendingTimesheetSlot.slotLabel}
+                    <>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="rounded-xl bg-slate-50 border border-slate-100 p-2 text-center">
+                          <p className="text-[10px] text-slate-500">Slots</p>
+                          <p className="text-base font-bold text-slate-800 mt-0.5">{timesheetEntries.length}</p>
+                        </div>
+                        <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-2 text-center">
+                          <p className="text-[10px] text-emerald-600">Filled</p>
+                          <p className="text-base font-bold text-emerald-800 mt-0.5">{totalTimesheetFilledCount}</p>
+                        </div>
+                        <div className={`rounded-xl p-2 text-center border ${requiredTimesheetFilledCount < (requiredTimesheetCount || 0) ? "bg-rose-50 border-rose-100" : "bg-emerald-50 border-emerald-100"}`}>
+                          <p className={`text-[10px] ${requiredTimesheetFilledCount < (requiredTimesheetCount || 0) ? "text-rose-500" : "text-emerald-600"}`}>Required</p>
+                          <p className={`text-base font-bold mt-0.5 ${requiredTimesheetFilledCount < (requiredTimesheetCount || 0) ? "text-rose-800" : "text-emerald-800"}`}>
+                            {requiredTimesheetFilledCount}/{requiredTimesheetCount || 0}
                           </p>
-                        )}
+                        </div>
                       </div>
 
-                      {timesheetEntries.map((entry) => {
-                        const relativeUpdatedAt = formatRelativeTimeSafe(entry.updatedAt);
+                      {timesheetEntries.map((entry, index) => {
+                        const isFilled = entry.workDetail.trim().length > 0;
                         return (
-                          <div key={`${entry.slotStart}-${entry.slotEnd}`} className="rounded-xl border border-slate-200 p-3">
-                            <p className="text-xs font-semibold text-slate-700">{entry.slotLabel}</p>
+                          <div key={index} className={`rounded-xl border p-2.5 ${isFilled ? "border-emerald-200 bg-emerald-50/30" : "border-slate-200"}`}>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-[11px] font-semibold text-slate-700">{entry.slotLabel}</span>
+                              <span className={`text-[10px] font-bold rounded-md px-1.5 py-0.5 ${isFilled ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                                {isFilled ? "Done" : "Fill now"}
+                              </span>
+                            </div>
                             <Textarea
                               value={entry.workDetail}
-                              onChange={(event) => handleTimesheetEntryChange(entry.slotStart, event.target.value)}
-                              placeholder="Write work details for this hour..."
-                              className="mt-2 min-h-[74px] text-sm"
+                              onChange={(e) => handleTimesheetEntryChange(entry.slotStart, e.target.value)}
+                              placeholder="Work done in this slot..."
+                              className="min-h-[56px] text-xs rounded-lg border-slate-200 focus-visible:ring-1 resize-none"
                             />
-                            {relativeUpdatedAt && (
-                              <p className="mt-1 text-[10px] text-slate-400">
-                                Updated {relativeUpdatedAt}
-                              </p>
-                            )}
                           </div>
                         );
                       })}
 
-                      <div className="rounded-xl border border-slate-200 p-3">
-                        <p className="text-xs font-semibold text-slate-700">Remark</p>
+                      <div>
+                        <p className="text-[11px] font-medium text-slate-600 mb-1">Remark / Blockers</p>
                         <Textarea
                           value={timesheetRemark}
-                          onChange={(event) => setTimesheetRemark(event.target.value)}
-                          placeholder="Any summary or blocker for today..."
-                          className="mt-2 min-h-[84px] text-sm"
+                          onChange={(e) => setTimesheetRemark(e.target.value)}
+                          placeholder="Any important notes for today..."
+                          className="min-h-[72px] text-xs rounded-xl border-slate-200 resize-none"
                         />
                       </div>
 
-                      <Button onClick={() => void handleSaveTimesheet()} disabled={timesheetSaving} className="w-full">
+                      <Button
+                        onClick={() => void handleSaveTimesheet()}
+                        disabled={timesheetSaving}
+                        className="w-full h-9 rounded-xl font-medium text-sm"
+                      >
                         {timesheetSaving ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Saving...
-                          </>
+                          <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />Saving...</>
                         ) : (
                           "Save Timesheet"
                         )}
                       </Button>
-                    </div>
+                    </>
                   )}
                 </div>
               </ScrollArea>
             </div>
           </div>
+
         </div>
       </div>
 
@@ -1522,6 +1996,9 @@ const  SalesmanDashboardV2 =() => {
                         <p className="text-sm font-semibold text-slate-900">{deal.dealName || deal.title || "Unnamed Deal"}</p>
                         <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-indigo-400 transition-colors" />
                       </div>
+                      <p className="mt-1 text-[11px] font-mono text-slate-500">
+                        Deal ID: <span className="font-semibold text-slate-700">{deal.dealId || deal.id || "-"}</span>
+                      </p>
                       <div className="flex flex-wrap gap-x-3 mt-1 text-xs text-slate-500">
                         <span>Status: <span className="font-medium text-slate-700">{deal.status || "—"}</span></span>
                         <span>Amount: <span className="font-medium text-slate-700">₹{deal.dealAmount || "N/A"}</span></span>

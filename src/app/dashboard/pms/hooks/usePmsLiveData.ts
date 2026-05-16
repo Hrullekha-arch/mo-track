@@ -633,16 +633,14 @@ export const usePmsLiveData = ({
     const lookups = buildLookups(orders, machines, people, products, routing, plans);
     const jobsById = new Map(jobs.map((job) => [job.id, job]));
     const now = new Date();
-    const tomorrow = new Date(now);
-    tomorrow.setDate(now.getDate() + 1);
-    const tomorrowKey = tomorrow.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+    const todayKey = now.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
     return plans
       .map((plan) => {
         const plannedStart = plan.plannedStart;
         if (!plannedStart) return null;
         const planDayKey = new Date(plannedStart).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
-        if (planDayKey !== tomorrowKey) return null;
+        if (planDayKey < todayKey) return null;
 
         const job = jobsById.get(plan.jobId);
         if (!job) return null;
@@ -653,15 +651,19 @@ export const usePmsLiveData = ({
 
         return {
           key: `${plan.id}-${plannedStart}`,
+          planId: plan.id,
           orderNo: order?.crmOrderNo || order?.orderNo || order?.id || job.orderId,
           customer: order?.customerSnapshot?.name || order?.customerName || "N/A",
           vasName: vasInfo.vasName,
           process: job.process || "Not scheduled",
+          personId: plan.personId || "",
           person: plan.personId ? lookups.personById.get(plan.personId)?.name || plan.personId : "TBD",
+          machineId: plan.machineId || "",
           machine: plan.machineId ? lookups.machineById.get(plan.machineId)?.name || plan.machineId : "TBD",
           plannedStart,
           plannedEnd: plan.plannedEnd,
           qty: vasInfo.qty,
+          dateKey: planDayKey,
         };
       })
       .filter(Boolean)

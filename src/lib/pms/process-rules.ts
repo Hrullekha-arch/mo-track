@@ -12,7 +12,7 @@ const MANUAL_COMPLETION_PROCESS_KEYS = new Set([
 
 const MANUAL_DONE_AFTER_PROCESS_KEYS = new Set([
   normalizeProcessName("Cutting"),
-  normalizeProcessName("Assembly"),
+  normalizeProcessName("Packaging"),
 ]);
 
 export const isManualCompletionProcess = (process?: string) =>

@@ -21,15 +21,10 @@ import {
   buildEmbellishmentForm,
   emptyEmbellishmentForm,
   hasEmbellishmentRoutingStep,
+  toNumber,
 } from "../utils/pmsHelpers";
 import { canManagePms } from "../utils/pmsAccess";
-import {
-  buildManualDoneDialogRow,
-  deleteDocsInChunks,
-  persistEmbellishmentRecord,
-  startPmsForRowRequest,
-  validateEmbellishmentPayload,
-} from "./usePmsJobActions.helpers";
+import { isManualCompletionProcess } from "@/lib/pms/process-rules";
 
 type Params = {
   role?: string | null;
@@ -111,7 +106,31 @@ export const usePmsJobActions = ({
       row: CreateJobDialogRow,
       embellishment?: StoredEmbellishment
     ) => {
-      await startPmsForRowRequest(row, embellishment);
+      const qty = Number(row.qty) || 1;
+      const createRes = await fetch("/api/pms/createOrder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: row.orderId,
+          productId: row.matchedProductId,
+          qty,
+          embellishment,
+        }),
+      });
+      const createData = await createRes.json().catch(() => ({}));
+      if (!createRes.ok || !createData?.success) {
+        throw new Error(createData?.message || "Failed to create PMS jobs.");
+      }
+
+      const runRes = await fetch("/api/pms/runAutopilot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: row.orderId }),
+      });
+      const runData = await runRes.json().catch(() => ({}));
+      if (!runRes.ok || !runData?.success) {
+        throw new Error(runData?.message || "PMS jobs were created, but scheduling failed.");
+      }
     },
     []
   );
@@ -257,7 +276,8 @@ export const usePmsJobActions = ({
       toast({
         variant: "destructive",
         title: "Additional VAS form incomplete",
-        description: result.error,
+        description:
+          "Fill customer, windows, panels, barcode, stitching per panel, design time, hand work time, and hourly charge.",
       });
       return null;
     }
@@ -754,7 +774,29 @@ export const usePmsJobActions = ({
     setManualDoneReason("");
     setManualDoneDialog({
       open: true,
-      row: buildManualDoneDialogRow(row),
+      row: {
+        key: row.key,
+        jobId: row.currentJobId,
+        orderId: row.orderId,
+        orderNo: row.orderNo,
+        customer: row.customer,
+        smName: row.smName,
+        vasName: row.vasName,
+        process: row.process,
+        person: row.person,
+        qty: Number.isFinite(Number(row.qty)) ? Number(row.qty) : 0,
+        stepNo: row.currentStepNo,
+        totalSteps: row.totalSteps,
+        isFinalStep: Boolean(row.isFinalStep),
+        isManualCompletionStep: isManualCompletionProcess(row.process),
+        plannedStart: row.plannedStart,
+        plannedEnd: row.plannedEnd,
+        nextProcess: row.nextProcess,
+        nextPerson: row.nextPerson,
+        nextMachine: row.nextMachine,
+        nextPlannedStart: row.nextPlannedStart,
+        nextPlannedEnd: row.nextPlannedEnd,
+      },
     });
   }, [setManualDoneAllQtyReady, setManualDoneDialog, setManualDoneReason, setManualDoneRemainingQty]);
 
