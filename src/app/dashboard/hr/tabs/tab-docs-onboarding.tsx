@@ -333,7 +333,7 @@ export function OnboardingTab({ usersLoading, activeEmployees, onOpenEmployeeDia
           <CardContent className="p-5">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">KYC & Bank Gaps</p>
             <p className="mt-2 text-3xl font-bold text-slate-950">{kycAndBankGapCount}</p>
-            <p className="mt-1 text-sm text-slate-500">PAN, Aadhaar, UAN, ESI, or bank fields missing.</p>
+            <p className="mt-1 text-sm text-slate-500">PAN or Aadhaar missing (UAN/ESI/bank are optional in popup check).</p>
           </CardContent>
         </Card>
       </div>
@@ -342,7 +342,7 @@ export function OnboardingTab({ usersLoading, activeEmployees, onOpenEmployeeDia
         <CardHeader>
           <CardTitle className="text-base">Onboarding Checklist - All Employees</CardTitle>
           <CardDescription>
-            Required fields: basic profile, employee details, working details, KYC and bank details.
+            Required fields: basic profile, employee details, working details, plus PAN and Aadhaar.
           </CardDescription>
         </CardHeader>
         <CardContent>

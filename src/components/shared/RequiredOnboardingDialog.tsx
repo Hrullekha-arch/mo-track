@@ -54,6 +54,42 @@ const trimFormValues = (form: Record<EditableOnboardingFieldKey, string>) =>
     Object.entries(form).map(([key, value]) => [key, String(value || "").trim()])
   ) as Record<EditableOnboardingFieldKey, string>;
 
+const getOnboardingDraftKey = (userId: string) => `required-onboarding-draft:${userId}`;
+
+const readOnboardingDraft = (userId: string): Partial<Record<EditableOnboardingFieldKey, string>> => {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(getOnboardingDraftKey(userId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    return parsed as Partial<Record<EditableOnboardingFieldKey, string>>;
+  } catch {
+    return {};
+  }
+};
+
+const writeOnboardingDraft = (
+  userId: string,
+  form: Record<EditableOnboardingFieldKey, string>
+) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(getOnboardingDraftKey(userId), JSON.stringify(form));
+  } catch {
+    // Ignore storage failures (private mode / quota)
+  }
+};
+
+const clearOnboardingDraft = (userId: string) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(getOnboardingDraftKey(userId));
+  } catch {
+    // Ignore storage failures
+  }
+};
+
 export function RequiredOnboardingDialog() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -67,8 +103,28 @@ export function RequiredOnboardingDialog() {
   );
 
   React.useEffect(() => {
-    setForm(createEditableOnboardingFormState(user || {}));
+    if (!user?.id) {
+      setForm(createEditableOnboardingFormState({}));
+      return;
+    }
+
+    const baseForm = createEditableOnboardingFormState(user || {});
+    const draft = readOnboardingDraft(user.id);
+
+    const hydrated = {
+      ...baseForm,
+      ...Object.fromEntries(
+        Object.entries(draft).map(([key, value]) => [key, String(value ?? "")])
+      ),
+    } as Record<EditableOnboardingFieldKey, string>;
+
+    setForm(hydrated);
   }, [user?.id]);
+
+  React.useEffect(() => {
+    if (!user?.id) return;
+    writeOnboardingDraft(user.id, form);
+  }, [user?.id, form]);
 
   React.useEffect(() => {
     if (!user) {
@@ -103,15 +159,25 @@ export function RequiredOnboardingDialog() {
     [validationProfile]
   );
 
+  const missingPersistedEditableFields = React.useMemo(
+    () => getMissingOnboardingFields(user || {}, { includeAutoManaged: false }),
+    [user]
+  );
+
   const missingAutoManagedFields = React.useMemo(
     () => getMissingOnboardingFields(validationProfile, { includeAutoManaged: true }).filter((field) => field.autoManaged),
     [validationProfile]
   );
 
   React.useEffect(() => {
-    const shouldOpen = Boolean(user && popupEnabled && !configLoading && missingEditableFields.length > 0);
+    const shouldOpen = Boolean(
+      user &&
+      popupEnabled &&
+      !configLoading &&
+      missingPersistedEditableFields.length > 0
+    );
     setOpen(shouldOpen);
-  }, [user, popupEnabled, configLoading, missingEditableFields.length]);
+  }, [user, popupEnabled, configLoading, missingPersistedEditableFields.length]);
 
   const updateField = (key: EditableOnboardingFieldKey, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -154,6 +220,7 @@ export function RequiredOnboardingDialog() {
         description: "Your required profile details are now complete.",
       });
 
+      clearOnboardingDraft(user.id);
       setOpen(false);
     } catch (error: any) {
       toast({
@@ -211,7 +278,10 @@ export function RequiredOnboardingDialog() {
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
                   {fields.map((field) => (
                     <div key={field.key} className="space-y-1">
-                      <Label className="text-xs text-slate-600">{field.label}</Label>
+                      <Label className="text-xs text-slate-600">
+                        {field.label}
+                        {field.required === false ? " (Optional)" : ""}
+                      </Label>
                       <Input
                         type={field.inputType || "text"}
                         value={form[field.key] || ""}

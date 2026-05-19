@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, memo, useTransition } from "react";
+import { useState, useEffect, useMemo, useCallback, memo, useTransition, useRef } from "react";
 import { useForm, useFieldArray, useWatch, Control, UseFormReturn, FormProvider } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -318,6 +318,7 @@ export function CreateQuotationDialog({
   const [isSearchingBcn, setIsSearchingBcn] = useState(false);
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
   const [addItem, setAddItem] = useState({ ...DEFAULT_ADD_ITEM_STATE });
+  const initSignatureRef = useRef("");
 
   // ─── Form ────────────────────────────────────────────────
   const form = useForm<FormValues>({
@@ -457,110 +458,182 @@ export function CreateQuotationDialog({
       setAddItem({ ...DEFAULT_ADD_ITEM_STATE });
       setSelectedStock(null);
       setBcnOptions([]);
+      initSignatureRef.current = "";
       return;
     }
 
+    const initSignature = JSON.stringify({
+      dealId: deal?.id || "",
+      customerId: customer?.id || "",
+      quotationId: initialQuotation?.id || "",
+      quotationUpdatedAt: (initialQuotation as any)?.updatedAt || "",
+      userStore: user?.store || "",
+      items: (initialItems || []).map((item: any) => [
+        item.id || "",
+        item.collectionBrand || "",
+        item.salesDescription || "",
+        item.quantity || "",
+        item.rate || "",
+        item.mrp || "",
+        item.gstPercent || "",
+        item.gstMode || "",
+        item.room || "",
+        item.categoryGroup || item.fabricCategoryGroup || "",
+      ]),
+      vasDetails: (initialVasDetails || []).map((vas: any) => [
+        vas.vasName || "",
+        vas.quantity || "",
+        vas.rate || "",
+        vas.gstPercent || "",
+        vas.room || "",
+      ]),
+    });
+
+    if (initSignatureRef.current === initSignature) {
+      return;
+    }
+
+    let cancelled = false;
     (async () => {
       if (!deal || !customer) return;
 
-      const bcns = initialItems
-        .map((it: any) => String(it.collectionBrand || "").trim())
-        .filter(Boolean);
+      try {
+        const bcns = initialItems
+          .map((it: any) => String(it.collectionBrand || it.bcn || "").trim())
+          .filter(Boolean);
 
-      const stockMap = await fetchStockTypeMapByBcn(bcns);
+        const stockMap = await fetchStockTypeMapByBcn(bcns);
+        if (cancelled) return;
 
-      const itemsForForm = initialItems.map((item: any, idx) => {
-        const bcn = String(item.collectionBrand || "").trim();
-        const stock = stockMap.get(bcn);
+        const itemsForForm = initialItems.map((item: any, idx) => {
+          const resolvedCollectionBrand = String(
+            item.collectionBrand ||
+            item.bcn ||
+            item.itemName ||
+            item.productCategory ||
+            `Item ${idx + 1}`
+          ).trim();
+          const bcn = resolvedCollectionBrand;
+          const stock = stockMap.get(bcn);
 
-        let resolvedBcnType: BcnType | undefined;
-        if (item.productType === 'Hardware') {
-          resolvedBcnType = 'hardware';
-        } else {
-          resolvedBcnType = normalizeBcnType(stock?.type) || "fabric";
-        }
-        
-        const detectedGst = gstPercentForBcnType(resolvedBcnType);
-        const fallbackUnit = resolvedBcnType === "fabric" ? "Mtr" : "Pcs";
-        const resolvedStockUnit = normalizeStockUnit(item.stockUnit || item.unit || stock?.unit, fallbackUnit);
+          let resolvedBcnType: BcnType | undefined;
+          if (item.productType === 'Hardware') {
+            resolvedBcnType = 'hardware';
+          } else {
+            resolvedBcnType = normalizeBcnType(stock?.type) || "fabric";
+          }
+          
+          const detectedGst = gstPercentForBcnType(resolvedBcnType);
+          const fallbackUnit = resolvedBcnType === "fabric" ? "Mtr" : "Pcs";
+          const resolvedStockUnit = normalizeStockUnit(item.stockUnit || item.unit || stock?.unit, fallbackUnit);
 
-        let effectiveRate = 0;
-        if (item.rate != null && !isNaN(Number(item.rate))) effectiveRate = Number(item.rate);
-        if (effectiveRate === 0 && item.mrp != null && !isNaN(Number(item.mrp))) effectiveRate = Number(item.mrp);
+          let effectiveRate = 0;
+          if (item.rate != null && !isNaN(Number(item.rate))) effectiveRate = Number(item.rate);
+          if (effectiveRate === 0 && item.mrp != null && !isNaN(Number(item.mrp))) effectiveRate = Number(item.mrp);
 
-        const originalMrp = item.mrp != null ? Number(item.mrp) : effectiveRate;
+          const originalMrp = item.mrp != null ? Number(item.mrp) : effectiveRate;
 
-        let description = item.salesDescription || item.collectionBrand;
-        if (item.productType === "Hardware") {
-          const fallback = item.subCategory ? `${item.productCategory} → ${item.subCategory}` : item.productCategory;
-          description = item.itemName || stock?.itemName || item.salesDescription || fallback || item.collectionBrand;
-        } else if (item.productType === "VAS") {
-          description = item.subCategory ? `${item.productCategory} → ${item.subCategory}` : item.productCategory;
-        }
+          let description =
+            item.salesDescription ||
+            item.subCategory ||
+            item.productCategory ||
+            item.itemName ||
+            resolvedCollectionBrand;
+          if (item.productType === "Hardware") {
+            const fallback = item.subCategory ? `${item.productCategory} → ${item.subCategory}` : item.productCategory;
+            description = item.itemName || stock?.itemName || item.salesDescription || fallback || resolvedCollectionBrand;
+          } else if (item.productType === "VAS") {
+            description = item.subCategory ? `${item.productCategory} → ${item.subCategory}` : item.productCategory;
+          }
+          const normalizedDescription = String(description || resolvedCollectionBrand).trim() || `Item ${idx + 1}`;
 
-        // ✅ Extract Category Group from various possible field names
-        const catGroup = item.fabricCategoryGroup || "-";
+          // ✅ Extract Category Group from various possible field names
+          const catGroup = item.fabricCategoryGroup || item.categoryGroup || item.productCategory || "-";
 
-        return {
-          id: item.id || `item-${idx}`,
-          collectionBrand: item.collectionBrand || "",
-          serialNo: item.serialNo || "",
-          salesDescription: description,
-          unit: resolvedStockUnit,
-          stockUnit: resolvedStockUnit,
-          quantity: Number(item.quantity) || 0,
-          rate: effectiveRate,
-          originalMrp,
-          discountPercent: Number(item.discountPercent) || 0,
-          bcnType: resolvedBcnType,
-          gstPercent: detectedGst,
-          gstMode: item.gstMode || "INCL",
-          subtotal: 0,
-          discount: 0,
+          return {
+            id: item.id || `item-${idx}`,
+            collectionBrand: resolvedCollectionBrand,
+            serialNo: item.serialNo || "",
+            salesDescription: normalizedDescription,
+            unit: resolvedStockUnit,
+            stockUnit: resolvedStockUnit,
+            quantity: Number(item.quantity) || 0,
+            rate: effectiveRate,
+            originalMrp,
+            discountPercent: Number(item.discountPercent) || 0,
+            bcnType: resolvedBcnType,
+            gstPercent: detectedGst,
+            gstMode: item.gstMode || "INCL",
+            subtotal: 0,
+            discount: 0,
+            taxableAmt: 0,
+            gstAmount: 0,
+            totalAmount: 0,
+            cgst: 0,
+            sgst: 0,
+            igst: 0,
+            room: item.room || "",
+            noOfPcs: item.noOfPcs || "1",
+            remark: item.remarks || "",
+            stitchingType: item.stitchingType || "",
+            categoryGroup: catGroup, // ✅ ADDED
+          };
+        });
+
+        const vasForForm = (initialVasDetails || []).map((vas: any) => ({
+          vasName: vas.vasName,
+          rate: String(vas.rate),
+          quantity: String(vas.quantity),
+          gstPercent: Number(vas.gstPercent ?? 0),
+          room: vas.room || "",
           taxableAmt: 0,
-          gstAmount: 0,
-          totalAmount: 0,
           cgst: 0,
           sgst: 0,
           igst: 0,
-          room: item.room || "",
-          noOfPcs: item.noOfPcs || "1",
-          remark: item.remarks || "",
-          stitchingType: item.stitchingType || "",
-          categoryGroup: catGroup, // ✅ ADDED
-        };
-      });
+        }));
 
-      const vasForForm = (initialVasDetails || []).map((vas: any) => ({
-        vasName: vas.vasName,
-        rate: String(vas.rate),
-        quantity: String(vas.quantity),
-        gstPercent: Number(vas.gstPercent ?? 0),
-        room: vas.room || "",
-        taxableAmt: 0,
-        cgst: 0,
-        sgst: 0,
-        igst: 0,
-      }));
+        form.reset({
+          store: initialQuotation?.store || user?.store || "MO GCR BRANCH",
+          company: initialQuotation?.company || "MO DESIGNS PRIVATE LIMITED",
+          date: parseDateValue(initialQuotation?.date) || new Date(),
+          validTillDate: parseDateValue(initialQuotation?.validTillDate),
+          customerName:
+            initialQuotation?.customerName ||
+            customer.name ||
+            (customer as any).customerName ||
+            customer.customerId ||
+            "Customer",
+          billingName:
+            initialQuotation?.billingName ||
+            customer.name ||
+            (customer as any).customerName ||
+            customer.customerId ||
+            "Customer",
+          billingAddress: customer.billingAddress?.line1 || customer.addressPinCode,
+          dealName:
+            initialQuotation?.dealName ||
+            deal.title ||
+            deal.dealName ||
+            (deal as any).name ||
+            deal.id ||
+            "Deal",
+          items: itemsForForm,
+          vasDetails: vasForForm,
+          sendEmail: false,
+          sendSms: false,
+          representativeId: initialQuotation?.representativeId || deal.assignedSalesPerson?.id || deal.representativeId,
+        });
+        if (cancelled) return;
+        initSignatureRef.current = initSignature;
 
-      form.reset({
-        store: initialQuotation?.store || user?.store || "MO GCR BRANCH",
-        company: initialQuotation?.company || "MO DESIGNS PRIVATE LIMITED",
-        date: parseDateValue(initialQuotation?.date) || new Date(),
-        validTillDate: parseDateValue(initialQuotation?.validTillDate),
-        customerName: initialQuotation?.customerName || customer.name,
-        billingName: initialQuotation?.billingName || customer.name,
-        billingAddress: customer.billingAddress?.line1 || customer.addressPinCode,
-        dealName: initialQuotation?.dealName || deal.title || deal.dealName,
-        items: itemsForForm,
-        vasDetails: vasForForm,
-        sendEmail: false,
-        sendSms: false,
-        representativeId: initialQuotation?.representativeId || deal.assignedSalesPerson?.id || deal.representativeId,
-      });
-
-      setView("edit");
+        setView("edit");
+      } catch (error) {
+        console.error("Failed to initialize quotation form:", error);
+      }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, deal, customer, initialItems, initialVasDetails, initialQuotation, user, form]);
 
   // ─── Submission Handlers ─────────────────────────────────
@@ -579,12 +652,12 @@ export function CreateQuotationDialog({
       const itemBcnType = String(item.bcnType || "").toLowerCase();
       const fallbackUnit = itemBcnType && itemBcnType !== "fabric" ? "Pcs" : "Mtr";
       const resolvedStockUnit = normalizeStockUnit(item.stockUnit || item.unit, fallbackUnit);
-      
-      return {
+
+      return calculateItemTotals({
         ...item,
         unit: resolvedStockUnit,
         stockUnit: resolvedStockUnit,
-      };
+      });
     });
 
     const valuesForCreate = {
@@ -636,17 +709,30 @@ export function CreateQuotationDialog({
     }
   }, [form, user, customer.id, deal.id, toast, onSuccess, onOpenChange]);
 
-  const handleProceed = useCallback(() => {
-    form.trigger().then(isValid => {
-      if (isValid) {
-        setView('preview');
-      } else {
-        toast({
-          variant: 'destructive',
-          title: 'Validation Error',
-          description: 'Please fill in all required fields before proceeding.',
-        });
-      }
+  const handleProceed = useCallback(async () => {
+    const isValid = await form.trigger();
+    if (isValid) {
+      setView('preview');
+      return;
+    }
+
+    const errors = form.formState.errors as any;
+    const itemErrors = Array.isArray(errors?.items) ? errors.items.filter(Boolean).length : 0;
+    const headerKeys = ["store", "date", "customerName", "dealName"]
+      .filter((key) => Boolean(errors?.[key]))
+      .join(", ");
+
+    const description =
+      itemErrors > 0
+        ? `Please complete ${itemErrors} item row(s).`
+        : headerKeys
+          ? `Missing/invalid: ${headerKeys}.`
+          : "Please fill in all required fields before proceeding.";
+
+    toast({
+      variant: 'destructive',
+      title: 'Validation Error',
+      description,
     });
   }, [form, toast]);
 
@@ -758,8 +844,6 @@ const QuotationEditForm = memo(function QuotationEditForm({
         
         <PreviouslySelectedItems
           control={form.control}
-          setValue={form.setValue}
-          getValues={form.getValues}
           fields={itemFields}
           remove={removeItem}
         />
@@ -791,6 +875,14 @@ const QuotationHeader = memo(function QuotationHeader({
   form: UseFormReturn<FormValues>;
   deal: Deal;
 }) {
+  const dealNameOption = String(
+    deal.title ||
+    deal.dealName ||
+    (deal as any).name ||
+    deal.id ||
+    "Deal"
+  );
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
       <FormField
@@ -904,8 +996,8 @@ const QuotationHeader = memo(function QuotationHeader({
             <FormLabel>Deal Name*</FormLabel>
             <Combobox
               options={[{
-                value: String(deal.title || deal.dealName || ""),
-                label: String(deal.title || deal.dealName || "")
+                value: dealNameOption,
+                label: dealNameOption
               }]}
               value={field.value}
               onSelect={field.onChange}
@@ -921,43 +1013,13 @@ const QuotationHeader = memo(function QuotationHeader({
 
 const PreviouslySelectedItems = memo(function PreviouslySelectedItems({
   control,
-  setValue,
-  getValues,
   fields,
   remove,
 }: {
   control: Control<FormValues>;
-  setValue: UseFormReturn<FormValues>['setValue'];
-  getValues: UseFormReturn<FormValues>['getValues'];
   fields: any[];
   remove: (index: number) => void;
 }) {
-  const items = useWatch({ control, name: 'items' });
-
-  useEffect(() => {
-    items.forEach((item, index) => {
-      const calculated = calculateItemTotals(item);
-
-      const updates = [
-        { path: `items.${index}.subtotal`, value: calculated.subtotal },
-        { path: `items.${index}.discount`, value: calculated.discount },
-        { path: `items.${index}.taxableAmt`, value: calculated.taxableAmt },
-        { path: `items.${index}.gstAmount`, value: calculated.gstAmount },
-        { path: `items.${index}.totalAmount`, value: calculated.totalAmount },
-        { path: `items.${index}.cgst`, value: calculated.cgst },
-        { path: `items.${index}.sgst`, value: calculated.sgst },
-        { path: `items.${index}.igst`, value: calculated.igst },
-      ];
-
-      updates.forEach(({ path, value }) => {
-        const currentValue = Number(getValues(path as any) ?? 0);
-        if (!Number.isFinite(currentValue) || Math.abs(currentValue - value) > 0.001) {
-          setValue(path as any, value, { shouldValidate: false });
-        }
-      });
-    });
-  }, [items, setValue, getValues]);
-
   if (fields.length === 0) return null;
 
   return (
@@ -985,7 +1047,6 @@ const PreviouslySelectedItems = memo(function PreviouslySelectedItems({
               <ItemRow
                 key={field.id}
                 control={control}
-                getValues={getValues}
                 index={index}
                 onRemove={remove}
               />
@@ -999,18 +1060,20 @@ const PreviouslySelectedItems = memo(function PreviouslySelectedItems({
 
 const ItemRow = memo(function ItemRow({
   control,
-  getValues,
   index,
   onRemove,
 }: {
   control: Control<FormValues>;
-  getValues: UseFormReturn<FormValues>['getValues'];
   index: number;
   onRemove: (index: number) => void;
 }) {
   const handleRemove = useCallback(() => onRemove(index), [index, onRemove]);
   
   const currentItem = useWatch({ control, name: `items.${index}` });
+  const calculatedItem = useMemo(
+    () => calculateItemTotals(currentItem || {}),
+    [currentItem]
+  );
   const rateIsLower = currentItem &&
     typeof currentItem.originalMrp === 'number' &&
     typeof currentItem.rate === 'number' &&
@@ -1022,10 +1085,10 @@ const ItemRow = memo(function ItemRow({
       <TableCell>
         <div>
           <p className="font-medium text-primary">
-            {getValues(`items.${index}.collectionBrand`)}
+            {currentItem?.collectionBrand || "-"}
           </p>
           <p className="text-xs text-muted-foreground">
-            {getValues(`items.${index}.salesDescription`)}
+            {currentItem?.salesDescription || "-"}
           </p>
         </div>
 
@@ -1044,7 +1107,7 @@ const ItemRow = memo(function ItemRow({
       </TableCell>
       <TableCell>
         <div className="text-sm font-medium text-blue-600">
-          {getValues(`items.${index}.categoryGroup`)}
+          {currentItem?.categoryGroup || "-"}
         </div>
       </TableCell> {/* ✅ ADDED */}
       <TableCell>
@@ -1147,17 +1210,11 @@ const ItemRow = memo(function ItemRow({
         />
       </TableCell>
       <TableCell>
-        <FormField
-          control={control}
-          name={`items.${index}.taxableAmt`}
-          render={({ field }) => (
-            <Input
-              readOnly
-              disabled
-              value={Number(field.value || 0).toFixed(2)}
-              className="w-24 bg-gray-50"
-            />
-          )}
+        <Input
+          readOnly
+          disabled
+          value={Number(calculatedItem.taxableAmt || 0).toFixed(2)}
+          className="w-24 bg-gray-50"
         />
       </TableCell>
       <TableCell>

@@ -33,6 +33,7 @@ export type OnboardingFieldMeta = {
   label: string;
   section: OnboardingFieldSection;
   autoManaged?: boolean;
+  required?: boolean;
   inputType?: "text" | "email" | "tel" | "date" | "time";
   placeholder?: string;
 };
@@ -55,11 +56,11 @@ export const ONBOARDING_REQUIRED_FIELDS: OnboardingFieldMeta[] = [
 
   { key: "panNumber", label: "PAN", section: "KYC & Bank", inputType: "text", placeholder: "PAN number" },
   { key: "aadhaarNumber", label: "Aadhaar", section: "KYC & Bank", inputType: "text", placeholder: "Aadhaar number" },
-  { key: "uanNumber", label: "UAN", section: "KYC & Bank", inputType: "text", placeholder: "UAN number" },
-  { key: "esiNumber", label: "ESI", section: "KYC & Bank", inputType: "text", placeholder: "ESI number" },
-  { key: "bankName", label: "Bank Name", section: "KYC & Bank", inputType: "text", placeholder: "Bank name" },
-  { key: "bankAccountNumber", label: "Account Number", section: "KYC & Bank", inputType: "text", placeholder: "Account number" },
-  { key: "bankIfsc", label: "IFSC", section: "KYC & Bank", inputType: "text", placeholder: "IFSC code" },
+  { key: "uanNumber", label: "UAN", section: "KYC & Bank", required: false, inputType: "text", placeholder: "UAN number" },
+  { key: "esiNumber", label: "ESI", section: "KYC & Bank", required: false, inputType: "text", placeholder: "ESI number" },
+  { key: "bankName", label: "Bank Name", section: "KYC & Bank", required: false, inputType: "text", placeholder: "Bank name" },
+  { key: "bankAccountNumber", label: "Account Number", section: "KYC & Bank", required: false, inputType: "text", placeholder: "Account number" },
+  { key: "bankIfsc", label: "IFSC", section: "KYC & Bank", required: false, inputType: "text", placeholder: "IFSC code" },
 ];
 
 export type EditableOnboardingFieldKey = Exclude<OnboardingFieldKey, "role" | "store">;
@@ -150,6 +151,9 @@ export const getMissingOnboardingFields = (
 ) => {
   const includeAutoManaged = options?.includeAutoManaged ?? true;
   return ONBOARDING_REQUIRED_FIELDS.filter((field) => {
+    if (field.required === false) {
+      return false;
+    }
     if (!includeAutoManaged && field.autoManaged) {
       return false;
     }
@@ -162,9 +166,9 @@ export const getOnboardingProgress = (
   options?: { includeAutoManaged?: boolean }
 ) => {
   const includeAutoManaged = options?.includeAutoManaged ?? true;
-  const fields = includeAutoManaged
+  const fields = (includeAutoManaged
     ? ONBOARDING_REQUIRED_FIELDS
-    : EDITABLE_ONBOARDING_FIELDS;
+    : EDITABLE_ONBOARDING_FIELDS).filter((field) => field.required !== false);
   const missing = getMissingOnboardingFields(profile, { includeAutoManaged });
   const total = fields.length;
   const completed = total - missing.length;
