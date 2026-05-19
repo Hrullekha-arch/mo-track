@@ -77,22 +77,64 @@ const getOrdersByIds = async (ids: string[]) => {
   return orderMap;
 };
 
-const isOrderClosedForPms = (order?: any) => {
-  if (!order) return false;
-  const workflowStatus = String(order?.workflow?.status || "").trim().toUpperCase();
-  if (workflowStatus === "COMPLETED" || workflowStatus === "CANCELLED") return true;
-  const status = String(order?.status || "").trim().toUpperCase();
-  return status === "INSTALLATION DONE" || status === "COMPLETED" || status === "CANCELLED";
+const commitPlanMaintenance = async (
+  plans: any[],
+  stalePlanIds: string[],
+  now: string,
+  resetPlanJobIds: string[] = []
+) => {
+  const resetPlanJobIdSet = new Set(resetPlanJobIds.map((id) => String(id || "").trim()).filter(Boolean));
+  const upsertPlanOps = plans.filter((plan) => {
+    const jobId = String(plan?.jobId || "").trim();
+    if (!jobId) return false;
+    return !resetPlanJobIdSet.has(jobId);
+  });
+  for (let i = 0; i < upsertPlanOps.length; i += 350) {
+    const batch = adminDb.batch();
+    upsertPlanOps.slice(i, i + 350).forEach((plan) => {
+      const jobId = String(plan.jobId || "").trim();
+      if (!jobId) return;
+      const planRef = adminDb.collection("plan").doc(jobId);
+      batch.set(
+        planRef,
+        {
+          ...plan,
+          id: planRef.id,
+          jobId,
+          updatedAt: plan?.updatedAt || now,
+          createdAt: plan?.createdAt || now,
+        },
+        { merge: true }
+      );
+    });
+    await batch.commit();
+  }
+
+  const planIdsToDelete = Array.from(
+    new Set([
+      ...stalePlanIds,
+      ...Array.from(resetPlanJobIdSet),
+    ])
+  );
+
+  for (let i = 0; i < planIdsToDelete.length; i += 350) {
+    const batch = adminDb.batch();
+    planIdsToDelete.slice(i, i + 350).forEach((planId) => {
+      const cleanId = String(planId || "").trim();
+      if (!cleanId) return;
+      batch.delete(adminDb.collection("plan").doc(cleanId));
+    });
+    await batch.commit();
+  }
 };
 
-const hasInvoiceForPms = (order?: any) => {
-  if (!order || isOrderClosedForPms(order)) return false;
-  if (order?.invoicing?.invoiceRequired === false) return true;
-  const status = order?.invoicing?.status;
-  const invoiceCount = Array.isArray(order?.invoicing?.invoices)
-    ? order.invoicing.invoices.length
-    : 0;
-  return Boolean((status && status !== "NOT_INVOICED") || invoiceCount > 0);
+const isOrderInvoicedForPms = (order?: any) => {
+  if (!order) return false;
+  if (order.invoicing?.invoiceRequired === false) return true;
+  const status = order.invoicing?.status;
+  const invoices = order.invoicing?.invoices || [];
+  if (status && status !== "NOT_INVOICED") return true;
+  return Array.isArray(invoices) && invoices.length > 0;
 };
 
 export async function POST() {
@@ -137,10 +179,10 @@ export async function POST() {
     const isFinalRouteStep = (job: any) => {
       const productId = String(job?.productId || "").trim();
       const stepNo = Number(job?.stepNo || 0);
-      if (!productId || !Number.isFinite(stepNo) || stepNo <= 0) return false;
-      const maxStep = Number(maxRouteStepByProduct.get(productId) || 0);
-      if (!Number.isFinite(maxStep) || maxStep <= 0) return false;
-      return stepNo >= maxStep;
+      if (!productId || !Number.isFinite(stepNo) || stepNo <= 1) return false;
+      const routingSteps = routingByProduct.get(productId) || [];
+      const previousStep = routingSteps.find((step) => Number(step?.stepNo || 0) === stepNo - 1);
+      return requiresManualDoneAfterProcess(previousStep?.process);
     };
 
     const isManualDoneCheckpoint = (job: any) => {
@@ -223,9 +265,18 @@ export async function POST() {
     );
 
     const activeOrderDataById = await getOrdersByIds(activeOrderIds);
-    const invoicedOrderIds = new Set<string>();
+    const activeSchedulableOrderIds = new Set<string>();
+    const startGateByOrderId = await getPmsStartGateMap(activeOrderDataById);
+    const startEligibleOrderIds = new Set<string>();
+    activeOrderDataById.forEach((_data, id) => {
+      activeSchedulableOrderIds.add(id);
+    });
     activeOrderDataById.forEach((data, id) => {
-      if (hasInvoiceForPms(data)) invoicedOrderIds.add(id);
+      const hasInvoice = isOrderInvoicedForPms(data);
+      const startGate = startGateByOrderId.get(id);
+      if (hasInvoice && startGate?.eligible) {
+        startEligibleOrderIds.add(id);
+      }
     });
 
     const getJobTiming = (job: any) => {
@@ -274,10 +325,10 @@ export async function POST() {
 
     const runningResourceLocks = inProgressJobs
       .map(getJobTiming)
-      .filter(({ job, plannedEndMs }) => {
-        if (!invoicedOrderIds.has(job.orderId)) return false;
+      .filter(({ job }) => {
+        if (!activeSchedulableOrderIds.has(job.orderId)) return false;
         if (completedInProgressJobs.some((entry) => entry.job.id === job.id)) return false;
-        return plannedEndMs === undefined || plannedEndMs > nowMs;
+        return true;
       })
       .map(({ job, plan, plannedEndMs }) => ({
         jobId: job.id as string,
@@ -295,7 +346,8 @@ export async function POST() {
     const readyPlannedJobs = plannedJobs
       .map(getJobTiming)
       .filter(({ job, plannedStartMs, plannedEndMs }) => {
-        if (!invoicedOrderIds.has(job.orderId)) return false;
+        if (!activeSchedulableOrderIds.has(job.orderId)) return false;
+        if (!startEligibleOrderIds.has(job.orderId)) return false;
         if (plannedStartMs === undefined || plannedStartMs > nowMs) return false;
         if (plannedEndMs !== undefined && plannedEndMs <= nowMs) return false;
         if (hasIncompletePreviousStep(job)) return false;
@@ -317,6 +369,15 @@ export async function POST() {
     for (const entry of readyPlannedJobs) {
       const machineId = entry.plan?.machineId;
       const personId = entry.plan?.personId;
+      const assignedPerson = personId ? peopleById[String(personId)] : undefined;
+      if (
+        assignedPerson &&
+        (!isPmsPersonActive(assignedPerson) ||
+          isPmsPersonOnLeaveAt(assignedPerson, now) ||
+          isPmsPersonWeekOffAt(assignedPerson, now, IST_TIMEZONE_OFFSET_MINUTES))
+      ) {
+        continue;
+      }
       const hasConflict = runningResourceLocks.some((lock) => {
         const sameMachine = Boolean(machineId) && lock.machineId === machineId;
         const samePerson = Boolean(personId) && lock.personId === personId;
@@ -382,20 +443,26 @@ export async function POST() {
     let plannedCount = 0;
     if (queueJobs.length > 0) {
       const machinesSnap = await adminDb.collection("machines").where("active", "==", true).get();
+      const peopleSnap = await adminDb.collection("people").get();
       const skillsSnap = await adminDb.collection("machineSkills").where("allowed", "==", true).get();
       const productsSnap = await adminDb.collection("products").get();
       const plansSnap = await adminDb.collection("plan").get();
       const downtimeSnap = await adminDb.collection("machineDowntime").get();
       const workingHoursSnap = await adminDb.collection("pmsSettings").doc("workingHours").get();
       const workingHoursData = workingHoursSnap.exists ? (workingHoursSnap.data() as any) : {};
+      const {
+        plans: canonicalPlans,
+        canonicalByJobId,
+        stalePlanIds,
+      } = getCanonicalPlans(plansSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })));
 
       const queueOrderIds = Array.from(
         new Set(queueJobs.map((job) => job.orderId).filter(Boolean))
       ) as string[];
       const queueOrderDataById = await getOrdersByIds(queueOrderIds);
       const queueSchedulableOrderIds = new Set<string>();
-      queueOrderDataById.forEach((data, id) => {
-        if (hasInvoiceForPms(data)) queueSchedulableOrderIds.add(id);
+      queueOrderDataById.forEach((_data, id) => {
+        queueSchedulableOrderIds.add(id);
       });
 
       const eligibleQueueJobs = queueJobs.filter((job) => queueSchedulableOrderIds.has(job.orderId));
@@ -404,6 +471,7 @@ export async function POST() {
           success: true,
           completed: completedInProgressJobs.length,
           planned: 0,
+          message: "No waiting/planned PMS jobs are available.",
         });
       }
 
@@ -436,20 +504,29 @@ export async function POST() {
       eligibleQueueJobs.forEach((job) => schedulingJobsMap.set(job.id, job));
       inProgressJobs.forEach((job) => schedulingJobsMap.set(job.id, job));
 
-      const planByJobId = new Map<string, any>();
-      plansSnap.docs.forEach((doc) => {
-        const data = doc.data() as any;
-        if (data?.jobId) planByJobId.set(data.jobId, data);
-      });
+      const planByJobId = canonicalByJobId;
 
       const schedulingOrderIds = new Set(queueSchedulableOrderIds);
       inProgressJobs.forEach((job) => {
         if (job?.orderId) schedulingOrderIds.add(job.orderId);
       });
 
-      const schedulingJobs = Array.from(schedulingJobsMap.values())
-        .filter((job) => schedulingOrderIds.has(job.orderId))
-        .map((job) => {
+      const schedulingCandidates = Array.from(schedulingJobsMap.values()).filter((job) =>
+        schedulingOrderIds.has(job.orderId)
+      );
+      const resetPlanJobIds = Array.from(
+        new Set(
+          schedulingCandidates
+            .filter((job) => {
+              const rawStatus = String(job.status || "").toUpperCase();
+              return rawStatus === "WAITING" || rawStatus === "PLANNED";
+            })
+            .map((job) => String(job.id || "").trim())
+            .filter(Boolean)
+        )
+      );
+
+      const schedulingJobs = schedulingCandidates.map((job) => {
           const plan = planByJobId.get(job.id);
           const rawStatus = String(job.status || "").toUpperCase();
           const normalizedStatus = rawStatus === "PLANNED" ? "WAITING" : rawStatus;
@@ -472,7 +549,10 @@ export async function POST() {
         skills: skillsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })),
         peopleById,
         products: productsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })),
-        plans: plansSnap.docs.map((doc) => doc.data() as any),
+        peopleById: Object.fromEntries(
+          peopleSnap.docs.map((doc) => [doc.id, { id: doc.id, ...(doc.data() as any) }])
+        ),
+        plans: canonicalPlans,
         downtimes: downtimeSnap.docs.map((doc) => doc.data() as any),
         orderPriorityMap,
         now,
@@ -484,35 +564,43 @@ export async function POST() {
       });
 
       plannedCount = planned.length;
+      await commitPlanMaintenance(canonicalPlans, stalePlanIds, now, resetPlanJobIds);
       if (planned.length > 0 || updatedJobs.length > 0) {
-        const batch = adminDb.batch();
-        planned.forEach((planEntry) => {
-          const planRef = adminDb.collection("plan").doc(planEntry.jobId);
-          batch.set(
-            planRef,
-            {
-              ...planEntry,
-              id: planRef.id,
-              updatedAt: now,
-              createdAt: planEntry?.createdAt || now,
-            },
-            { merge: true }
-          );
-        });
-        updatedJobs.forEach((updated) => {
-          const updatedRef = adminDb.collection("jobs").doc(updated.id);
-          batch.set(
-            updatedRef,
-            {
-              status: updated.status,
-              plannedStart: updated.plannedStart,
-              plannedEnd: updated.plannedEnd,
-              updatedAt: now,
-            },
-            { merge: true }
-          );
-        });
-        await batch.commit();
+        for (let i = 0; i < planned.length; i += 350) {
+          const batch = adminDb.batch();
+          planned.slice(i, i + 350).forEach((planEntry) => {
+            const planRef = adminDb.collection("plan").doc(planEntry.jobId);
+            batch.set(
+              planRef,
+              {
+                ...planEntry,
+                id: planRef.id,
+                jobId: planEntry.jobId,
+                updatedAt: now,
+                createdAt: planEntry?.createdAt || now,
+              },
+              { merge: true }
+            );
+          });
+          await batch.commit();
+        }
+        for (let i = 0; i < updatedJobs.length; i += 350) {
+          const batch = adminDb.batch();
+          updatedJobs.slice(i, i + 350).forEach((updated) => {
+            const updatedRef = adminDb.collection("jobs").doc(updated.id);
+            batch.set(
+              updatedRef,
+              {
+                status: updated.status,
+                plannedStart: updated.plannedStart,
+                plannedEnd: updated.plannedEnd,
+                updatedAt: now,
+              },
+              { merge: true }
+            );
+          });
+          await batch.commit();
+        }
       }
     }
 

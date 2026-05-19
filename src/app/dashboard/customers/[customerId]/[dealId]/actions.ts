@@ -2082,6 +2082,67 @@ export async function getSelectionsForDeal(customerId: string, dealId: string): 
     }
 }
 
+//===============Delete product from dealProduct================
+
+
+interface DeleteDealProductParams {
+  dealId: string;
+  productId: string;
+}
+
+export async function deleteDealProduct({
+  dealId,
+  productId,
+}: DeleteDealProductParams) {
+  try {
+    // ✅ ADMIN SDK syntax
+    const docRef = adminDb
+      .collection("dealProducts")
+      .doc(dealId);
+
+    // ✅ ADMIN SDK get
+    const snap = await docRef.get();
+
+    if (!snap.exists) {
+      throw new Error("Deal document not found");
+    }
+
+    const data = snap.data();
+
+    const currentItems =
+      data?.sections?.NORMAL?.items || [];
+
+    // ✅ remove matching item
+    const updatedItems = currentItems.filter(
+      (item: any) => item?.meta?.id !== productId
+    );
+
+    // ✅ IMPORTANT:
+    // You were updating wrong path before
+    // because items are inside selections.NORMAL.items
+
+    await docRef.update({
+      "sections.NORMAL.items": updatedItems,
+    });
+
+    return {
+      success: true,
+      message: "Product deleted successfully",
+    };
+  } catch (error) {
+    console.error("Delete Product Error:", error);
+
+    return {
+      success: false,
+      message: "Failed to delete product",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unknown Error",
+    };
+  }
+}
+
 export async function updateSelectionStatusAction(
   customerId: string,
   dealId: string,
@@ -2498,6 +2559,8 @@ export async function updateItemsAction({
 //////////////////////////////////////////
 
 import admin from "firebase-admin";
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 export async function saveMeasurementToDeal({
   customerId,

@@ -121,7 +121,15 @@ export default function WalkinCustomerPage() {
       <Card className="w-full max-w-lg">
         <CardHeader className="text-center">
             <Link href="/">
-                <Image src="/logo.png" alt="MoTrack Logo" width={150} height={75} className="mx-auto mb-4" />
+                <Image
+                  src="/logo.png"
+                  alt="MoTrack Logo"
+                  width={150}
+                  height={75}
+                  loading="eager"
+                  style={{ height: "auto" }}
+                  className="mx-auto mb-4"
+                />
             </Link>
           <CardTitle className="text-2xl font-bold">Welcome!</CardTitle>
           <CardDescription>Please provide your details below to connect with us.</CardDescription>

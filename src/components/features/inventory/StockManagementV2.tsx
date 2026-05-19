@@ -85,6 +85,8 @@ const formatQty = (value?: number | string | null) => {
 
 // ==================== CONSTANTS ====================
 const CATEGORY_OPTIONS = getStockCategoryOptions();
+const NON_SERVICE_CATEGORY_OPTIONS = CATEGORY_OPTIONS.filter((option) => option !== "SERVICE");
+const SERVICE_CATEGORY_OPTIONS = ["STITCHING", "INSTALLATION"] as const;
 const UNIT_OPTIONS = ["PCS", "MTR", "SET"];
 const SUPPLIER_OTHER = "__OTHER_SUPPLIER__";
 
@@ -167,7 +169,7 @@ const router = useRouter();
         );
         setSupplierOptions([
           ...uniqueSuppliers.map((v) => ({ value: v, label: v })),
-          { value: SUPPLIER_OTHER, label: "➕ Add New" },
+          { value: SUPPLIER_OTHER, label: "+ Add New" },
         ]);
       } catch (error) {
         console.error(error);
@@ -268,7 +270,7 @@ React.useEffect(() => {
       toast({ variant: "destructive", title: "Update failed", description: result.message });
       return;
     }
-    toast({ title: "✅ Updated", description: result.message });
+    toast({ title: "Updated", description: result.message });
     setIsEditName(false);
   };
 
@@ -298,7 +300,7 @@ React.useEffect(() => {
         toast({ variant: "destructive", title: "Failed", description: result.message });
         return;
       }
-      toast({ title: "✅ Length added", description: `${qty} ${addLengthUnit} added successfully` });
+      toast({ title: "Length added", description: `${qty} ${addLengthUnit} added successfully` });
       setIsAddLengthOpen(false);
       setAddLengthQty("");
       setAddBatchNo("");
@@ -324,7 +326,7 @@ React.useEffect(() => {
       
       const docRef = doc(db, "stocks", docId);
       await deleteDoc(docRef);
-      toast({ title: "✅ Stock Deleted", description: `Stock deleted successfully` });
+      toast({ title: "Stock deleted", description: `Stock deleted successfully` });
       router.refresh();
       setIsAddLengthOpen(false);
     } catch (error) {
@@ -339,18 +341,49 @@ React.useEffect(() => {
 
 
   const handleCreateItem = async () => {
-    const resolvedCategory = resolveStockCategory(draft.category) || "FABRIC";
-    const resolvedCategoryGroup =
-      resolveStockCategoryGroup(draft.categoryGroup, resolvedCategory) ||
-      (getStockSubcategories(resolvedCategory)[0] || "");
+    setIsCreating(true);
+    const isServiceItem = Boolean(draft.isService);
+    const resolvedCategory = isServiceItem
+      ? "SERVICE"
+      : (resolveStockCategory(draft.category) || "FABRIC");
+    const resolvedCategoryGroup = isServiceItem
+      ? (SERVICE_CATEGORY_OPTIONS.includes(draft.categoryGroup as (typeof SERVICE_CATEGORY_OPTIONS)[number])
+          ? draft.categoryGroup
+          : SERVICE_CATEGORY_OPTIONS[0])
+      : (
+        resolveStockCategoryGroup(draft.categoryGroup, resolvedCategory) ||
+        (getStockSubcategories(resolvedCategory)[0] || "")
+      );
     const resolvedSupplierCompany = useCustomSupplierCompany ? customSupplierCompany.trim() : draft.supplierCompanyName.trim();
+    const resolvedMrp = toNumber(draft.rrpWithGstRs);
+    const resolvedGst = toNumber(draft.gstPercent);
 
     if (!draft.bcn.trim() || !draft.name.trim()) {
       toast({ variant: "destructive", title: "BCN and Item Name are required" });
+      setIsCreating(false);
       return;
     }
-    if (!resolvedSupplierCompany || !draft.supplierCollectionName.trim() || !draft.supplierCollectionCode.trim()) {
+    if (isServiceItem && !resolvedCategoryGroup) {
+      toast({ variant: "destructive", title: "Select service category" });
+      setIsCreating(false);
+      return;
+    }
+    if (resolvedMrp == null || resolvedMrp < 0) {
+      toast({ variant: "destructive", title: "Valid MRP is required" });
+      setIsCreating(false);
+      return;
+    }
+    if (isServiceItem && (resolvedGst == null || resolvedGst < 0)) {
+      toast({ variant: "destructive", title: "Valid GST is required for service item" });
+      setIsCreating(false);
+      return;
+    }
+    if (
+      !isServiceItem &&
+      (!resolvedSupplierCompany || !draft.supplierCollectionName.trim() || !draft.supplierCollectionCode.trim())
+    ) {
       toast({ variant: "destructive", title: "Supplier details are required" });
+      setIsCreating(false);
       return;
     }
     function buildSearchTokens(value: string): string[] {
@@ -370,31 +403,31 @@ React.useEffect(() => {
         productId: draft.productId.trim() || null,
         category: resolvedCategory,
         categoryGroup: resolvedCategoryGroup || undefined,
-        unit: draft.unit.trim(),
-        isService: draft.isService,
-        hsnOrSac: draft.hsnOrSac.trim() || null,
+        unit: (isServiceItem ? "PCS" : draft.unit.trim()),
+        isService: isServiceItem,
+        hsnOrSac: isServiceItem ? null : (draft.hsnOrSac.trim() || null),
         gstPercent: toNumber(draft.gstPercent),
-        costPriceRs: toNumber(draft.costPriceRs),
-        costMultiplierRs: toNumber(draft.costMultiplierRs),
-        rrpWithGstRs: toNumber(draft.rrpWithGstRs),
-        supplierCompanyName: resolvedSupplierCompany,
-        supplierCollectionName: draft.supplierCollectionName.trim(),
-        supplierCollectionCode: draft.supplierCollectionCode.trim(),
-        verticalRepeatCms: toNumber(draft.verticalRepeatCms),
-        horizontalRepeatCms: toNumber(draft.horizontalRepeatCms),
-        totalQty: toNumber(draft.totalQty) ?? 0,
-        availableQty: toNumber(draft.totalQty) ?? 0,
+        costPriceRs: isServiceItem ? undefined : toNumber(draft.costPriceRs),
+        costMultiplierRs: isServiceItem ? undefined : toNumber(draft.costMultiplierRs),
+        rrpWithGstRs: resolvedMrp,
+        supplierCompanyName: isServiceItem ? undefined : resolvedSupplierCompany,
+        supplierCollectionName: isServiceItem ? undefined : draft.supplierCollectionName.trim(),
+        supplierCollectionCode: isServiceItem ? undefined : draft.supplierCollectionCode.trim(),
+        verticalRepeatCms: isServiceItem ? undefined : toNumber(draft.verticalRepeatCms),
+        horizontalRepeatCms: isServiceItem ? undefined : toNumber(draft.horizontalRepeatCms),
+        totalQty: isServiceItem ? 0 : (toNumber(draft.totalQty) ?? 0),
+        availableQty: isServiceItem ? 0 : (toNumber(draft.totalQty) ?? 0),
         reservedQty: 0,
         damagedQty: 0,
         cutQty: 0,
-        rack: draft.rack.trim() || null,
+        rack: isServiceItem ? null : (draft.rack.trim() || null),
       });
 
       if (!result.success) {
         toast({ variant: "destructive", title: "Create failed", description: result.message });
         return;
       }
-      toast({ title: "✅ Item created", description: result.message });
+      toast({ title: "Item created", description: result.message });
       setDraft({
         bcn: "",
         productId: "",
@@ -417,6 +450,7 @@ React.useEffect(() => {
         rack: "",
         isActive: true,
       });
+      setIsCreating(false);
       setUseCustomSupplierCompany(false);
       setCustomSupplierCompany("");
       setIsCreateOpen(false);
@@ -498,7 +532,7 @@ React.useEffect(() => {
     console.log("stock reserve status", result);
 
     toast({ 
-      title: reserveAction === "reserve" ? "✅ Stock Reserved" : "✅ Stock Released", 
+      title: reserveAction === "reserve" ? "Stock reserved" : "Stock released", 
       description: `${qty} ${selected.unit} ${reserveAction === "reserve" ? "reserved" : "released"} successfully` 
     });
 
@@ -569,7 +603,7 @@ React.useEffect(() => {
               }}
               onSearch={handleSearch}
               emptyPlaceholder={isSearching ? "Searching..." : "No stock found"}
-              placeholder="🔍 Search by BCN or name..."
+              placeholder="Search by BCN or name..."
             />
           </CardContent>
         </Card>
@@ -608,7 +642,7 @@ React.useEffect(() => {
                             />
                       )}
                       <p className="text-sm text-muted-foreground">
-                        {selected.category} • {selected.categoryGroup} • {selected.unit}
+                        {selected.category} - {selected.categoryGroup} - {selected.unit}
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -766,14 +800,14 @@ React.useEffect(() => {
                             />
                           </div>
                           <div className="space-y-2">
-                            <Label>Cost Price (₹)</Label>
+                            <Label>Cost Price (Rs)</Label>
                             <Input
                               value={selected.costPriceRs ?? ""}
                               onChange={(e) => setSelected((prev) => (prev ? { ...prev, costPriceRs: toNumber(e.target.value) } : prev))}
                             />
                           </div>
                           <div className="space-y-2 md:col-span-3">
-                            <Label>RRP with GST (₹)</Label>
+                            <Label>RRP with GST (Rs)</Label>
                             <Input
                               value={selected.rrpWithGstRs ?? ""}
                               onChange={(e) => setSelected((prev) => (prev ? { ...prev, rrpWithGstRs: toNumber(e.target.value) } : prev))}
@@ -1327,8 +1361,6 @@ React.useEffect(() => {
               rack: "",
               isActive: true,
             });
-            setUseCustomCategoryGroup(false);
-            setCustomCategoryGroup("");
             setUseCustomSupplierCompany(false);
             setCustomSupplierCompany("");
           }
@@ -1392,74 +1424,145 @@ React.useEffect(() => {
                 <Tags className="h-4 w-4" />
                 Classification
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="category">Category</Label>
-                    <Select
-                      value={draft.category}
-                      onValueChange={(value) =>
-                        setDraft((prev) => ({
-                          ...prev,
-                          category: value,
-                          categoryGroup: getStockSubcategories(value)[0] || "",
-                        }))
-                      }
-                    >
-                      <SelectTrigger id="category">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                      {CATEGORY_OPTIONS.map((opt) => (
-                        <SelectItem key={opt} value={opt}>
-                          {opt}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Category Group</Label>
-                    <Select
-                      value={draft.categoryGroup}
-                      onValueChange={(value) => setDraft((prev) => ({ ...prev, categoryGroup: value }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select group" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {getStockSubcategories(draft.category).map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {option}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                <div className="space-y-2">
-                  <Label htmlFor="unit">Unit</Label>
-                  <Select value={draft.unit} onValueChange={(value) => setDraft((prev) => ({ ...prev, unit: value }))}>
-                    <SelectTrigger id="unit">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {UNIT_OPTIONS.map((opt) => (
-                        <SelectItem key={opt} value={opt}>
-                          {opt}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
               <div className="flex items-center gap-2">
                 <Checkbox
                   id="isService"
                   checked={draft.isService}
-                  onCheckedChange={(checked) => setDraft((prev) => ({ ...prev, isService: Boolean(checked) }))}
+                  onCheckedChange={(checked) =>
+                    setDraft((prev) => {
+                      const nextIsService = Boolean(checked);
+                      if (nextIsService) {
+                        return {
+                          ...prev,
+                          isService: true,
+                          category: "SERVICE",
+                          categoryGroup: SERVICE_CATEGORY_OPTIONS[0],
+                          unit: "PCS",
+                          hsnOrSac: "",
+                          gstPercent: "",
+                          costPriceRs: "",
+                          costMultiplierRs: "",
+                          supplierCompanyName: "",
+                          supplierCollectionName: "",
+                          supplierCollectionCode: "",
+                          verticalRepeatCms: "",
+                          horizontalRepeatCms: "",
+                          totalQty: "",
+                          rack: "",
+                        };
+                      }
+
+                      return {
+                        ...prev,
+                        isService: false,
+                        category: prev.category === "SERVICE" ? "FABRIC" : prev.category,
+                        categoryGroup:
+                          prev.category === "SERVICE"
+                            ? (getStockSubcategories("FABRIC")[0] || "MAIN")
+                            : prev.categoryGroup,
+                      };
+                    })
+                  }
                 />
                 <Label htmlFor="isService" className="cursor-pointer">
-                  Service item (VAS)
+                  Service item
                 </Label>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {draft.isService ? (
+                  <>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="serviceCategory">Category</Label>
+                      <Select
+                        value={draft.categoryGroup}
+                        onValueChange={(value) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            category: "SERVICE",
+                            categoryGroup: value,
+                          }))
+                        }
+                      >
+                        <SelectTrigger id="serviceCategory">
+                          <SelectValue placeholder="Select service category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {SERVICE_CATEGORY_OPTIONS.map((opt) => (
+                            <SelectItem key={opt} value={opt}>
+                              {opt}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Stocking</Label>
+                      <div className="h-10 rounded-md border px-3 flex items-center text-sm text-muted-foreground">
+                        Not required for service items
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="category">Category</Label>
+                      <Select
+                        value={draft.category}
+                        onValueChange={(value) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            category: value,
+                            categoryGroup: getStockSubcategories(value)[0] || "",
+                          }))
+                        }
+                      >
+                        <SelectTrigger id="category">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {NON_SERVICE_CATEGORY_OPTIONS.map((opt) => (
+                            <SelectItem key={opt} value={opt}>
+                              {opt}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Category Group</Label>
+                      <Select
+                        value={draft.categoryGroup}
+                        onValueChange={(value) => setDraft((prev) => ({ ...prev, categoryGroup: value }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select group" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {getStockSubcategories(draft.category).map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {option}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="unit">Unit</Label>
+                      <Select value={draft.unit} onValueChange={(value) => setDraft((prev) => ({ ...prev, unit: value }))}>
+                        <SelectTrigger id="unit">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {UNIT_OPTIONS.map((opt) => (
+                            <SelectItem key={opt} value={opt}>
+                              {opt}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -1470,191 +1573,222 @@ React.useEffect(() => {
                 Tax & Pricing
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="hsn">HSN/SAC</Label>
-                  <Input
-                    id="hsn"
-                    placeholder="e.g., 5407"
-                    value={draft.hsnOrSac}
-                    onChange={(e) => setDraft((prev) => ({ ...prev, hsnOrSac: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="gst">GST %</Label>
-                  <Input
-                    id="gst"
-                    type="number"
-                    placeholder="e.g., 12"
-                    value={draft.gstPercent}
-                    onChange={(e) => setDraft((prev) => ({ ...prev, gstPercent: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cost">Cost Price (₹)</Label>
-                  <Input
-                    id="cost"
-                    type="number"
-                    placeholder="0.00"
-                    value={draft.costPriceRs}
-                    onChange={(e) => setDraft((prev) => ({ ...prev, costPriceRs: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="multiplier">Cost Multiplier</Label>
-                  <Input
-                    id="multiplier"
-                    type="number"
-                    placeholder="1.5"
-                    value={draft.costMultiplierRs}
-                    onChange={(e) => setDraft((prev) => ({ ...prev, costMultiplierRs: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="rrp">RRP with GST (₹)</Label>
-                  <Input
-                    id="rrp"
-                    type="number"
-                    placeholder="0.00"
-                    value={draft.rrpWithGstRs}
-                    onChange={(e) => setDraft((prev) => ({ ...prev, rrpWithGstRs: e.target.value }))}
-                  />
-                </div>
+                {draft.isService ? (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="serviceGst">GST %</Label>
+                      <Input
+                        id="serviceGst"
+                        type="number"
+                        placeholder="e.g., 18"
+                        value={draft.gstPercent}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, gstPercent: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="rrp">MRP (Rs)</Label>
+                      <Input
+                        id="rrp"
+                        type="number"
+                        placeholder="0.00"
+                        value={draft.rrpWithGstRs}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, rrpWithGstRs: e.target.value }))}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="hsn">HSN/SAC</Label>
+                      <Input
+                        id="hsn"
+                        placeholder="e.g., 5407"
+                        value={draft.hsnOrSac}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, hsnOrSac: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="gst">GST %</Label>
+                      <Input
+                        id="gst"
+                        type="number"
+                        placeholder="e.g., 12"
+                        value={draft.gstPercent}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, gstPercent: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="cost">Cost Price (Rs)</Label>
+                      <Input
+                        id="cost"
+                        type="number"
+                        placeholder="0.00"
+                        value={draft.costPriceRs}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, costPriceRs: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="multiplier">Cost Multiplier</Label>
+                      <Input
+                        id="multiplier"
+                        type="number"
+                        placeholder="1.5"
+                        value={draft.costMultiplierRs}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, costMultiplierRs: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="rrp">RRP with GST (Rs)</Label>
+                      <Input
+                        id="rrp"
+                        type="number"
+                        placeholder="0.00"
+                        value={draft.rrpWithGstRs}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, rrpWithGstRs: e.target.value }))}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
-            {/* SUPPLIER SECTION */}
-            <div className="rounded-lg border p-5 space-y-4 bg-card">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold flex items-center gap-2">
-                  <Building2 className="h-4 w-4" />
-                  Supplier Information
-                </h3>
-                <Badge variant="destructive">Required</Badge>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
+            {!draft.isService && (
+              <>
+                {/* SUPPLIER SECTION */}
+                <div className="rounded-lg border p-5 space-y-4 bg-card">
                   <div className="flex items-center justify-between">
-                    <Label>Supplier Company *</Label>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => {
-                        setUseCustomSupplierCompany(true);
-                        setCustomSupplierCompany("");
-                        setDraft((prev) => ({ ...prev, supplierCompanyName: "" }));
-                      }}
-                      title="Add new supplier"
-                    >
-                      <PlusCircle className="h-4 w-4" />
-                    </Button>
+                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                      <Building2 className="h-4 w-4" />
+                      Supplier Information
+                    </h3>
+                    <Badge variant="destructive">Required</Badge>
                   </div>
-                  <Combobox
-                    options={supplierOptions}
-                    value={useCustomSupplierCompany ? "" : draft.supplierCompanyName}
-                    onSelect={(value) => {
-                      if (value === SUPPLIER_OTHER) {
-                        setUseCustomSupplierCompany(true);
-                        setDraft((prev) => ({ ...prev, supplierCompanyName: "" }));
-                      } else {
-                        setUseCustomSupplierCompany(false);
-                        setCustomSupplierCompany("");
-                        setDraft((prev) => ({ ...prev, supplierCompanyName: value }));
-                      }
-                    }}
-                    placeholder="Select supplier"
-                  />
-                  {useCustomSupplierCompany && (
-                    <Input
-                      placeholder="Enter new supplier"
-                      value={customSupplierCompany}
-                      onChange={(e) => setCustomSupplierCompany(e.target.value)}
-                    />
-                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label>Supplier Company *</Label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => {
+                            setUseCustomSupplierCompany(true);
+                            setCustomSupplierCompany("");
+                            setDraft((prev) => ({ ...prev, supplierCompanyName: "" }));
+                          }}
+                          title="Add new supplier"
+                        >
+                          <PlusCircle className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <Combobox
+                        options={supplierOptions}
+                        value={useCustomSupplierCompany ? "" : draft.supplierCompanyName}
+                        onSelect={(value) => {
+                          if (value === SUPPLIER_OTHER) {
+                            setUseCustomSupplierCompany(true);
+                            setDraft((prev) => ({ ...prev, supplierCompanyName: "" }));
+                          } else {
+                            setUseCustomSupplierCompany(false);
+                            setCustomSupplierCompany("");
+                            setDraft((prev) => ({ ...prev, supplierCompanyName: value }));
+                          }
+                        }}
+                        placeholder="Select supplier"
+                      />
+                      {useCustomSupplierCompany && (
+                        <Input
+                          placeholder="Enter new supplier"
+                          value={customSupplierCompany}
+                          onChange={(e) => setCustomSupplierCompany(e.target.value)}
+                        />
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="collection">Supplier Collection *</Label>
+                      <Input
+                        id="collection"
+                        placeholder="e.g., Summer 2024"
+                        value={draft.supplierCollectionName}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, supplierCollectionName: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="collectionCode">Collection Code *</Label>
+                      <Input
+                        id="collectionCode"
+                        placeholder="e.g., SM24"
+                        value={draft.supplierCollectionCode}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, supplierCollectionCode: e.target.value }))}
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="collection">Supplier Collection *</Label>
-                  <Input
-                    id="collection"
-                    placeholder="e.g., Summer 2024"
-                    value={draft.supplierCollectionName}
-                    onChange={(e) => setDraft((prev) => ({ ...prev, supplierCollectionName: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="collectionCode">Collection Code *</Label>
-                  <Input
-                    id="collectionCode"
-                    placeholder="e.g., SM24"
-                    value={draft.supplierCollectionCode}
-                    onChange={(e) => setDraft((prev) => ({ ...prev, supplierCollectionCode: e.target.value }))}
-                  />
-                </div>
-              </div>
-            </div>
 
-            {/* SPECS & STORAGE SECTION */}
-            <div className="rounded-lg border p-5 space-y-4 bg-card">
-              <h3 className="text-sm font-semibold flex items-center gap-2">
-                <Ruler className="h-4 w-4" />
-                Specifications & Storage
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="hRepeat">Horizontal Repeat (cms)</Label>
-                  <Input
-                    id="hRepeat"
-                    type="number"
-                    placeholder="0"
-                    value={draft.horizontalRepeatCms}
-                    onChange={(e) => setDraft((prev) => ({ ...prev, horizontalRepeatCms: e.target.value }))}
-                  />
+                {/* SPECS & STORAGE SECTION */}
+                <div className="rounded-lg border p-5 space-y-4 bg-card">
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <Ruler className="h-4 w-4" />
+                    Specifications & Storage
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="hRepeat">Horizontal Repeat (cms)</Label>
+                      <Input
+                        id="hRepeat"
+                        type="number"
+                        placeholder="0"
+                        value={draft.horizontalRepeatCms}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, horizontalRepeatCms: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="vRepeat">Vertical Repeat (cms)</Label>
+                      <Input
+                        id="vRepeat"
+                        type="number"
+                        placeholder="0"
+                        value={draft.verticalRepeatCms}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, verticalRepeatCms: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="rack">Rack</Label>
+                      <Input
+                        id="rack"
+                        placeholder="e.g., A-12"
+                        value={draft.rack}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, rack: e.target.value }))}
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="vRepeat">Vertical Repeat (cms)</Label>
-                  <Input
-                    id="vRepeat"
-                    type="number"
-                    placeholder="0"
-                    value={draft.verticalRepeatCms}
-                    onChange={(e) => setDraft((prev) => ({ ...prev, verticalRepeatCms: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="rack">Rack</Label>
-                  <Input
-                    id="rack"
-                    placeholder="e.g., A-12"
-                    value={draft.rack}
-                    onChange={(e) => setDraft((prev) => ({ ...prev, rack: e.target.value }))}
-                  />
-                </div>
-              </div>
-            </div>
 
-            {/* OPENING STOCK SECTION */}
-            <div className="rounded-lg border p-5 space-y-4 bg-card">
-              <h3 className="text-sm font-semibold flex items-center gap-2">
-                <Box className="h-4 w-4" />
-                Opening Stock
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="totalQty">Initial Quantity</Label>
-                  <Input
-                    id="totalQty"
-                    type="number"
-                    placeholder="0"
-                    value={draft.totalQty}
-                    onChange={(e) => setDraft((prev) => ({ ...prev, totalQty: e.target.value }))}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    This will be set as both total and available quantity
-                  </p>
+                {/* OPENING STOCK SECTION */}
+                <div className="rounded-lg border p-5 space-y-4 bg-card">
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <Box className="h-4 w-4" />
+                    Opening Stock
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="totalQty">Initial Quantity</Label>
+                      <Input
+                        id="totalQty"
+                        type="number"
+                        placeholder="0"
+                        value={draft.totalQty}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, totalQty: e.target.value }))}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        This will be set as both total and available quantity
+                      </p>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+              </>
+            )}
           </div>
 
           <DialogFooter className="gap-2">

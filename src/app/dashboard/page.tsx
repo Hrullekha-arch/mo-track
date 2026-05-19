@@ -2959,12 +2959,16 @@ function AdminSummaryCard({
 export default function DashboardPage() {
     const { user, loading } = useAuth();
     const router = useRouter();
+    const normalizedRole = String(user?.role || "").trim().toLowerCase();
 
     useEffect(() => {
-        if (!loading && user?.role === 'Purchase') {
+        if (!loading && normalizedRole === "purchase") {
             router.replace('/dashboard/purchase');
         }
-    }, [loading, router, user]);
+        if (!loading && normalizedRole === "hr") {
+            router.replace('/dashboard/hr');
+        }
+    }, [loading, normalizedRole, router]);
     
     if (loading) {
         return (
@@ -2993,15 +2997,29 @@ export default function DashboardPage() {
         return <AllocatorDashboard />;
     }
 
-    if (user?.role === 'salesman') {
+    if (normalizedRole === "salesman") {
         return <SalesmanDashboardV2 />;
     }
 
-    if (user?.role === 'Accounts') {
+    if (normalizedRole === "accounts") {
         return <AccountsDashboard />;
     }
 
-    if (user?.role === 'Purchase') {
+    if (normalizedRole === "purchase") {
+        return (
+             <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-4">
+                <Skeleton className="h-9 w-1/2 mb-2" />
+                <Skeleton className="h-5 w-3/4" />
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                     <Skeleton className="h-24 w-full" />
+                     <Skeleton className="h-24 w-full" />
+                     <Skeleton className="h-24 w-full" />
+                </div>
+            </div>
+        );
+    }
+
+    if (normalizedRole === "hr") {
         return (
              <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-4">
                 <Skeleton className="h-9 w-1/2 mb-2" />

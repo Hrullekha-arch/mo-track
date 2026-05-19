@@ -9,8 +9,6 @@ import {
   buildWorkflowFromLegacyMilestones,
   getNormalizedOrderMilestones,
 } from '@/lib/order-workflow';
-import { collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 
 const sanitizeBcnDocId = (value: string) =>
   String(value ?? '').trim().replace(/\//g, '-');
@@ -815,19 +813,33 @@ export async function debugGetDiscountPercent(orderId: string, bcn: string, leng
 
 //======================Bulk Bcn get for order items - for debugging only========================
 export async function getStockByBcns(bcns:string[]) {
-  if(!bcns.length){
+  if (!bcns.length) {
     return [];
-  }  
-  
-  const q = query(
-    collection(db,"stocks"),
-    where("bcn","in",bcns.slice(0,10))
+  }
+
+  const normalized = Array.from(
+    new Set(
+      bcns.map((value) => String(value || "").trim()).filter(Boolean)
+    )
   );
 
-  const snap = await getDocs(q);
+  if (!normalized.length) {
+    return [];
+  }
 
-  return snap.docs.map((doc)=>({
-    id:doc.id,
-    ...doc.data(),
-  }));
+  const result: Array<Record<string, any>> = [];
+  const chunkSize = 10; // Firestore "in" limit
+
+  for (let i = 0; i < normalized.length; i += chunkSize) {
+    const chunk = normalized.slice(i, i + chunkSize);
+    const snap = await adminDb.collection("stocks").where("bcn", "in", chunk).get();
+    snap.docs.forEach((doc) => {
+      result.push({
+        id: doc.id,
+        ...doc.data(),
+      });
+    });
+  }
+
+  return result;
 }

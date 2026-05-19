@@ -32,7 +32,6 @@ type ComboboxProps = {
   placeholder?: string
   searchPlaceholder?: string
   emptyPlaceholder?: string
-  popoverModal?: boolean
   disabled?: boolean
   showClear?: boolean
   className?: string
@@ -49,23 +48,13 @@ type NormalizedOption = ComboboxOption & {
 }
 
 function getSearchableText(node: React.ReactNode): string {
-  if (node === null || node === undefined || typeof node === "boolean") {
-    return ""
-  }
-
-  if (typeof node === "string" || typeof node === "number") {
-    return String(node)
-  }
-
-  if (Array.isArray(node)) {
-    return node.map(getSearchableText).filter(Boolean).join(" ")
-  }
-
+  if (node === null || node === undefined || typeof node === "boolean") return ""
+  if (typeof node === "string" || typeof node === "number") return String(node)
+  if (Array.isArray(node)) return node.map(getSearchableText).filter(Boolean).join(" ")
   if (React.isValidElement(node)) {
-    const elementProps = node.props as { children?: React.ReactNode }
-    return getSearchableText(elementProps.children)
+    const props = node.props as { children?: React.ReactNode }
+    return getSearchableText(props.children)
   }
-
   return ""
 }
 
@@ -73,30 +62,18 @@ function normalizeOption(option: ComboboxOption): NormalizedOption {
   const value = String(option?.value ?? "")
   const label = option?.label ?? value
   const labelText = getSearchableText(label) || value
-
-  return {
-    ...option,
-    value,
-    label,
-    labelText,
-  }
+  return { ...option, value, label, labelText }
 }
 
-function findSelectedOption(
-  options: NormalizedOption[],
-  selectedValue: string
-): NormalizedOption | undefined {
+function findSelectedOption(options: NormalizedOption[], selectedValue: string): NormalizedOption | undefined {
   if (!selectedValue) return undefined
-
   return (
-    options.find((option) => option.value === selectedValue) ||
-    options.find(
-      (option) => option.value.toLowerCase() === selectedValue.toLowerCase()
-    )
+    options.find((o) => o.value === selectedValue) ||
+    options.find((o) => o.value.toLowerCase() === selectedValue.toLowerCase())
   )
 }
 
-function Combobox({
+export function Combobox({
   options,
   value,
   onSelect,
@@ -104,7 +81,6 @@ function Combobox({
   placeholder = "Select an option...",
   searchPlaceholder,
   emptyPlaceholder = "No items found.",
-  popoverModal = false,
   disabled = false,
   showClear = false,
   className,
@@ -115,23 +91,22 @@ function Combobox({
   required,
   "aria-invalid": ariaInvalid,
 }: ComboboxProps) {
-  const anchorRef = React.useRef<HTMLDivElement | null>(null)
-  const itemRefs = React.useRef<Array<HTMLButtonElement | null>>([])
+  const anchorRef = React.useRef<HTMLDivElement>(null)
+  const inputRef = React.useRef<HTMLInputElement>(null)
+  const itemRefs = React.useRef<Map<number, HTMLButtonElement>>(new Map())
   const searchRequestRef = React.useRef(0)
-
   const listId = React.useId()
+
+  // ✅ NEW: Prevent onFocus from reopening after programmatic selection/clear
+  const skipFocusOpenRef = React.useRef(false)
 
   const [open, setOpen] = React.useState(false)
   const [inputValue, setInputValue] = React.useState("")
   const [highlightedIndex, setHighlightedIndex] = React.useState(-1)
   const [isSearching, setIsSearching] = React.useState(false)
-  const [dropdownWidth, setDropdownWidth] = React.useState<number | undefined>()
+  const [dropdownWidth, setDropdownWidth] = React.useState<number>()
 
-  const normalizedOptions = React.useMemo(
-    () => (options ?? []).map(normalizeOption),
-    [options]
-  )
-
+  const normalizedOptions = React.useMemo(() => (options ?? []).map(normalizeOption), [options])
   const selectedValue = typeof value === "string" ? value : ""
   const selectedOption = React.useMemo(
     () => findSelectedOption(normalizedOptions, selectedValue),
@@ -141,119 +116,77 @@ function Combobox({
 
   const filteredOptions = React.useMemo(() => {
     const query = inputValue.trim().toLowerCase()
-    if (onSearch || !query) {
-      return normalizedOptions
-    }
-
-    return normalizedOptions.filter((option) => {
-      return (
-        option.labelText.toLowerCase().includes(query) ||
-        option.value.toLowerCase().includes(query)
-      )
-    })
+    if (onSearch || !query) return normalizedOptions
+    return normalizedOptions.filter((o) =>
+      o.labelText.toLowerCase().includes(query) || o.value.toLowerCase().includes(query)
+    )
   }, [inputValue, normalizedOptions, onSearch])
 
   const focusInput = React.useCallback(() => {
-    const input = anchorRef.current?.querySelector<HTMLInputElement>(
-      'input[data-slot="combobox-input"]'
-    )
-
-    if (!input) return
-
-    input.focus({ preventScroll: true })
-    const caretPosition = input.value.length
-
-    try {
-      input.setSelectionRange(caretPosition, caretPosition)
-    } catch {
-      // Some browser/input combinations do not support selection APIs.
-    }
+    inputRef.current?.focus({ preventScroll: true })
+    const len = inputRef.current?.value.length ?? 0
+    try { inputRef.current?.setSelectionRange(len, len) } catch {}
   }, [])
 
   const runSearch = React.useCallback(
     (query: string) => {
-      if (!onSearch) {
-        setIsSearching(false)
-        return
-      }
-
+      if (!onSearch) { setIsSearching(false); return }
       const requestId = ++searchRequestRef.current
-
       try {
         const maybePromise = onSearch(query)
-
-        if (
-          maybePromise &&
-          typeof (maybePromise as Promise<unknown>).then === "function"
-        ) {
+        if (maybePromise && typeof (maybePromise as Promise<unknown>).then === "function") {
           setIsSearching(true)
-
-          Promise.resolve(maybePromise)
-            .catch(() => {
-              // Errors are handled where onSearch is implemented.
-            })
-            .finally(() => {
-              if (searchRequestRef.current === requestId) {
-                setIsSearching(false)
-              }
-            })
+          Promise.resolve(maybePromise).catch(() => {}).finally(() => {
+            if (searchRequestRef.current === requestId) setIsSearching(false)
+          })
         } else if (searchRequestRef.current === requestId) {
           setIsSearching(false)
         }
       } catch {
-        if (searchRequestRef.current === requestId) {
-          setIsSearching(false)
-        }
+        if (searchRequestRef.current === requestId) setIsSearching(false)
       }
     },
     [onSearch]
   )
 
   const closeDropdown = React.useCallback(() => {
+    skipFocusOpenRef.current = true
     setOpen(false)
     setHighlightedIndex(-1)
     setIsSearching(false)
     setInputValue(selectedLabel)
+    window.requestAnimationFrame(() => { skipFocusOpenRef.current = false })
   }, [selectedLabel])
 
   const chooseOption = React.useCallback(
     (option: NormalizedOption) => {
       const nextValue = option.value === selectedValue ? "" : option.value
-
       onSelect?.(nextValue)
       setInputValue(nextValue ? option.labelText : "")
-      setOpen(false)
-      setHighlightedIndex(-1)
+      closeDropdown() // ✅ Uses the safe close logic
+      window.requestAnimationFrame(focusInput)
     },
-    [onSelect, selectedValue]
+    [onSelect, selectedValue, focusInput, closeDropdown]
   )
 
   const handleClear = React.useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>) => {
-      event.preventDefault()
-      event.stopPropagation()
-
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.preventDefault()
+      e.stopPropagation()
       onSelect?.("")
       setInputValue("")
-      setOpen(false)
-      setHighlightedIndex(-1)
-      setIsSearching(false)
+      closeDropdown() // ✅ Safe close
       runSearch("")
-
       window.requestAnimationFrame(focusInput)
     },
-    [focusInput, onSelect, runSearch]
+    [focusInput, onSelect, runSearch, closeDropdown]
   )
 
   const handleInputChange = React.useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const query = event.target.value
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const query = e.target.value
       setInputValue(query)
-
-      if (!open) {
-        setOpen(true)
-      }
-
+      if (!open) setOpen(true)
       setHighlightedIndex(0)
       runSearch(query)
     },
@@ -261,91 +194,51 @@ function Combobox({
   )
 
   const handleInputKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLInputElement>) => {
-      if (event.key === "ArrowDown") {
-        event.preventDefault()
-
-        if (!open) {
-          setOpen(true)
-          return
-        }
-
-        setHighlightedIndex((previousIndex) => {
-          if (filteredOptions.length === 0) return -1
-          if (previousIndex < 0) return 0
-          return (previousIndex + 1) % filteredOptions.length
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "ArrowDown") {
+        e.preventDefault()
+        if (!open) { setOpen(true); return }
+        setHighlightedIndex((prev) => {
+          if (!filteredOptions.length) return -1
+          return prev < 0 ? 0 : (prev + 1) % filteredOptions.length
         })
-
         return
       }
-
-      if (event.key === "ArrowUp") {
-        event.preventDefault()
-
-        if (!open) {
-          setOpen(true)
-          return
-        }
-
-        setHighlightedIndex((previousIndex) => {
-          if (filteredOptions.length === 0) return -1
-          if (previousIndex < 0) return filteredOptions.length - 1
-          return (previousIndex - 1 + filteredOptions.length) % filteredOptions.length
+      if (e.key === "ArrowUp") {
+        e.preventDefault()
+        if (!open) { setOpen(true); return }
+        setHighlightedIndex((prev) => {
+          if (!filteredOptions.length) return -1
+          return prev < 0 ? filteredOptions.length - 1 : (prev - 1 + filteredOptions.length) % filteredOptions.length
         })
-
         return
       }
-
-      if (event.key === "Enter") {
+      if (e.key === "Enter") {
         if (!open) return
-
-        event.preventDefault()
-        const optionToSelect =
-          filteredOptions[highlightedIndex] ?? filteredOptions[0]
-
-        if (optionToSelect) {
-          chooseOption(optionToSelect)
-        }
-
+        e.preventDefault()
+        const option = filteredOptions[highlightedIndex] ?? filteredOptions[0]
+        if (option) chooseOption(option)
         return
       }
-
-      if (event.key === "Escape") {
+      if (e.key === "Escape") {
         if (!open) return
-
-        event.preventDefault()
+        e.preventDefault()
         closeDropdown()
         return
       }
-
-      if (event.key === "Tab") {
-        setOpen(false)
-      }
+      if (e.key === "Tab") setOpen(false)
     },
-    [
-      chooseOption,
-      closeDropdown,
-      filteredOptions,
-      highlightedIndex,
-      open,
-    ]
+    [chooseOption, closeDropdown, filteredOptions, highlightedIndex, open]
   )
 
   const handleToggleOpen = React.useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>) => {
-      event.preventDefault()
-      event.stopPropagation()
-
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.preventDefault()
+      e.stopPropagation()
       if (disabled) return
-
-      setOpen((previousOpen) => {
-        const nextOpen = !previousOpen
-
-        if (nextOpen) {
-          window.requestAnimationFrame(focusInput)
-        }
-
-        return nextOpen
+      setOpen((prev) => {
+        if (!prev) window.requestAnimationFrame(focusInput)
+        return !prev
       })
     },
     [disabled, focusInput]
@@ -354,91 +247,58 @@ function Combobox({
   const handleOpenChange = React.useCallback(
     (nextOpen: boolean) => {
       if (disabled) return
-
       setOpen(nextOpen)
-
-      if (nextOpen) {
-        window.requestAnimationFrame(focusInput)
-      }
+      if (nextOpen) window.requestAnimationFrame(focusInput)
     },
     [disabled, focusInput]
   )
 
   React.useEffect(() => {
     if (open) {
-      const selectedIndex = filteredOptions.findIndex(
-        (option) => option.value === selectedValue
-      )
-
-      setHighlightedIndex(
-        selectedIndex >= 0 ? selectedIndex : filteredOptions.length > 0 ? 0 : -1
-      )
-      return
+      const idx = filteredOptions.findIndex((o) => o.value === selectedValue)
+      setHighlightedIndex(idx >= 0 ? idx : filteredOptions.length > 0 ? 0 : -1)
+    } else {
+      setHighlightedIndex(-1)
+      setInputValue(selectedLabel)
     }
-
-    setHighlightedIndex(-1)
-    setInputValue(selectedLabel)
   }, [filteredOptions, open, selectedLabel, selectedValue])
 
   React.useEffect(() => {
     if (!open || highlightedIndex < 0) return
-
-    itemRefs.current[highlightedIndex]?.scrollIntoView({
-      block: "nearest",
-    })
+    itemRefs.current.get(highlightedIndex)?.scrollIntoView({ block: "nearest" })
   }, [highlightedIndex, open])
 
   React.useEffect(() => {
     if (!anchorRef.current) return
-
-    const updateWidth = () => {
-      setDropdownWidth(anchorRef.current?.offsetWidth)
-    }
-
+    const el = anchorRef.current
+    const updateWidth = () => setDropdownWidth(el.offsetWidth)
     updateWidth()
-
-    if (typeof ResizeObserver === "undefined") {
-      return
-    }
-
+    if (typeof ResizeObserver === "undefined") return
     const observer = new ResizeObserver(updateWidth)
-    observer.observe(anchorRef.current)
-
-    return () => {
-      observer.disconnect()
-    }
+    observer.observe(el)
+    return () => observer.disconnect()
   }, [])
 
-  const showClearButton =
-    showClear && !disabled && (Boolean(selectedValue) || Boolean(inputValue))
-
+  const showClearButton = showClear && !disabled && (!!selectedValue || !!inputValue)
   const resolvedPlaceholder = searchPlaceholder || placeholder
-  const resultLabel = isSearching
-    ? "Searching..."
-    : `${filteredOptions.length} option${filteredOptions.length === 1 ? "" : "s"}`
+  const resultLabel = isSearching ? "Searching..." : `${filteredOptions.length} option${filteredOptions.length === 1 ? "" : "s"}`
 
   return (
-    <PopoverPrimitive.Root
-      open={open}
-      onOpenChange={handleOpenChange}
-      modal={popoverModal}
-    >
+    <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange} modal>
       <PopoverPrimitive.Anchor asChild>
         <div ref={anchorRef} className="w-full">
           <InputGroup
             className={cn(
-              "w-full border-input/70 bg-background/95 shadow-xs transition-all duration-200",
-              open && "border-primary/60 bg-background shadow-sm ring-2 ring-primary/15",
+              "w-full border bg-background transition-colors",
+              open && "border-primary ring-1 ring-primary",
               className
             )}
           >
-            <InputGroupAddon
-              align="inline-start"
-              className="text-muted-foreground transition-colors duration-150"
-            >
+            <InputGroupAddon align="inline-start" className="text-muted-foreground">
               <SearchIcon className={cn("size-4", open && "text-primary")} />
             </InputGroupAddon>
             <InputGroupInput
+              ref={inputRef}
               id={id}
               data-slot="combobox-input"
               role="combobox"
@@ -450,18 +310,15 @@ function Combobox({
               disabled={disabled}
               placeholder={resolvedPlaceholder}
               value={inputValue}
-              onFocus={() => {
-                if (!disabled) setOpen(true)
+              // ✅ FIXED: Check ref before opening
+              onFocus={() => { 
+                if (!disabled && !skipFocusOpenRef.current) setOpen(true)
+                skipFocusOpenRef.current = false // Reset safely on focus
               }}
-              onClick={() => {
-                if (!disabled) setOpen(true)
-              }}
+              onClick={() => { if (!disabled) setOpen(true) }}
               onChange={handleInputChange}
               onKeyDown={handleInputKeyDown}
-              className={cn(
-                "h-9 font-medium placeholder:font-normal",
-                inputClassName
-              )}
+              className={cn("h-9", inputClassName)}
             />
             <InputGroupAddon align="inline-end" className="gap-1">
               {showClearButton && (
@@ -483,108 +340,89 @@ function Combobox({
                 disabled={disabled}
                 onClick={handleToggleOpen}
                 aria-label={open ? "Close options" : "Open options"}
-                className={cn(
-                  "text-muted-foreground hover:text-foreground",
-                  open && "text-primary"
-                )}
+                className={cn("text-muted-foreground hover:text-foreground", open && "text-primary")}
               >
-                <ChevronDownIcon
-                  className={cn(
-                    "size-4 transition-transform duration-200",
-                    open && "rotate-180"
-                  )}
-                />
+                <ChevronDownIcon className={cn("size-4 transition-transform", open && "rotate-180")} />
               </InputGroupButton>
             </InputGroupAddon>
           </InputGroup>
-          {name ? (
-            <input type="hidden" name={name} value={selectedValue} required={required} />
-          ) : null}
+          {name && <input type="hidden" name={name} value={selectedValue} required={required} />}
         </div>
       </PopoverPrimitive.Anchor>
 
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
           align="start"
-          sideOffset={8}
+          sideOffset={4}
           collisionPadding={8}
-          onOpenAutoFocus={(event) => event.preventDefault()}
-          onCloseAutoFocus={(event) => event.preventDefault()}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          onPointerDownOutside={(e) => {
+            if (anchorRef.current?.contains(e.target as Node)) e.preventDefault()
+          }}
           className={cn(
-            "z-50 overflow-hidden rounded-2xl border border-border/70 bg-popover/98 text-popover-foreground shadow-2xl outline-none backdrop-blur-sm",
-            "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=open]:slide-in-from-top-1",
+            "z-50 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md outline-none",
+            "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
             contentClassName
           )}
           style={dropdownWidth ? { width: dropdownWidth } : undefined}
         >
-          <div className="border-b bg-muted/30 px-2.5 py-1.5">
+          <div className="border-b bg-muted px-2.5 py-1.5">
             <div className="flex items-center justify-between gap-2 text-[11px]">
-              <span className="text-muted-foreground font-medium tracking-wide uppercase">
-                {resultLabel}
-              </span>
-              {selectedLabel ? (
-                <span className="max-w-[55%] truncate rounded-md bg-background px-1.5 py-0.5 text-foreground/80">
+              <span className="text-muted-foreground font-medium uppercase">{resultLabel}</span>
+              {selectedLabel && (
+                <span className="max-w-[55%] truncate rounded bg-background px-1.5 py-0.5 text-foreground">
                   {selectedLabel}
                 </span>
-              ) : null}
+              )}
             </div>
           </div>
-          <div id={listId} role="listbox" className="max-h-72 overflow-y-auto p-1.5">
+
+          <div id={listId} role="listbox" className="max-h-72 overflow-y-auto p-1">
             {isSearching && (
-              <div className="text-muted-foreground flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs">
+              <div className="text-muted-foreground flex items-center gap-2 rounded-md px-2.5 py-2 text-xs">
                 <Loader2Icon className="size-3.5 animate-spin" />
                 Searching...
               </div>
             )}
 
             {!isSearching && filteredOptions.length === 0 && (
-              <div className="text-muted-foreground px-2 py-6 text-center text-sm">
-                {emptyPlaceholder}
-              </div>
+              <div className="text-muted-foreground px-2 py-6 text-center text-sm">{emptyPlaceholder}</div>
             )}
 
             {filteredOptions.map((option, index) => {
               const isHighlighted = index === highlightedIndex
               const isSelected = option.value === selectedValue
-
               return (
                 <button
                   key={option.value}
                   type="button"
                   role="option"
                   aria-selected={isSelected}
+                  tabIndex={-1}
                   data-highlighted={isHighlighted ? "true" : undefined}
                   ref={(node) => {
-                    itemRefs.current[index] = node
+                    if (node) itemRefs.current.set(index, node)
+                    else itemRefs.current.delete(index)
                   }}
-                  onMouseEnter={() => setHighlightedIndex(index)}
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                  }}
+                  onPointerEnter={() => setHighlightedIndex(index)}
                   onClick={() => chooseOption(option)}
                   className={cn(
-                    "group/item flex w-full items-center justify-between gap-3 rounded-xl border border-transparent px-2.5 py-2 text-left text-sm transition-all duration-150",
+                    "flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-2 text-left text-sm",
                     "hover:bg-accent hover:text-accent-foreground",
-                    isHighlighted &&
-                      "border-primary/15 bg-accent text-accent-foreground shadow-sm",
+                    "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary",
+                    isHighlighted && "bg-accent text-accent-foreground",
                     isSelected && "font-medium"
                   )}
-                  style={{
-                    transitionDelay: open ? `${Math.min(index, 8) * 8}ms` : undefined,
-                  }}
                 >
                   <span className="truncate">{option.label}</span>
-                  <CheckIcon
-                    className={cn(
-                      "size-4 shrink-0 text-primary transition-opacity duration-150",
-                      isSelected ? "opacity-100" : "opacity-0"
-                    )}
-                  />
+                  <CheckIcon className={cn("size-4 shrink-0 text-primary", isSelected ? "opacity-100" : "opacity-0")} />
                 </button>
               )
             })}
           </div>
-          <div className="border-t bg-muted/20 px-2.5 py-1.5">
+
+          <div className="border-t bg-muted px-2.5 py-1.5">
             <div className="text-muted-foreground flex items-center gap-2 text-[11px]">
               <span className="rounded border bg-background px-1">Up/Down</span>
               <span>Navigate</span>
@@ -599,5 +437,3 @@ function Combobox({
     </PopoverPrimitive.Root>
   )
 }
-
-export { Combobox }

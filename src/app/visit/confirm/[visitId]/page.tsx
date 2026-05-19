@@ -286,7 +286,16 @@ export default function ConfirmVisitPage() {
         <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
             <Card className="w-full max-w-md">
                 <CardHeader className="text-center">
-                    <Image src="/logo.png" alt="MoTrack Logo" width={150} height={75} className="mx-auto mb-4" data-ai-hint="logo" />
+                    <Image
+                      src="/logo.png"
+                      alt="MoTrack Logo"
+                      width={150}
+                      height={75}
+                      loading="eager"
+                      style={{ height: "auto" }}
+                      className="mx-auto mb-4"
+                      data-ai-hint="logo"
+                    />
                     <CardTitle className="text-2xl">Confirm Your Visit</CardTitle>
                     <CardDescription>Hello, {customer?.name}. Please select your preferred date, time and confirm your address for the visit.</CardDescription>
                 </CardHeader>

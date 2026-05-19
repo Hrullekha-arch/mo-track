@@ -1,0 +1,2 @@
+⚠ Port 3000 is in use by process 46356, using available port 3006 instead.
+⚠ experimental.useWasmBinary is not an option for supported platform win32/x64 and will be ignored.

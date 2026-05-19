@@ -1,13 +1,10 @@
 
-"use client";
-
-import type {Metadata} from 'next';
 import './globals.css';
 import "leaflet/dist/leaflet.css";
 import { Toaster } from "@/components/ui/toaster"
 import { AuthProvider } from '@/context/AuthContext';
 import { ThemeProvider } from 'next-themes';
-import { initializeFirebase, FirebaseClientProvider } from '@/firebase';
+import { FirebaseClientProvider } from '@/firebase';
 import { FcmProvider } from '@/components/FcmProvider';
 import { ReduxProvider } from '@/store/ReduxProvider';
 
@@ -16,7 +13,6 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const { app, auth, firestore } = initializeFirebase();
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -25,8 +21,11 @@ export default function RootLayout({
         <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet"></link>
         <meta name="theme-color" content="#2563eb" />
         <link rel="manifest" href="/manifest.json" />
-        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4024784077029748"
-     crossorigin="anonymous"></script>
+        <script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4024784077029748"
+          crossOrigin="anonymous"
+        ></script>
       </head>
       <body className="font-body antialiased">
         <ReduxProvider>
@@ -35,7 +34,7 @@ export default function RootLayout({
             defaultTheme="light"
             disableTransitionOnChange
           >
-            <FirebaseClientProvider firebaseApp={app} auth={auth} firestore={firestore}>
+            <FirebaseClientProvider>
               <AuthProvider>
                 <FcmProvider />
                 {children}

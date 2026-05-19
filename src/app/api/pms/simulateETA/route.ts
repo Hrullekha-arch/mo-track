@@ -29,6 +29,7 @@ export async function POST(request: Request) {
     const jobs = jobsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) }));
 
     const machinesSnap = await adminDb.collection("machines").where("active", "==", true).get();
+    const peopleSnap = await adminDb.collection("people").get();
     const skillsSnap = await adminDb.collection("machineSkills").where("allowed", "==", true).get();
     const peopleSnap = await adminDb.collection("people").get();
     const productsSnap = await adminDb.collection("products").get();
@@ -40,6 +41,7 @@ export async function POST(request: Request) {
       orderId,
       jobs,
       machines: machinesSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })),
+      people: peopleSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })),
       skills: skillsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })),
       people: peopleSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })),
       products: productsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) })),

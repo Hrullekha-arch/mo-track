@@ -1,0 +1,12 @@
+
+> nextn@0.1.0 dev
+> cross-env NEXT_TEST_WASM=1 next dev --webpack
+
+▲ Next.js 16.2.6 (webpack)
+- Local:         http://localhost:3006
+- Network:       http://172.16.0.1:3006
+- Environments: .env.local, .env
+✓ Ready in 919ms
+  next-swc build: wasm build @next/swc-wasm-nodejs
+  Skipping creating a lockfile at D:\Mo_Track\.next\dev\lock because we're using WASM bindings
+

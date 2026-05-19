@@ -1,4 +1,3 @@
-
 "use client";
 
 import * as React from "react";
@@ -90,6 +89,7 @@ interface CalculatedItem extends QuotationItem {
     taxAmount: number;
     finalAmount: number;
     taxRate: number;
+    categoryGroup?: string; // ✅ Added to support the new field
 }
 
 interface CalculatedVas extends VasDetail {
@@ -309,7 +309,24 @@ export function PrintableQuotationProfessional({ type, values, creatorName, sale
                                      <tr key={item.id || `vas-${itemIndex}`}>
                                         <td style={{ padding: '6px', border: '1px solid #ddd' }}>{itemIndex + 1}</td>
                                         <td style={{ padding: '6px', border: '1px solid #ddd' }}>{/* HSN Placeholder */}</td>
-                                        <td style={{ padding: '6px', border: '1px solid #ddd' }}>{'vasName' in item ? item.vasName : item.collectionBrand}</td>
+                                        
+                                        {/* ✅ Updated Particulars Cell to show Category & Description */}
+                                        <td style={{ padding: '6px', border: '1px solid #ddd' }}>
+                                            <div style={{ fontWeight: 'bold' }}>
+                                                {'vasName' in item ? item.vasName : item.collectionBrand}
+                                            </div>
+                                            {item.categoryGroup && (
+                                                <div style={{ fontSize: '10px', color: '#555', marginTop: '2px' }}>
+                                                    ({item.categoryGroup})
+                                                </div>
+                                            )}
+                                            {item.salesDescription && !('vasName' in item) && (
+                                                <div style={{ fontSize: '10px', color: '#666', fontStyle: 'italic', marginTop: '2px' }}>
+                                                    {item.salesDescription}
+                                                </div>
+                                            )}
+                                        </td>
+                                        
                                         <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>{Number(item.quantity).toFixed(2)}</td>
                                         <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'left' }}>{(item as any).unit || (item as any).stockUnit || "Mtr"}</td>
                                         <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>

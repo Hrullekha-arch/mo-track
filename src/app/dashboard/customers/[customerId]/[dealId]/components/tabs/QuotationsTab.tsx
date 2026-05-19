@@ -2,7 +2,7 @@
 import React, { useState, useCallback, useEffect, memo } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Customer, Deal, User, Cpd, Quotation,
+  Customer, Deal, User, Cpd, Quotation, DealProduct, VasDetail,
 } from "@/lib/types";
 import {
   getQuotationsForDeal,
@@ -24,11 +24,13 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
+import { CreateQuotationDialog } from "@/components/features/order-management/CreateQuotationDialog";
 import { FileText, MoreHorizontal, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { format } from "date-fns";
 import { parseDate } from "../../utils/dateUtils";
+
 
 interface QuotationsTabProps {
   customerId: string;
@@ -131,10 +133,14 @@ export default function QuotationsTab({
   const [loading, setLoading] = useState(true);
   const [deletingQuotationId, setDeletingQuotationId] = useState<string | null>(null);
   const [selectedQuotation, setSelectedQuotation] = useState<Quotation | null>(null);
+  const [cloneSourceQuotation, setCloneSourceQuotation] = useState<Quotation | null>(null);
+  const [cloneItems, setCloneItems] = useState<DealProduct[]>([]);
+  const [cloneVasDetails, setCloneVasDetails] = useState<VasDetail[]>([]);
   const router = useRouter();
   const { toast } = useToast();
   const { role, user } = useAuth();
   const isAdmin = role === "admin";
+
 
   useEffect(() => {
     if (customerProp) setCustomer(customerProp);
@@ -228,6 +234,62 @@ export default function QuotationsTab({
     [isAdmin, customerId, dealId, user, role, toast, fetchQuotations, selectedQuotation]
   );
 
+  const handleCloneQuotation = useCallback(
+    (quotation: Quotation) => {
+      if (onCloneQuotation) {
+        onCloneQuotation(quotation);
+        return;
+      }
+
+      if (!deal || !customer) {
+        toast({
+          variant: "destructive",
+          title: "Cannot Clone",
+          description: "Deal/customer data is still loading. Please try again.",
+        });
+        return;
+      }
+
+      const mappedItems: DealProduct[] = (quotation.items || []).map((item, index) => ({
+        id: item.id || `clone-item-${index}`,
+        productType: "Fabric",
+        collectionBrand: item.collectionBrand || "",
+        serialNo: item.serialNo || "",
+        salesDescription: item.salesDescription || "",
+        quantity: String(item.quantity ?? "0"),
+        rate: Number(item.rate ?? 0),
+        mrp: String(item.rate ?? 0),
+        room: item.room || "",
+        noOfPcs: "1",
+        remarks: item.remark || "",
+        unit: item.unit || item.stockUnit || "Mtr",
+        gstPercent: Number(item.gstPercent ?? 0),
+        hsnCode: item.hsnCode || "",
+        categoryGroup: (item as any).categoryGroup || "",
+      }));
+
+      const mappedVas: VasDetail[] = (quotation.vasDetails || []).map((vas) => ({
+        vasName: vas.vasName || "",
+        rate: String(vas.rate ?? "0"),
+        quantity: String(vas.quantity ?? "1"),
+        room: vas.room || "",
+        gstPercent: Number(vas.gstPercent ?? 0),
+        hsnCode: vas.hsnCode || "",
+      }));
+
+      setCloneSourceQuotation(quotation);
+      setCloneItems(mappedItems);
+      setCloneVasDetails(mappedVas);
+    },
+    [onCloneQuotation, deal, customer, toast]
+  );
+
+  const handleCloneDialogClose = useCallback(() => {
+    setCloneSourceQuotation(null);
+    setCloneItems([]);
+    setCloneVasDetails([]);
+  }, []);
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -269,7 +331,7 @@ export default function QuotationsTab({
                         isAdmin={isAdmin}
                         deletingId={deletingQuotationId}
                         onView={() => setSelectedQuotation(q)}
-                        onClone={() => onCloneQuotation?.(q)}
+                        onClone={() => handleCloneQuotation(q)}
                         onConvert={() => handleConvertToOrder(q)}
                         onClose={() => handleCloseQuotation(q)}
                         onDelete={() => handleDeleteQuotation(q)}
@@ -297,6 +359,23 @@ export default function QuotationsTab({
           customer={customer}
           salesmen={salesmen}
           cpds={cpds}
+        />
+      )}
+      {cloneSourceQuotation && customer && deal && (
+        <CreateQuotationDialog
+          isOpen={!!cloneSourceQuotation}
+          onOpenChange={(open) => {
+            if (!open) handleCloneDialogClose();
+          }}
+          onSuccess={async () => {
+            await fetchQuotations();
+            handleCloneDialogClose();
+          }}
+          deal={deal}
+          customer={customer}
+          initialItems={cloneItems}
+          initialVasDetails={cloneVasDetails}
+          initialQuotation={cloneSourceQuotation}
         />
       )}
     </>

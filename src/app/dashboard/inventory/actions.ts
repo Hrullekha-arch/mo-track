@@ -289,9 +289,10 @@ export async function createStockItemAction(payload: {
   gstPercent?: number;
   rack?: string | null;
   productId?: string | null;
+  serviceType?: "STITCHING" | "INSTALLATION";
+  isStockTracked?: boolean;
 }): Promise<{ success: boolean; message: string; stock?: Stock }> {
   try {
-    console.log("Creating stock item with payload:", payload);
     const rawBcn = String(payload?.bcn ?? "").trim();
     const itemName = String(payload?.name ?? payload?.itemName ?? "").trim();
 
@@ -330,22 +331,50 @@ export async function createStockItemAction(payload: {
       const trimmed = String(value ?? "").trim();
       return trimmed ? trimmed : undefined;
     };
-    const itemNameTokens = payload.itemNameTokens;
+    const itemNameTokens =
+      payload.itemNameTokens && payload.itemNameTokens.length > 0
+        ? payload.itemNameTokens
+        : buildSearchTokens(itemName);
+
+    const categoryInput = cleanString(payload.category) || "FABRIC";
+    const normalizedCategoryInput = categoryInput.toUpperCase() === "VAS" ? "SERVICE" : categoryInput;
+    const resolvedCategory = resolveStockCategory(normalizedCategoryInput);
+    if (!resolvedCategory) {
+      return { success: false, message: "Invalid category. Please select a valid stock category." };
+    }
+
+    const isService = Boolean(payload.isService) || resolvedCategory === "SERVICE";
+    const finalCategory = isService ? "SERVICE" : resolvedCategory;
+    const requestedCategoryGroup = cleanString(payload.categoryGroup);
+    const resolvedServiceType = resolveStockCategoryGroup(requestedCategoryGroup, "SERVICE");
+    if (isService && requestedCategoryGroup && !resolvedServiceType) {
+      return { success: false, message: "Service category must be Stitching or Installation." };
+    }
+    const resolvedCategoryGroup = isService
+      ? (resolvedServiceType ||
+         (getStockSubcategories("SERVICE")[0] || "STITCHING"))
+      : (
+          resolveStockCategoryGroup(requestedCategoryGroup, resolvedCategory) ||
+          (getStockSubcategories(resolvedCategory)[0] || undefined)
+        );
+
     const supplierCompanyName = cleanSupplierCompanyName(payload.supplierCompanyName);
     const supplierCollectionName = cleanString(payload.supplierCollectionName);
     const supplierCollectionCode = cleanString(payload.supplierCollectionCode);
 
-    if (!supplierCompanyName) {
-      return { success: false, message: "Supplier company is required." };
-    }
-    if (!supplierCollectionName) {
-      return { success: false, message: "Supplier collection name is required." };
-    }
-    if (!supplierCollectionCode) {
-      return { success: false, message: "Supplier collection code is required." };
+    if (!isService) {
+      if (!supplierCompanyName) {
+        return { success: false, message: "Supplier company is required." };
+      }
+      if (!supplierCollectionName) {
+        return { success: false, message: "Supplier collection name is required." };
+      }
+      if (!supplierCollectionCode) {
+        return { success: false, message: "Supplier collection code is required." };
+      }
     }
 
-    const closingstock = toNumber(payload.closingstock) ?? 0;
+    const openingQtyInput = toNumber(payload.closingstock) ?? 0;
     const maxlevel = toNumber(payload.maxlevel);
     const width = toNumber(payload.width);
     const martindale = toNumber(payload.martindale);
@@ -357,42 +386,46 @@ export async function createStockItemAction(payload: {
     const rrpWithGstRs = toNumber(payload.rrpWithGstRs);
     const gstPercent = toNumber(payload.gstPercent);
 
-    if (closingstock < 0) {
+    if (!isService && openingQtyInput < 0) {
       return { success: false, message: "Opening stock cannot be negative." };
     }
     if (maxlevel != null && maxlevel < 0) {
       return { success: false, message: "Max level cannot be negative." };
     }
-    if (costPriceRs == null) {
-      return { success: false, message: "Cost price is required." };
-    }
-    if (costMultiplierRs == null) {
-      return { success: false, message: "Cost multiplier is required." };
-    }
     if (rrpWithGstRs == null) {
       return { success: false, message: "RRP with GST is required." };
     }
-    if (costPriceRs < 0 || costMultiplierRs < 0 || rrpWithGstRs < 0) {
+    if (!isService && costPriceRs == null) {
+      return { success: false, message: "Cost price is required." };
+    }
+    if (!isService && costMultiplierRs == null) {
+      return { success: false, message: "Cost multiplier is required." };
+    }
+    if (rrpWithGstRs < 0) {
+      return { success: false, message: "MRP cannot be negative." };
+    }
+    if (isService && (gstPercent == null || gstPercent < 0)) {
+      return { success: false, message: "GST is required for service item." };
+    }
+    if (!isService && ((costPriceRs ?? 0) < 0 || (costMultiplierRs ?? 0) < 0)) {
       return { success: false, message: "Cost values cannot be negative." };
     }
 
     const now = new Date().toISOString();
     const bcnDigits = extractBcnDigits(rawBcn);
 
-    const resolvedUnit = (cleanString(payload.unit) || "MTR").toUpperCase();
-    const resolvedCategory = resolveStockCategory(cleanString(payload.category) || "FABRIC");
-    if (!resolvedCategory) {
-      return { success: false, message: "Invalid category. Please select a valid stock category." };
+    const resolvedUnit = ((isService ? "PCS" : cleanString(payload.unit)) || "MTR").toUpperCase();
+    const baseTotalQty = toNumber(payload.totalQty) ?? openingQtyInput;
+    const baseAvailableQty = toNumber(payload.availableQty) ?? baseTotalQty;
+    const totalQty = isService ? 0 : baseTotalQty;
+    const availableQty = isService ? 0 : baseAvailableQty;
+    const reservedQty = isService ? 0 : (toNumber(payload.reservedQty) ?? 0);
+    const damagedQty = isService ? 0 : (toNumber(payload.damagedQty) ?? 0);
+    const cutQty = isService ? 0 : (toNumber(payload.cutQty) ?? 0);
+
+    if (!isService && (totalQty < 0 || availableQty < 0 || reservedQty < 0 || damagedQty < 0 || cutQty < 0)) {
+      return { success: false, message: "Stock quantities cannot be negative." };
     }
-    const resolvedCategoryGroup =
-      resolveStockCategoryGroup(payload.categoryGroup, resolvedCategory) ||
-      (getStockSubcategories(resolvedCategory)[0] || undefined);
-    const isService = payload.isService ?? resolvedCategory === "VAS";
-    const totalQty = toNumber(payload.totalQty) ?? closingstock;
-    const availableQty = toNumber(payload.availableQty) ?? closingstock;
-    const reservedQty = toNumber(payload.reservedQty) ?? 0;
-    const damagedQty = toNumber(payload.damagedQty) ?? 0;
-    const cutQty = toNumber(payload.cutQty) ?? 0;
 
     const stockDoc: Record<string, any> = {
       itemId: docId,
@@ -402,11 +435,13 @@ export async function createStockItemAction(payload: {
       name: itemName,
       itemNameTokens,
       itemName,
-      category: resolvedCategory,
+      category: finalCategory,
       categoryGroup: resolvedCategoryGroup,
       isService,
+      serviceType: isService ? resolvedCategoryGroup : undefined,
+      isStockTracked: !isService,
       unit: resolvedUnit,
-      type: cleanString(payload.type) || "fabric",
+      type: isService ? "service" : (cleanString(payload.type) || "fabric"),
       totalQty,
       availableQty,
       reservedQty,
@@ -414,20 +449,13 @@ export async function createStockItemAction(payload: {
       cutQty,
       closingstock: totalQty,
       quantity: totalQty,
-      supplierCompanyName,
-      supplierCollectionName,
-      supplierCollectionCode,
-      costPriceRs,
-      costMultiplierRs,
       rrpWithGstRs,
-      hsnOrSac: cleanString(payload.hsnOrSac),
-      hsnCode: cleanString(payload.hsnOrSac),
-      gstPercent,
+      mrp: rrpWithGstRs,
       isActive: true,
       lastUpdatedAt: now,
       updatedAt: now,
       createdAt: now,
-      nextLengthNo: totalQty > 0 ? 2 : 1,
+      nextLengthNo: !isService && totalQty > 0 ? 2 : 1,
     };
 
     const assignIfDefined = (key: string, value: any) => {
@@ -436,30 +464,34 @@ export async function createStockItemAction(payload: {
       }
     };
 
-    assignIfDefined("maxlevel", maxlevel);
-    assignIfDefined("category", resolvedCategory);
-    assignIfDefined("categoryGroup", cleanString(payload.categoryGroup));
-    assignIfDefined("width", width);
-    assignIfDefined("moCollection", cleanString(payload.moCollection));
-    assignIfDefined("moCollectionCode", cleanString(payload.moCollectionCode));
-    assignIfDefined("supplierCompanyName", supplierCompanyName);
-    assignIfDefined("supplierCollectionName", supplierCollectionName);
-    assignIfDefined("supplierCollectionCode", supplierCollectionCode);
-    assignIfDefined("composition", cleanString(payload.composition));
-    assignIfDefined("martindale", martindale);
-    assignIfDefined("weightGsm", weightGsm);
-    assignIfDefined("horizontalRepeatCms", horizontalRepeatCms);
-    assignIfDefined("verticalRepeatCms", verticalRepeatCms);
-    assignIfDefined("costPriceRs", costPriceRs);
-    assignIfDefined("costMultiplierRs", costMultiplierRs);
+    assignIfDefined("category", finalCategory);
+    assignIfDefined("categoryGroup", resolvedCategoryGroup);
     assignIfDefined("rrpWithGstRs", rrpWithGstRs);
-    assignIfDefined("hsnOrSac", cleanString(payload.hsnOrSac));
-    assignIfDefined("hsnCode", cleanString(payload.hsnOrSac));
     assignIfDefined("gstPercent", gstPercent);
-    assignIfDefined("rack", cleanString(payload.rack));
+    assignIfDefined("tax", gstPercent);
     assignIfDefined("productId", cleanString(payload.productId));
 
-    const lengthNo = totalQty > 0 ? 1 : null;
+    if (!isService) {
+      assignIfDefined("maxlevel", maxlevel);
+      assignIfDefined("width", width);
+      assignIfDefined("moCollection", cleanString(payload.moCollection));
+      assignIfDefined("moCollectionCode", cleanString(payload.moCollectionCode));
+      assignIfDefined("composition", cleanString(payload.composition));
+      assignIfDefined("martindale", martindale);
+      assignIfDefined("weightGsm", weightGsm);
+      assignIfDefined("supplierCompanyName", supplierCompanyName);
+      assignIfDefined("supplierCollectionName", supplierCollectionName);
+      assignIfDefined("supplierCollectionCode", supplierCollectionCode);
+      assignIfDefined("horizontalRepeatCms", horizontalRepeatCms);
+      assignIfDefined("verticalRepeatCms", verticalRepeatCms);
+      assignIfDefined("costPriceRs", costPriceRs);
+      assignIfDefined("costMultiplierRs", costMultiplierRs);
+      assignIfDefined("hsnOrSac", cleanString(payload.hsnOrSac));
+      assignIfDefined("hsnCode", cleanString(payload.hsnOrSac));
+      assignIfDefined("rack", cleanString(payload.rack));
+    }
+
+    const lengthNo = !isService && totalQty > 0 ? 1 : null;
     const lengthId = lengthNo ? `${docId}_${lengthNo}` : null;
     const lengthRef = lengthId ? stockRef.collection("lengths").doc(lengthId) : null;
 
@@ -471,7 +503,7 @@ export async function createStockItemAction(payload: {
 
       tx.set(stockRef, stockDoc, { merge: true });
 
-      if (supplierCompanyName) {
+      if (!isService && supplierCompanyName) {
         const supplierRef = adminDb
           .collection(SUPPLIER_COMPANIES_COLLECTION)
           .doc(supplierCompanyDocId(supplierCompanyName));
@@ -722,7 +754,6 @@ export async function importStockData(
 
           lastUpdatedAt: new Date().toISOString(),
         };
-        console.log(`stock Details extracted from Excel:`, stockItem);
         return stockItem;
       })
       .filter(Boolean) as any[];
@@ -825,7 +856,6 @@ export async function importStockData(
             }),
             { merge: true }
         );
-        console.log(batch);
         writtenMasters.add(docId);
       }
 
@@ -866,7 +896,7 @@ export async function importStockData(
 
     // 🔥 Commit batch safely
     if (batchRowCount >= MAX_ROWS_PER_BATCH) {
-        console.log(`✅ Committing batch of ${batchRowCount} rows...`);
+
         await batch.commit();
 
         // reset
@@ -877,7 +907,7 @@ export async function importStockData(
 
     // 🔚 Commit remaining rows
     if (batchRowCount > 0) {
-    console.log(`✅ Committing final batch of ${batchRowCount} rows...`);
+
     await batch.commit();
     }
 
@@ -923,10 +953,6 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
       });
     };
 
-    console.log(
-      `Search: "${trimmed}" | Letters: ${hasLetters} | Numbers: ${hasNumbers}`
-    );
-
     // 🔥 CASE 1: Alphabet → Search itemNameTokens FIRST
     if (hasLetters) {
       const tokenQuery = trimmed
@@ -951,7 +977,6 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
 
     // 🔥 CASE 2: Numbers → Search BCN FIRST
     if (hasNumbers) {
-      console.log("didgit qureey",digitQuery);
       if (digitQuery.length >= 2) {
         const digitsSnap = await stockRef
           .where("bcnDigits", ">=", digitQuery)
@@ -960,8 +985,6 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
           .get();
 
         addDocs(digitsSnap.docs);
-
-        console.log("snap",JSON.stringify(digitsSnap.docs), "length", digitsSnap.docs.length);
 
         if (resultsMap.size >= 20) {
           return Array.from(resultsMap.values()).slice(0, 30);

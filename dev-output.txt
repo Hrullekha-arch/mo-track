@@ -1,0 +1,43 @@
+
+> nextn@0.1.0 dev
+> next dev
+
+▲ Next.js 16.2.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.0.201:3000
+- Environments: .env.local, .env
+✓ Ready in 1368ms
+
+ GET /dashboard/hr 200 in 1164ms (next.js: 335ms, application-code: 829ms)
+ GET /dashboard/hr 200 in 174ms (next.js: 18ms, application-code: 156ms)
+[browser] Image with src "/logo.png" has either width or height modified, but not the other. If you use CSS to change the size of your image, also include the styles 'width: "auto"' or 'height: "auto"' to maintain the aspect ratio.
+[browser] [2026-05-15T07:48:52.839Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x19a3c83c transport errored. Name: undefined Message: undefined
+[browser] [2026-05-15T08:45:02.503Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x19a3c83e transport errored. Name: undefined Message: undefined
+✓ Compiled in 1023ms
+ GET /dashboard/hr 200 in 636ms (next.js: 452ms, application-code: 183ms)
+ GET /dashboard/hr 200 in 560ms (next.js: 6ms, application-code: 554ms)
+[browser] [2026-05-15T09:28:02.505Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x19a3c845 transport errored. Name: undefined Message: undefined
+[browser] [2026-05-15T09:28:02.513Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x19a3c846 transport errored. Name: undefined Message: undefined
+[browser] [2026-05-15T09:28:03.903Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x19a3c847 transport errored. Name: undefined Message: undefined
+[browser] [2026-05-15T09:28:05.354Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x19a3c848 transport errored. Name: undefined Message: undefined
+[browser] [2026-05-15T09:28:06.907Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x19a3c849 transport errored. Name: undefined Message: undefined
+[browser] [2026-05-15T09:28:08.684Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x19a3c84a transport errored. Name: undefined Message: undefined
+[browser] [2026-05-15T09:28:11.226Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x19a3c84b transport errored. Name: undefined Message: undefined
+[browser] [2026-05-15T09:29:05.156Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x19a3c84e transport errored. Name: undefined Message: undefined
+[browser] [2026-05-15T09:29:25.724Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x19a3c84f transport errored. Name: undefined Message: undefined
+[browser] [2026-05-15T10:25:00.590Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x19a3c851 transport errored. Name: undefined Message: undefined
+✓ Compiled in 980ms
+ GET /dashboard/hr 200 in 658ms (next.js: 400ms, application-code: 258ms)
+✓ Compiled in 541ms
+ GET /dashboard/hr 200 in 361ms (next.js: 217ms, application-code: 144ms)
+ GET /dashboard/hr 200 in 568ms (next.js: 9ms, application-code: 559ms)
+ GET /dashboard/hr 200 in 162ms (next.js: 11ms, application-code: 151ms)
+✓ Compiled in 453ms
+ GET /dashboard/hr 200 in 435ms (next.js: 235ms, application-code: 199ms)
+ GET /dashboard/hr 200 in 398ms (next.js: 5ms, application-code: 392ms)
+ GET /dashboard/hr 200 in 79ms (next.js: 6ms, application-code: 74ms)
+✓ Compiled in 517ms
+ GET /dashboard/hr 200 in 519ms (next.js: 358ms, application-code: 161ms)
+ GET /dashboard/hr 200 in 427ms (next.js: 6ms, application-code: 421ms)
+✓ Compiled in 420ms
+ GET /dashboard/hr 200 in 85ms (next.js: 6ms, application-code: 80ms)

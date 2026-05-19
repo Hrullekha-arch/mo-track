@@ -38,6 +38,7 @@ export const mapDealProductsDocToUi = (
 
   const mapItem = (item: any, index: number, isVas: boolean) => {
     const meta = item?.meta && typeof item.meta === "object" ? item.meta : {};
+    const id = item?.meta?.id;
     const type = normalizeType(item?.type);
     const productType = inferProductType(type, isVas);
     const productSource =
@@ -57,7 +58,7 @@ export const mapDealProductsDocToUi = (
 
     return {
       ...(meta as any),
-      id: `${isVas ? "vas" : "normal"}-${labelBase}-${index}`,
+      id: id,
       collectionBrand: isVas
         ? description || category || "VAS"
         : bcn || description || itemName || "N/A",

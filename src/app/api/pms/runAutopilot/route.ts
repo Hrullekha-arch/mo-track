@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 import { runAutopilot } from "@/lib/pms/autopilot";
+import { getCanonicalPlans } from "@/lib/pms/plan-utils";
 
 const IST_TIMEZONE_OFFSET_MINUTES = 330;
 
@@ -27,12 +28,55 @@ const getOrdersByIds = async (ids: string[]) => {
   return orderMap;
 };
 
-const isOrderClosedForPms = (order?: any) => {
-  if (!order) return false;
-  const workflowStatus = String(order?.workflow?.status || "").trim().toUpperCase();
-  if (workflowStatus === "COMPLETED" || workflowStatus === "CANCELLED") return true;
-  const status = String(order?.status || "").trim().toUpperCase();
-  return status === "INSTALLATION DONE" || status === "COMPLETED" || status === "CANCELLED";
+const commitPlanMaintenance = async (
+  plans: any[],
+  stalePlanIds: string[],
+  now: string,
+  resetPlanJobIds: string[] = []
+) => {
+  const resetPlanJobIdSet = new Set(resetPlanJobIds.map((id) => String(id || "").trim()).filter(Boolean));
+  const upsertPlanOps = plans.filter((plan) => {
+    const jobId = String(plan?.jobId || "").trim();
+    if (!jobId) return false;
+    return !resetPlanJobIdSet.has(jobId);
+  });
+  for (let i = 0; i < upsertPlanOps.length; i += 350) {
+    const batch = adminDb.batch();
+    upsertPlanOps.slice(i, i + 350).forEach((plan) => {
+      const jobId = String(plan.jobId || "").trim();
+      if (!jobId) return;
+      const planRef = adminDb.collection("plan").doc(jobId);
+      batch.set(
+        planRef,
+        {
+          ...plan,
+          id: planRef.id,
+          jobId,
+          updatedAt: plan?.updatedAt || now,
+          createdAt: plan?.createdAt || now,
+        },
+        { merge: true }
+      );
+    });
+    await batch.commit();
+  }
+
+  const planIdsToDelete = Array.from(
+    new Set([
+      ...stalePlanIds,
+      ...Array.from(resetPlanJobIdSet),
+    ])
+  );
+
+  for (let i = 0; i < planIdsToDelete.length; i += 350) {
+    const batch = adminDb.batch();
+    planIdsToDelete.slice(i, i + 350).forEach((planId) => {
+      const cleanId = String(planId || "").trim();
+      if (!cleanId) return;
+      batch.delete(adminDb.collection("plan").doc(cleanId));
+    });
+    await batch.commit();
+  }
 };
 
 export async function POST(request: Request) {
@@ -77,39 +121,29 @@ export async function POST(request: Request) {
       });
     }
 
-    // 2) Check invoiced orders only
+    // 2) Existing PMS jobs remain schedulable as long as active jobs still exist.
+    // New PMS job creation/start is still gated in createOrder.
     const orderIds = Array.from(new Set(candidateJobs.map((j) => j.orderId).filter(Boolean))) as string[];
     const orderDataById = await getOrdersByIds(orderIds);
-    const invoicedOrderIds = new Set<string>();
+    const schedulableOrderIds = new Set<string>();
 
     orderDataById.forEach((data, id) => {
-      if (isOrderClosedForPms(data)) return;
-      if (data?.invoicing?.invoiceRequired === false) {
-        invoicedOrderIds.add(id);
-        return;
-      }
-      const status = data?.invoicing?.status;
-      const invoiceCount = Array.isArray(data?.invoicing?.invoices)
-        ? data.invoicing.invoices.length
-        : 0;
-      const hasInvoice = Boolean((status && status !== "NOT_INVOICED") || invoiceCount > 0);
-      if (hasInvoice) invoicedOrderIds.add(id);
+      schedulableOrderIds.add(id);
     });
 
-    const eligibleJobs = candidateJobs.filter((job) => invoicedOrderIds.has(job.orderId));
+    const eligibleJobs = candidateJobs.filter((job) => schedulableOrderIds.has(job.orderId));
     if (eligibleJobs.length === 0) {
       return NextResponse.json({
         success: true,
         planned: 0,
-        message: includePlanned
-          ? "No waiting/planned jobs for invoiced orders."
-          : "No waiting jobs for invoiced orders.",
+        message: includePlanned ? "No waiting/planned jobs found." : "No waiting jobs found.",
       });
     }
 
     // 3) Load master data
     const [
       machinesSnap,
+      peopleSnap,
       skillsSnap,
       peopleSnap,
       productsSnap,
@@ -118,6 +152,7 @@ export async function POST(request: Request) {
       workingHoursSnap,
     ] = await Promise.all([
       adminDb.collection("machines").where("active", "==", true).get(),
+      adminDb.collection("people").get(),
       adminDb.collection("machineSkills").where("allowed", "==", true).get(),
       adminDb.collection("people").get(),
       adminDb.collection("products").get(),
@@ -138,6 +173,13 @@ export async function POST(request: Request) {
       new Set(eligibleJobs.map((job) => job.jobGroupId).filter(Boolean))
     ) as string[];
 
+    const allPlans = plansSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) }));
+    const {
+      plans: canonicalPlans,
+      canonicalByJobId,
+      stalePlanIds,
+    } = getCanonicalPlans(allPlans);
+
     const schedulingJobsMap = new Map<string, any>();
 
     // fetch jobs by jobGroupId
@@ -156,15 +198,24 @@ export async function POST(request: Request) {
     eligibleJobs.forEach((job) => schedulingJobsMap.set(job.id, job));
 
     // merge plannedStart/End from plan docs
-    const planByJobId = new Map<string, any>();
-    plansSnap.docs.forEach((doc) => {
-      const data = doc.data() as any;
-      if (data?.jobId) planByJobId.set(data.jobId, data);
-    });
+    const planByJobId = canonicalByJobId;
 
-    const schedulingJobs = Array.from(schedulingJobsMap.values())
-      .filter((j) => invoicedOrderIds.has(j.orderId))
-      .map((j) => {
+    const schedulingCandidates = Array.from(schedulingJobsMap.values()).filter((j) =>
+      schedulableOrderIds.has(j.orderId)
+    );
+    const resetPlanJobIds = Array.from(
+      new Set(
+        schedulingCandidates
+          .filter((job) => {
+            const rawStatus = String(job.status || "").toUpperCase();
+            return rawStatus === "WAITING" || (includePlanned && rawStatus === "PLANNED");
+          })
+          .map((job) => String(job.id || "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    const schedulingJobs = schedulingCandidates.map((j) => {
         const p = planByJobId.get(j.id);
         const rawStatus = String(j.status || "").toUpperCase();
         const normalizedStatus = includePlanned && rawStatus === "PLANNED" ? "WAITING" : j.status;
@@ -180,7 +231,7 @@ export async function POST(request: Request) {
 
     // 5) order priority
     const orderPriorityMap: Record<string, number | undefined> = {};
-    Array.from(invoicedOrderIds).forEach((id) => {
+    Array.from(schedulableOrderIds).forEach((id) => {
       orderPriorityMap[id] = orderDataById.get(id)?.priority;
     });
 
@@ -194,45 +245,54 @@ export async function POST(request: Request) {
         peopleSnap.docs.map((d) => [d.id, { id: d.id, ...(d.data() as any) }])
       ),
       products: productsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })),
-      plans: plansSnap.docs.map((d) => d.data() as any),
+      peopleById: Object.fromEntries(
+        peopleSnap.docs.map((doc) => [doc.id, { id: doc.id, ...(doc.data() as any) }])
+      ),
+      plans: canonicalPlans,
       downtimes: downtimeSnap.docs.map((d) => d.data() as any),
       orderPriorityMap,
       now,
       workingHours,
     });
 
-    // 7) Save: one plan per jobId
-    const batch = adminDb.batch();
+    await commitPlanMaintenance(canonicalPlans, stalePlanIds, now, resetPlanJobIds);
 
-    planned.forEach((plan) => {
-      const planRef = adminDb.collection("plan").doc(plan.jobId);
-      batch.set(
-        planRef,
-        {
-          ...plan,
-          id: planRef.id,
-          updatedAt: now,
-          createdAt: plan.createdAt || now,
-        },
-        { merge: true }
-      );
-    });
+    for (let i = 0; i < planned.length; i += 350) {
+      const batch = adminDb.batch();
+      planned.slice(i, i + 350).forEach((plan) => {
+        const planRef = adminDb.collection("plan").doc(plan.jobId);
+        batch.set(
+          planRef,
+          {
+            ...plan,
+            id: planRef.id,
+            jobId: plan.jobId,
+            updatedAt: now,
+            createdAt: plan.createdAt || now,
+          },
+          { merge: true }
+        );
+      });
+      await batch.commit();
+    }
 
-    updatedJobs.forEach((job) => {
-      const jobRef = adminDb.collection("jobs").doc(job.id);
-      batch.set(
-        jobRef,
-        {
-          status: job.status,
-          plannedStart: job.plannedStart,
-          plannedEnd: job.plannedEnd,
-          updatedAt: now,
-        },
-        { merge: true }
-      );
-    });
-
-    await batch.commit();
+    for (let i = 0; i < updatedJobs.length; i += 350) {
+      const batch = adminDb.batch();
+      updatedJobs.slice(i, i + 350).forEach((job) => {
+        const jobRef = adminDb.collection("jobs").doc(job.id);
+        batch.set(
+          jobRef,
+          {
+            status: job.status,
+            plannedStart: job.plannedStart,
+            plannedEnd: job.plannedEnd,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+      });
+      await batch.commit();
+    }
 
     return NextResponse.json({
       success: true,

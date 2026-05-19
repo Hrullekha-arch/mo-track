@@ -16,7 +16,6 @@ import {
   Archive,
   Warehouse,
   Contact,
-  Users,
   FileSignature,
   FileText,
   Scissors,
@@ -56,6 +55,8 @@ import {
   SheetDescription,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { LeaveWidget } from "@/components/features/dashboard/LeaveWidget";
+import { RequiredOnboardingDialog } from "@/components/shared/RequiredOnboardingDialog";
 
 
 export const navItems = [
@@ -92,6 +93,7 @@ function SidebarNav({ className }: { className?: string }) {
       .trim()
       .toLowerCase()
       .replace(/[\s_-]/g, "");
+    const isHrRole = normalizedRole === "hr";
     const normalizedDesignation = String((user as any)?.designation || "")
       .trim()
       .toLowerCase()
@@ -101,17 +103,23 @@ function SidebarNav({ className }: { className?: string }) {
     const isAllocator =
       normalizedDesignation === "allocators" || normalizedDesignation === "allocator";
 
-    return navItems.filter(item => {
-      if (!user) return false;
-      // Admin sees everything
-      if (role === 'admin') return true;
-      // Headsalesmanager can always access complain approval page.
-      if (isHeadSalesManager && item.href === "/dashboard/complain-approval") return true;
-      // Allocators should always have access to inbound.
-      if (isAllocator && item.href === "/dashboard/inbound") return true;
-      // For other roles, check the permissions array
-      return user.permissions?.includes(item.href);
-    });
+    return navItems
+      .filter((item) => {
+        if (!user) return false;
+        // Admin sees everything.
+        if (normalizedRole === "admin") return true;
+        // HR home should open HR dashboard.
+        if (isHrRole && item.href === "/dashboard") {
+          return true;
+        }
+        // Headsalesmanager can always access complain approval page.
+        if (isHeadSalesManager && item.href === "/dashboard/complain-approval") return true;
+        // Allocators should always have access to inbound.
+        if (isAllocator && item.href === "/dashboard/inbound") return true;
+        // For other roles, check the permissions array.
+        return user.permissions?.includes(item.href);
+      })
+      .map((item) => (isHrRole && item.href === "/dashboard" ? { ...item, href: "/dashboard/hr" } : item));
   }, [user, role]);
 
   return (
@@ -288,7 +296,33 @@ function MobileUserMenu() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, role } = useAuth();
+
+  React.useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+
+    // Dev safeguard: remove stale SW + caches that can serve old /_next/static chunks.
+    void navigator.serviceWorker.getRegistrations().then((registrations) => {
+      registrations.forEach((registration) => {
+        void registration.unregister();
+      });
+    });
+
+    if ("caches" in window) {
+      void caches.keys().then((keys) => {
+        keys.forEach((key) => {
+          void caches.delete(key);
+        });
+      });
+    }
+  }, []);
+
   const mobileNavItems = React.useMemo(() => {
+    const normalizedRole = String(role || user?.role || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]/g, "");
+    const isHrRole = normalizedRole === "hr";
     const normalizedDesignation = String((user as any)?.designation || "")
       .trim()
       .toLowerCase()
@@ -296,12 +330,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const isAllocator =
       normalizedDesignation === "allocators" || normalizedDesignation === "allocator";
 
-    return navItems.filter((item) => {
-      if (!user) return false;
-      if (role === "admin") return true;
-      if (isAllocator && item.href === "/dashboard/inbound") return true;
-      return user.permissions?.includes(item.href);
-    });
+    return navItems
+      .filter((item) => {
+        if (!user) return false;
+        if (normalizedRole === "admin") return true;
+        if (isHrRole && item.href === "/dashboard") {
+          return true;
+        }
+        if (isAllocator && item.href === "/dashboard/inbound") return true;
+        return user.permissions?.includes(item.href);
+      })
+      .map((item) => (isHrRole && item.href === "/dashboard" ? { ...item, href: "/dashboard/hr" } : item));
   }, [user, role]);
 
   return (
@@ -362,6 +401,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
         </header>
         <main className="flex-1 overflow-y-auto">
+          <LeaveWidget />
+          <RequiredOnboardingDialog />
           {children}
         </main>
       </div>
