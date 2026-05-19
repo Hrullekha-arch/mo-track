@@ -28,7 +28,8 @@ import { addDoc, collection } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 // Re-using schemas and types from CreateQuotationDialog
-import { FormValues, itemDetailSchema, vasDetailSchema, ItemDetailValues } from './CreateQuotationDialog';
+import { itemDetailSchema, vasDetailSchema } from "./CreateQuotationDialog";
+import type { FormValues } from "./CreateQuotationDialog";
 
 const formSchema = z.object({
   company: z.string().optional(),

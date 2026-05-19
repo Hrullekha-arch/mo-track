@@ -72,7 +72,7 @@ const DESCRIPTION_OPTIONS: ComboboxOption[] = [
 // SCHEMAS
 // ═══════════════════════════════════════════════════════════
 
-const itemDetailSchema = z.object({
+export const itemDetailSchema = z.object({
   id: z.string().optional(),
   collectionBrand: z.string().min(1, "Collection/Brand is required"),
   serialNo: z.string().optional(),
@@ -113,7 +113,7 @@ const itemDetailSchema = z.object({
   categoryGroup: z.string().optional().default(""), // ✅ ADDED
 });
 
-const vasDetailSchema = z.object({
+export const vasDetailSchema = z.object({
   vasName: z.string().min(1, "VAS name is required"),
   rate: z.string().min(1, "Rate is required"),
   quantity: z.string().min(1, "Quantity is required"),
@@ -144,7 +144,7 @@ const createQuotationFormSchema = z.object({
   representativeId: z.string().optional(),
 });
 
-type FormValues = z.infer<typeof createQuotationFormSchema>;
+export type FormValues = z.infer<typeof createQuotationFormSchema>;
 
 // ═══════════════════════════════════════════════════════════
 // PURE HELPER FUNCTIONS

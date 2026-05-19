@@ -145,7 +145,6 @@ export async function POST(request: Request) {
       machinesSnap,
       peopleSnap,
       skillsSnap,
-      peopleSnap,
       productsSnap,
       plansSnap,
       downtimeSnap,
@@ -154,7 +153,6 @@ export async function POST(request: Request) {
       adminDb.collection("machines").where("active", "==", true).get(),
       adminDb.collection("people").get(),
       adminDb.collection("machineSkills").where("allowed", "==", true).get(),
-      adminDb.collection("people").get(),
       adminDb.collection("products").get(),
       adminDb.collection("plan").get(),
       adminDb.collection("machineDowntime").get(),
@@ -245,9 +243,6 @@ export async function POST(request: Request) {
         peopleSnap.docs.map((d) => [d.id, { id: d.id, ...(d.data() as any) }])
       ),
       products: productsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })),
-      peopleById: Object.fromEntries(
-        peopleSnap.docs.map((doc) => [doc.id, { id: doc.id, ...(doc.data() as any) }])
-      ),
       plans: canonicalPlans,
       downtimes: downtimeSnap.docs.map((d) => d.data() as any),
       orderPriorityMap,
