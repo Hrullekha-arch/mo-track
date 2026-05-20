@@ -1,23 +1,15 @@
 "use client";
 
 import * as React from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { EnrichedDealVisit } from "@/types/visits";
 import { User } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
-import { runTransaction, doc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { assignVisitAction } from "@/app/dashboard/visits/actions";
 
-// You'll need to import the actual component from your codebase
-// This is a placeholder - replace with your actual AssignInstallerDialog
-import { AssignInstallerDialog as OriginalAssignInstallerDialog } from "@/components/features/order-management/AssignInstallerDialog";
+import {
+  AssignInstallerDialog as OriginalAssignInstallerDialog,
+  type SlotSelection,
+} from "@/components/features/order-management/AssignInstallerDialog";
 
 interface AssignInstallerDialogProps {
   isOpen: boolean;
@@ -34,6 +26,7 @@ export default function AssignInstallerDialog({
   installers,
 }: AssignInstallerDialogProps) {
   const { toast } = useToast();
+  const isSavingRef = React.useRef(false);
 
   if (!visit) return null;
 
@@ -52,20 +45,68 @@ export default function AssignInstallerDialog({
       }
     : undefined;
 
+  const currentInstallerId = String((visit as any).assignedTo || "").trim();
+  const normalizedCurrentInstallerId =
+    currentInstallerId.toLowerCase() === "unassigned" ? "" : currentInstallerId;
+
+  const handleAssign = async (installerId: string, slots?: SlotSelection[]) => {
+    if (isSavingRef.current) return;
+    if (!installerId) {
+      toast({ variant: "destructive", title: "Installer required", description: "Please select an installer." });
+      return;
+    }
+    if (!slots || slots.length === 0) {
+      toast({ variant: "destructive", title: "Slot required", description: "Please select at least one slot." });
+      return;
+    }
+
+    isSavingRef.current = true;
+    try {
+      const result = await assignVisitAction({
+        visitId: visit.id,
+        customerId: visit.customerId,
+        dealDocId: visit.dealDocId,
+        installerId,
+        slots: slots.map((slot) => ({
+          slotDate: slot.slotDate,
+          slotId: slot.slotId,
+          slotLabel: slot.slotLabel,
+          slotStart: slot.slotStart,
+          slotEnd: slot.slotEnd,
+        })),
+      });
+
+      if (!result.success) {
+        toast({
+          variant: "destructive",
+          title: "Assignment failed",
+          description: result.message || "Could not assign installer.",
+        });
+        return;
+      }
+
+      toast({ title: "Visit assigned", description: result.message || "Assigned to installer successfully." });
+      onClose();
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Assignment failed",
+        description: error?.message || "Could not assign installer.",
+      });
+    } finally {
+      isSavingRef.current = false;
+    }
+  };
+
   return (
     <OriginalAssignInstallerDialog
       isOpen={isOpen}
       onClose={onClose}
       installers={installers}
-      currentInstallerId={visit.assignedTo}
+      currentInstallerId={normalizedCurrentInstallerId || undefined}
       currentVisitId={visit.id}
       currentSlotSelection={currentSlotSelection}
-      onAssign={async (installerId, slots) => {
-        // Handle assignment logic here
-        // This should be the same logic from your original file
-        console.log("Assigning", { installerId, slots });
-        onClose();
-      }}
+      onAssign={handleAssign}
     />
   );
 }

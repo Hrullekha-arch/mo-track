@@ -172,6 +172,251 @@ export async function unassignVisitAction(visitId: string, customerId: string, d
     }
 }
 
+type AssignVisitSlotInput = {
+    slotDate: string;
+    slotId: string;
+    slotLabel?: string;
+    slotStart?: string;
+    slotEnd?: string;
+};
+
+const slotSortWeight = (slotId: string) => {
+    const parsed = Number(String(slotId || "").replace(/\D+/g, ""));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : Number.MAX_SAFE_INTEGER;
+};
+
+export async function assignVisitAction(input: {
+    visitId: string;
+    customerId: string;
+    dealDocId: string;
+    installerId: string;
+    slots: AssignVisitSlotInput[];
+}): Promise<{ success: boolean; message: string }> {
+    const visitId = String(input?.visitId || "").trim();
+    const customerId = String(input?.customerId || "").trim();
+    const dealDocId = String(input?.dealDocId || "").trim();
+    const installerId = String(input?.installerId || "").trim();
+
+    const rawSlots = Array.isArray(input?.slots) ? input.slots : [];
+    const cleanedSlots = rawSlots
+        .map((slot) => ({
+            slotDate: String(slot?.slotDate || "").trim(),
+            slotId: String(slot?.slotId || "").trim(),
+            slotLabel: String(slot?.slotLabel || "").trim(),
+            slotStart: String(slot?.slotStart || "").trim(),
+            slotEnd: String(slot?.slotEnd || "").trim(),
+        }))
+        .filter((slot) => slot.slotDate && slot.slotId);
+
+    if (!visitId || !customerId || !dealDocId || !installerId) {
+        return { success: false, message: "Missing required fields for assignment." };
+    }
+    if (!cleanedSlots.length) {
+        return { success: false, message: "Please select at least one slot." };
+    }
+
+    const slotDate = cleanedSlots[0].slotDate;
+    if (cleanedSlots.some((slot) => slot.slotDate !== slotDate)) {
+        return { success: false, message: "All selected slots must be on the same date." };
+    }
+
+    const slotsById = new Map<string, AssignVisitSlotInput>();
+    for (const slot of cleanedSlots) slotsById.set(slot.slotId, slot);
+
+    const sortedSlotIds = Array.from(slotsById.keys()).sort(
+        (left, right) => slotSortWeight(left) - slotSortWeight(right)
+    );
+    const sortedSlots = sortedSlotIds.map((slotId) => slotsById.get(slotId)!);
+    const firstSlot = sortedSlots[0];
+    const lastSlot = sortedSlots[sortedSlots.length - 1];
+
+    const firstLabel =
+        firstSlot.slotStart || firstSlot.slotLabel || firstSlot.slotId || "";
+    const lastLabel =
+        lastSlot.slotEnd || lastSlot.slotLabel || lastSlot.slotId || "";
+    const slotLabel =
+        sortedSlots.length === 1
+            ? firstSlot.slotLabel || `${firstSlot.slotStart || ""} - ${firstSlot.slotEnd || ""}`.trim() || firstSlot.slotId
+            : `${firstLabel} - ${lastLabel}`;
+
+    const visitRef = adminDb
+        .collection("customers")
+        .doc(customerId)
+        .collection("deals")
+        .doc(dealDocId)
+        .collection("visits")
+        .doc(visitId);
+
+    const assignedAt = new Date().toISOString();
+    let unchangedSelection = false;
+
+    try {
+        await adminDb.runTransaction(async (transaction) => {
+            const visitSnap = await transaction.get(visitRef);
+            if (!visitSnap.exists) {
+                throw new Error("Visit document not found.");
+            }
+
+            const visitData = visitSnap.data() as DealVisit;
+            const previousInstallerRaw = String(visitData.assignedTo || "").trim();
+            const previousInstallerId =
+                previousInstallerRaw.toLowerCase() === "unassigned"
+                    ? ""
+                    : previousInstallerRaw;
+            const previousSlotDate = String(visitData.slotDate || "").trim();
+            const previousSlotIds = Array.isArray((visitData as any)?.slotIds)
+                ? ((visitData as any).slotIds as unknown[])
+                    .map((slotId) => String(slotId || "").trim())
+                    .filter(Boolean)
+                : visitData.slotId
+                    ? [String(visitData.slotId)]
+                    : [];
+            const previousSortedSlotIds = [...new Set(previousSlotIds)].sort(
+                (left, right) => slotSortWeight(left) - slotSortWeight(right)
+            );
+
+            unchangedSelection =
+                previousInstallerId === installerId &&
+                previousSlotDate === slotDate &&
+                previousSortedSlotIds.length === sortedSlotIds.length &&
+                previousSortedSlotIds.every((slotId, index) => slotId === sortedSlotIds[index]);
+
+            if (unchangedSelection) {
+                return;
+            }
+
+            const previousDateRef =
+                previousInstallerId && previousSlotDate
+                    ? adminDb.collection("installers").doc(previousInstallerId).collection("dates").doc(previousSlotDate)
+                    : null;
+            const targetDateRef = adminDb.collection("installers").doc(installerId).collection("dates").doc(slotDate);
+
+            const [previousDateSnap, targetDateSnap] = await Promise.all([
+                previousDateRef ? transaction.get(previousDateRef) : Promise.resolve(null),
+                transaction.get(targetDateRef),
+            ]);
+
+            const targetSlotsRaw =
+                targetDateSnap.exists && Array.isArray(targetDateSnap.data()?.slots)
+                    ? (targetDateSnap.data()?.slots as any[])
+                    : [];
+
+            const selectedSlotIdsSet = new Set(sortedSlotIds);
+            const blockingSlot = targetSlotsRaw.find((slot) => {
+                const existingSlotId = String(slot?.slotId || slot?.id || "").trim();
+                const isSelected = selectedSlotIdsSet.has(existingSlotId);
+                const isBookedByAnother = !!slot?.visitId && slot.visitId !== visitId;
+                return isSelected && isBookedByAnother;
+            });
+            if (blockingSlot) {
+                const blockedId = String(blockingSlot?.slotId || blockingSlot?.id || "").trim() || "selected";
+                throw new Error(`Slot ${blockedId} is already booked.`);
+            }
+
+            const targetSlotMap = new Map<string, any>();
+            for (const slot of targetSlotsRaw) {
+                if (!slot) continue;
+                const existingSlotId = String(slot.slotId || slot.id || "").trim();
+                if (!existingSlotId) continue;
+                if (slot.visitId === visitId) continue;
+                targetSlotMap.set(existingSlotId, slot);
+            }
+
+            for (const slot of sortedSlots) {
+                const existing = targetSlotMap.get(slot.slotId) || {};
+                targetSlotMap.set(slot.slotId, {
+                    ...existing,
+                    slotId: slot.slotId,
+                    id: slot.slotId,
+                    slotDate,
+                    slotLabel: slot.slotLabel || existing.slotLabel || slot.slotId,
+                    slotStart: slot.slotStart || existing.slotStart || "",
+                    slotEnd: slot.slotEnd || existing.slotEnd || "",
+                    visitId,
+                    customerId,
+                    customerName: visitData.customerSnapshot?.name || null,
+                    dealId: visitData.dealId || null,
+                    dealDocId,
+                    dealName: visitData.dealSnapshot?.title || null,
+                    assignedTo: installerId,
+                    assignedAt,
+                    status: "booked",
+                });
+            }
+
+            const targetSlots = Array.from(targetSlotMap.values()).sort(
+                (left, right) =>
+                    slotSortWeight(String(left?.slotId || left?.id || "")) -
+                    slotSortWeight(String(right?.slotId || right?.id || ""))
+            );
+            transaction.set(targetDateRef, { slotDate, slots: targetSlots }, { merge: true });
+
+            if (previousDateRef && previousDateRef.path !== targetDateRef.path) {
+                const previousSlotsRaw =
+                    previousDateSnap?.exists && Array.isArray(previousDateSnap.data()?.slots)
+                        ? (previousDateSnap.data()?.slots as any[])
+                        : [];
+                const previousSlotIdsSet = new Set(previousSortedSlotIds);
+                const cleanedPreviousSlots = previousSlotsRaw.map((slot) => {
+                    const existingSlotId = String(slot?.slotId || slot?.id || "").trim();
+                    const usedByCurrentVisit = slot?.visitId === visitId;
+                    const matchedPreviousSlot = previousSlotIdsSet.has(existingSlotId);
+                    if (!usedByCurrentVisit && !matchedPreviousSlot) return slot;
+                    return {
+                        ...slot,
+                        status: "free",
+                        visitId: null,
+                        customerId: null,
+                        customerName: null,
+                        dealId: null,
+                        dealDocId: null,
+                        dealName: null,
+                        assignedTo: null,
+                        assignedAt: null,
+                    };
+                });
+                transaction.set(
+                    previousDateRef,
+                    { slotDate: previousSlotDate, slots: cleanedPreviousSlots },
+                    { merge: true }
+                );
+            }
+
+            transaction.update(visitRef, {
+                assignedTo: installerId,
+                slotDate,
+                slotId: firstSlot.slotId,
+                slotIds: sortedSlotIds,
+                slotLabel,
+                slotStart: firstSlot.slotStart || "",
+                slotEnd: lastSlot.slotEnd || "",
+                assignedAt,
+                assignment: {
+                    assignedTo: { id: installerId },
+                    assignedAt,
+                    slot: {
+                        date: slotDate,
+                        timeFrom: firstSlot.slotStart || "",
+                        timeTo: lastSlot.slotEnd || "",
+                    },
+                },
+                updatedAt: assignedAt,
+            });
+        });
+
+        if (unchangedSelection) {
+            return { success: true, message: "Visit is already assigned to this installer and slot." };
+        }
+        return { success: true, message: "Visit assigned successfully." };
+    } catch (error: any) {
+        console.error("Error in assignVisitAction:", error);
+        return {
+            success: false,
+            message: error?.message || "Failed to assign visit.",
+        };
+    }
+}
+
 export async function updateVisitDetailsAction(
     customerId: string,
     dealDocId: string,
