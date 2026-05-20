@@ -22,7 +22,10 @@ import type {
   HrHolidayFormState,
   HrLeaveRequest,
 } from "../types";
-import type { AttendanceApiSyncInput } from "../hooks/use-attendance-handlers";
+import type {
+  AttendanceApiBulkSyncInput,
+  AttendanceApiSyncInput,
+} from "../hooks/use-attendance-handlers";
 import {
   ATTENDANCE_STATUS_LABELS,
   calcAttendanceSummary,
@@ -39,6 +42,7 @@ type AttendanceUploadDialogProps = {
   saving: boolean;
   onClose: () => void;
   onSync: (input: AttendanceApiSyncInput) => void | Promise<void>;
+  onSyncAll: (input: AttendanceApiBulkSyncInput) => void | Promise<void>;
 };
 
 const isMonthKey = (value: string) => /^\d{4}-\d{2}$/.test(value);
@@ -65,7 +69,14 @@ const buildMonthRange = (monthKey: string) => {
   };
 };
 
-export function AttendanceUploadDialog({ employees, month, saving, onClose, onSync }: AttendanceUploadDialogProps) {
+export function AttendanceUploadDialog({
+  employees,
+  month,
+  saving,
+  onClose,
+  onSync,
+  onSyncAll,
+}: AttendanceUploadDialogProps) {
   const [employeeId, setEmployeeId] = useState<string>(employees[0]?.id || "");
   const [employeeApiId, setEmployeeApiId] = useState("");
   const [place, setPlace] = useState("MO2");
@@ -177,11 +188,27 @@ export function AttendanceUploadDialog({ employees, month, saving, onClose, onSy
 
           <p className="text-xs text-slate-500">
             Sync stores punches in a monthly attendance document and updates latest attendance date/time to avoid duplicate fetching.
+            Use bulk sync to process all employees one-by-one based on employee/user store.
           </p>
         </div>
 
         <DialogFooter className="px-6 pb-6">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={saving || !fromDate || !toDate || fromDate > toDate}
+            onClick={() => {
+              void onSyncAll({
+                from: fromDate,
+                to: toDate,
+                place: place.trim(),
+              });
+            }}
+          >
+            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
+            Sync All (Store-wise)
+          </Button>
           <Button
             type="button"
             disabled={saving || !canSync}

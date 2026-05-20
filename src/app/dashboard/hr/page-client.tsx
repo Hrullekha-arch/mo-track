@@ -1024,7 +1024,14 @@ export default function HrDashboardClientPage() {
       ) : null}
 
       {attendance.showAttendanceUpload ? (
-        <AttendanceUploadDialog employees={activeEmployees} month={selectedMonth} saving={attendance.savingAttendance} onClose={() => attendance.setShowAttendanceUpload(false)} onSync={attendance.syncAttendanceFromApi} />
+        <AttendanceUploadDialog
+          employees={activeEmployees}
+          month={selectedMonth}
+          saving={attendance.savingAttendance}
+          onClose={() => attendance.setShowAttendanceUpload(false)}
+          onSync={attendance.syncAttendanceFromApi}
+          onSyncAll={attendance.syncAttendanceForStoreFromApi}
+        />
       ) : null}
 
       {attendance.holidayForm ? (

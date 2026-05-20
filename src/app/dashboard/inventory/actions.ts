@@ -429,16 +429,13 @@ export async function createStockItemAction(payload: {
 
     const stockDoc: Record<string, any> = {
       itemId: docId,
-      productId: cleanString(payload.productId),
       bcn: rawBcn,
       bcnDigits,
       name: itemName,
       itemNameTokens,
       itemName,
       category: finalCategory,
-      categoryGroup: resolvedCategoryGroup,
       isService,
-      serviceType: isService ? resolvedCategoryGroup : undefined,
       isStockTracked: !isService,
       unit: resolvedUnit,
       type: isService ? "service" : (cleanString(payload.type) || "fabric"),
@@ -466,6 +463,7 @@ export async function createStockItemAction(payload: {
 
     assignIfDefined("category", finalCategory);
     assignIfDefined("categoryGroup", resolvedCategoryGroup);
+    assignIfDefined("serviceType", isService ? resolvedCategoryGroup : undefined);
     assignIfDefined("rrpWithGstRs", rrpWithGstRs);
     assignIfDefined("gstPercent", gstPercent);
     assignIfDefined("tax", gstPercent);
@@ -520,7 +518,7 @@ export async function createStockItemAction(payload: {
           originalLength: totalQty,
           availableLength: availableQty,
           unit: resolvedUnit,
-          rack: cleanString(payload.rack),
+          rack: cleanString(payload.rack) || null,
           status: "AVAILABLE",
           reservation: null,
           cutHistory: [],
