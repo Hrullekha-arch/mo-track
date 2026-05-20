@@ -102,6 +102,23 @@ const normalizeAttendanceBaseUrl = (rawValue: unknown) => {
   return `${value}/api`;
 };
 
+const normalizeAttendancePlace = (rawValue: unknown) => {
+  const raw = String(rawValue || "").trim();
+  if (!raw) return "";
+
+  const upper = raw.toUpperCase().replace(/\s+/g, " ");
+  const compact = upper.replace(/[^A-Z0-9]/g, "");
+
+  if (upper === "MO1" || compact === "MO1") return "MO1";
+  if (upper === "MO2" || compact === "MO2") return "MO2";
+
+  if (upper.includes("MG")) return "MO1";
+  if (upper.includes("GCR")) return "MO2";
+
+  if (/^MO\d+$/.test(compact)) return compact;
+  return upper;
+};
+
 const buildAttendanceApiUrl = (
   baseApiUrl: string,
   payload: Pick<AttendanceApiSyncInput, "employeeApiId" | "place" | "from" | "to">
@@ -578,7 +595,7 @@ export function useAttendanceHandlers({
   const syncAttendanceFromApi = async (input: AttendanceApiSyncInput) => {
     const employee = activeEmployees.find((entry) => entry.id === input.employeeId);
     const employeeApiId = String(input.employeeApiId || "").trim();
-    const place = String(input.place || "").trim();
+    const place = normalizeAttendancePlace(input.place);
     const from = String(input.from || "").trim();
     const to = String(input.to || "").trim();
 
@@ -672,7 +689,7 @@ export function useAttendanceHandlers({
   const syncAttendanceForStoreFromApi = async (input: AttendanceApiBulkSyncInput) => {
     const from = String(input.from || "").trim();
     const to = String(input.to || "").trim();
-    const fallbackPlace = String(input.place || "").trim();
+    const fallbackPlace = normalizeAttendancePlace(input.place);
 
     if (!DATE_KEY_PATTERN.test(from) || !DATE_KEY_PATTERN.test(to) || from > to) {
       toast({
@@ -718,7 +735,7 @@ export function useAttendanceHandlers({
 
       for (const employee of inScopeEmployees) {
         const employeeApiId = String(employee.biometricId || employee.employeeCode || "").trim();
-        const employeePlace = String(employee.store || "").trim() || fallbackPlace || userStore;
+        const employeePlace = normalizeAttendancePlace(employee.store || fallbackPlace || userStore);
 
         if (!employeeApiId) {
           skippedNoApiId.push(employee.name);

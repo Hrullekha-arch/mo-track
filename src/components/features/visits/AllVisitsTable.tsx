@@ -103,6 +103,12 @@ const FilterSelect = ({ value, onChange, placeholder, options }: {
   </Select>
 );
 
+const getVisitAssigneeId = (visit: EnrichedDealVisit) => {
+  const rawAssignee = String((visit as any).assignedTo ?? (visit as any).assignedToId ?? "").trim();
+  if (rawAssignee.toLowerCase() === "unassigned") return "";
+  return rawAssignee;
+};
+
 type VisitCompletionMode = "Porter" | "Other";
 
 interface AllVisitsTableProps {
@@ -244,8 +250,9 @@ export default function AllVisitsTable({
 
     return visits.filter(visit => {
       if (fromDate || toDate) {
-        if (!visit.dueDate) return false;
-        const due = new Date(visit.dueDate);
+        const visitDateValue = visit.slotDate || visit.dueDate;
+        if (!visitDateValue) return false;
+        const due = new Date(visitDateValue);
         if (isNaN(due.getTime())) return false;
         if (fromDate && due < fromDate) return false;
         if (toDate && due > toDate) return false;
@@ -253,12 +260,22 @@ export default function AllVisitsTable({
       if (typeFilter !== "all" && visit.typeOfVisit !== typeFilter) return false;
       if (statusFilter !== "all" && (visit.status || "requested") !== statusFilter) return false;
       if (installerFilter !== "all") {
-        if (installerFilter === "unassigned" && visit.assignedTo) return false;
-        if (installerFilter !== "unassigned" && visit.assignedTo !== installerFilter) return false;
+        const assignedTo = getVisitAssigneeId(visit);
+
+        // Show only unassigned visits
+        if (installerFilter === "unassigned") {
+          if (assignedTo !== "") return false;
+        }
+
+        // Show assigned installer visits
+        else {
+          if (assignedTo !== installerFilter) return false;
+        }
       }
       if (queryText) {
+        const assignedTo = getVisitAssigneeId(visit);
         const haystack = [visit.customerName, visit.customerAddress, visit.dealId, visit.dealName,
-          visit.typeOfVisit, visit.createdBy, visit.assignedTo ? assigneeNameById[visit.assignedTo] : ""]
+          visit.typeOfVisit, visit.createdBy, assignedTo ? assigneeNameById[assignedTo] : ""]
           .filter(Boolean).join(" ").toLowerCase();
         if (!haystack.includes(queryText)) return false;
       }
@@ -425,7 +442,7 @@ export default function AllVisitsTable({
                       <p className="font-medium text-slate-700">{visit.slotDate ? format(new Date(visit.slotDate), "d MMM yyyy") : "Not set"}</p>
                       {visit.slotLabel && <span className="inline-flex rounded-md bg-slate-100 border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 mt-1">{visit.slotLabel}</span>}
                     </TableCell>
-                    <TableCell className="text-sm">{visit.assignedTo ? <span className="font-medium text-slate-700">{assigneeNameById[visit.assignedTo] || "Unknown"}</span> : <span className="text-slate-400 italic text-xs">Unassigned</span>}</TableCell>
+                    <TableCell className="text-sm">{getVisitAssigneeId(visit) ? <span className="font-medium text-slate-700">{assigneeNameById[getVisitAssigneeId(visit)] || "Unknown"}</span> : <span className="text-slate-400 italic text-xs">Unassigned</span>}</TableCell>
                     <TableCell>
                       <div className="flex flex-col items-start gap-1.5">
                         {renderVisitStatus(visit)}
@@ -457,13 +474,13 @@ export default function AllVisitsTable({
                         <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0 rounded-lg hover:bg-slate-100"><MoreHorizontal className="h-4 w-4 text-slate-500" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="rounded-xl shadow-lg border-slate-200 w-44">
                           <DropdownMenuItem onClick={() => onViewDetails(visit)} className="rounded-lg text-sm"><Eye className="mr-2 h-3.5 w-3.5" /> View Details</DropdownMenuItem>
-                          <DropdownMenuItem className="rounded-lg text-sm" onSelect={() => { window.setTimeout(() => onAssign(visit), 0); }}><UserCheck className="mr-2 h-3.5 w-3.5" /> {visit.assignedTo ? "Re-assign" : "Assign"}</DropdownMenuItem>
+                          <DropdownMenuItem className="rounded-lg text-sm" onSelect={() => { window.setTimeout(() => onAssign(visit), 0); }}><UserCheck className="mr-2 h-3.5 w-3.5" /> {getVisitAssigneeId(visit) ? "Re-assign" : "Assign"}</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => onEdit(visit)} className="rounded-lg text-sm"><Edit className="mr-2 h-3.5 w-3.5" /> Edit Visit</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => onShare(visit)} className="rounded-lg text-sm"><Share2 className="mr-2 h-3.5 w-3.5" /> Share Link</DropdownMenuItem>
                           {visit.status !== "completed" && <DropdownMenuItem className="rounded-lg text-sm" onSelect={e => { e.preventDefault(); openCompleteVisitDialog(visit); }}><CheckCircle2 className="mr-2 h-3.5 w-3.5 text-emerald-600" /> Complete Visit</DropdownMenuItem>}
                           <DropdownMenuSeparator />
                           <DropdownMenuItem className="text-red-600 focus:text-red-700 rounded-lg text-sm" onSelect={e => { e.preventDefault(); setConfirmDelete(visit); }}><Trash2 className="mr-2 h-3.5 w-3.5" /> Delete</DropdownMenuItem>
-                          {visit.assignedTo && <DropdownMenuItem className="text-red-600 focus:text-red-700 rounded-lg text-sm" onSelect={e => { e.preventDefault(); setConfirmUnassign(visit); }}><UserX className="mr-2 h-3.5 w-3.5" /> Unassign</DropdownMenuItem>}
+                          {getVisitAssigneeId(visit) && <DropdownMenuItem className="text-red-600 focus:text-red-700 rounded-lg text-sm" onSelect={e => { e.preventDefault(); setConfirmUnassign(visit); }}><UserX className="mr-2 h-3.5 w-3.5" /> Unassign</DropdownMenuItem>}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
