@@ -69,6 +69,31 @@ import { Badge } from "@/components/ui/badge";
 import { deleteDoc, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
+import { ZohoPurchaseBotCard } from "@/components/features/purchase/ZohoPurchaseBotCard";
+
+const normalizeAccessValue = (value: unknown) =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+const canAccessPurchasePoGeneration = (user: any) => {
+  const role = normalizeAccessValue(user?.role);
+  const allowedRoles = new Set([
+    "admin",
+    "purchase",
+    "pc",
+    "accounts",
+    "it",
+    "data analytics",
+  ]);
+  if (allowedRoles.has(role)) return true;
+  const permissions: unknown[] = Array.isArray(user?.permissions) ? user.permissions : [];
+  return permissions
+    .map(normalizeAccessValue)
+    .some((permission: string) =>
+      ["purchase", "purchase-orders", "pending-po", "po-generation"].includes(permission)
+    );
+};
 
 export default function PendingPOPage() {
   const [data, setData] = React.useState<PendingPoItem[]>([]);
@@ -81,10 +106,12 @@ export default function PendingPOPage() {
   const [isDeletingPo, setIsDeletingPo] = React.useState(false);
   const [globalFilter, setGlobalFilter] = React.useState("");
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
+  const [zohoPurchaseBotEnabled, setZohoPurchaseBotEnabled] = React.useState(false);
 
   const { toast } = useToast();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const canCreatePurchasePo = canAccessPurchasePoGeneration(user);
 
   const [selectedQuotation, setSelectedQuotation] = React.useState<Quotation | null>(null);
   const [selectedDeal, setSelectedDeal] = React.useState<Deal | null>(null);
@@ -334,6 +361,8 @@ const handleDeleteSelected = async () => {
             </Button>
           </div>
 
+          <ZohoPurchaseBotCard onEnabledChange={setZohoPurchaseBotEnabled} />
+
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             <StatCard
@@ -390,36 +419,38 @@ const handleDeleteSelected = async () => {
                     </p>
                   )}
 
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div>
-                        <Button
-                          onClick={() => setIsVerificationOpen(true)}
-                          disabled={!canCreatePo}
-                          size="sm"
-                          className="gap-2"
-                        >
-                          <ShoppingCart className="h-4 w-4" />
-                          Create PO
-                          {selectedItems.length > 0 && (
-                            <Badge variant="secondary" className="ml-1 h-5 text-xs bg-white/20 text-white">
-                              {selectedItems.length}
-                            </Badge>
-                          )}
-                        </Button>
-                      </div>
-                    </TooltipTrigger>
-                    {!canCreatePo && selectedItems.length > 1 && (
-                      <TooltipContent>
-                        <p>All selected items must have the same vendor.</p>
-                      </TooltipContent>
-                    )}
-                    {selectedItems.length === 0 && (
-                      <TooltipContent>
-                        <p>Select at least one item to create a PO.</p>
-                      </TooltipContent>
-                    )}
-                  </Tooltip>
+                  {canCreatePurchasePo ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div>
+                          <Button
+                            onClick={() => setIsVerificationOpen(true)}
+                            disabled={!canCreatePo}
+                            size="sm"
+                            className="gap-2"
+                          >
+                            <ShoppingCart className="h-4 w-4" />
+                            Create PO
+                            {selectedItems.length > 0 && (
+                              <Badge variant="secondary" className="ml-1 h-5 text-xs bg-white/20 text-white">
+                                {selectedItems.length}
+                              </Badge>
+                            )}
+                          </Button>
+                        </div>
+                      </TooltipTrigger>
+                      {!canCreatePo && selectedItems.length > 1 && (
+                        <TooltipContent>
+                          <p>All selected items must have the same vendor.</p>
+                        </TooltipContent>
+                      )}
+                      {selectedItems.length === 0 && (
+                        <TooltipContent>
+                          <p>Select at least one item to create a PO.</p>
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  ) : null}
 
                   {isAdmin && (
                     <div className="flex gap-1 justify-center items-center">
@@ -568,6 +599,7 @@ const handleDeleteSelected = async () => {
           creator={user ? { id: user.id, name: user.name } : null}
           onSuccess={() => { fetchData(); table.resetRowSelection(); }}
           isNewVendor={isNewVendor}
+          zohoBotEnabled={zohoPurchaseBotEnabled}
         />
         <QuotationDetailDialog
           isOpen={!!selectedQuotation}

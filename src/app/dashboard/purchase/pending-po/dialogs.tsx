@@ -58,7 +58,7 @@ export type CreatePoSubmitAction = (
 
 const createPoSchema = z.object({
   vendorName: z.string().min(1, "Vendor name is required."),
-  zohoVendorId: z.string().min(1, "Select a Zoho vendor."),
+  zohoVendorId: z.string().optional(),
   zohoPoNumber: z.string().optional(),
   courier: z.string().min(1, "Courier is required."),
   mode: z.enum(["AIR", "SURFACE"], { required_error: "Mode is required." }),
@@ -67,7 +67,7 @@ const createPoSchema = z.object({
     z.object({
       id: z.string(),
       purchaseQty: z.number().min(0.01, "Quantity must be > 0."),
-      zohoItemId: z.string().min(1, "Select a Zoho item."),
+      zohoItemId: z.string().optional(),
       zohoItemName: z.string().optional(),
       zohoSku: z.string().optional(),
       zohoRate: z.number().optional(),
@@ -253,6 +253,7 @@ export function CreatePoDialog({
   creator,
   onSuccess,
   isNewVendor,
+  zohoBotEnabled = false,
   submitAction,
 }: {
   isOpen: boolean;
@@ -261,6 +262,7 @@ export function CreatePoDialog({
   creator: { id: string; name: string } | null;
   onSuccess: () => void;
   isNewVendor: boolean;
+  zohoBotEnabled?: boolean;
   submitAction?: CreatePoSubmitAction;
 }) {
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -504,6 +506,21 @@ export function CreatePoDialog({
       toast({ variant: "destructive", title: "Error", description: "Missing required data." });
       return;
     }
+    if (zohoBotEnabled && !String(values.zohoVendorId || "").trim()) {
+      form.setError("zohoVendorId", { message: "Select a Zoho vendor." });
+      return;
+    }
+    if (zohoBotEnabled) {
+      const missingZohoItem = values.items.find((entry) => !String(entry.zohoItemId || "").trim());
+      if (missingZohoItem) {
+        toast({
+          variant: "destructive",
+          title: "Zoho item required",
+          description: "Select Zoho item for every purchase row before creating PO.",
+        });
+        return;
+      }
+    }
 
     setIsSubmitting(true);
     try {
@@ -520,17 +537,19 @@ export function CreatePoDialog({
             neededQty: formItem?.purchaseQty || originalItem.neededQty,
           };
         }),
-        zohoLineItems: values.items.map((itemRow) => ({
-          sourceItemId: itemRow.id,
-          zohoItemId: itemRow.zohoItemId,
-          zohoSku: itemRow.zohoSku,
-          zohoItemName: itemRow.zohoItemName,
-          rate: itemRow.zohoRate,
-          taxId: itemRow.zohoTaxId?.trim() || undefined,
-          taxExemptionId: itemRow.zohoTaxExemptionId?.trim() || undefined,
-          reverseChargeTaxId: itemRow.zohoReverseChargeTaxId?.trim() || undefined,
-          reverseChargeVatId: itemRow.zohoReverseChargeVatId?.trim() || undefined,
-        })),
+        zohoLineItems: zohoBotEnabled
+          ? values.items.map((itemRow) => ({
+              sourceItemId: itemRow.id,
+              zohoItemId: itemRow.zohoItemId || "",
+              zohoSku: itemRow.zohoSku,
+              zohoItemName: itemRow.zohoItemName,
+              rate: itemRow.zohoRate,
+              taxId: itemRow.zohoTaxId?.trim() || undefined,
+              taxExemptionId: itemRow.zohoTaxExemptionId?.trim() || undefined,
+              reverseChargeTaxId: itemRow.zohoReverseChargeTaxId?.trim() || undefined,
+              reverseChargeVatId: itemRow.zohoReverseChargeVatId?.trim() || undefined,
+            }))
+          : undefined,
         isNewVendor,
         promiseDeliveryDate: values.promiseDeliveryDate?.toISOString(),
         tallyPoNumber: values.tallyPoNumber?.trim() || undefined,
@@ -594,52 +613,70 @@ export function CreatePoDialog({
               <form onSubmit={handleSubmit(onSubmit)} id="create-po-form" className="space-y-6">
                 <div className="rounded-xl border bg-card p-4 md:p-5">
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
-                    <FormField
-                      name="zohoVendorId"
-                      control={control}
-                      render={({ field }) => (
-                        <FormItem className="xl:col-span-2">
-                          <FormLabel>Vendor (Zoho) *</FormLabel>
-                          <FormControl>
-                            <Combobox
-                              options={vendorOptions}
-                              value={field.value}
-                              onSelect={(value) => {
-                                field.onChange(value);
-                                handleVendorSelect(value);
-                              }}
-                              onSearch={searchVendors}
-                              placeholder="Search vendor in Zoho"
-                              searchPlaceholder="Type vendor name"
-                              emptyPlaceholder="No vendor found."
-                              showClear
-                              className="h-9"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    {zohoBotEnabled ? (
+                      <>
+                        <FormField
+                          name="zohoVendorId"
+                          control={control}
+                          render={({ field }) => (
+                            <FormItem className="xl:col-span-2">
+                              <FormLabel>Vendor (Zoho) *</FormLabel>
+                              <FormControl>
+                                <Combobox
+                                  options={vendorOptions}
+                                  value={field.value || ""}
+                                  onSelect={(value) => {
+                                    field.onChange(value);
+                                    handleVendorSelect(value);
+                                  }}
+                                  onSearch={searchVendors}
+                                  placeholder="Search vendor in Zoho"
+                                  searchPlaceholder="Type vendor name"
+                                  emptyPlaceholder="No vendor found."
+                                  showClear
+                                  className="h-9"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
 
-                    <FormField
-                      name="zohoPoNumber"
-                      control={control}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Zoho PO No. *</FormLabel>
-                          <FormControl>
-                            <Input
-                              {...field}
-                              className="h-9"
-                              placeholder={isPoNumberLoading ? "Fetching..." : "Auto from Zoho"}
-                              readOnly
-                              disabled
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                        <FormField
+                          name="zohoPoNumber"
+                          control={control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Zoho PO No. *</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  className="h-9"
+                                  placeholder={isPoNumberLoading ? "Fetching..." : "Auto from Zoho"}
+                                  readOnly
+                                  disabled
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </>
+                    ) : (
+                      <FormField
+                        name="vendorName"
+                        control={control}
+                        render={({ field }) => (
+                          <FormItem className="xl:col-span-2">
+                            <FormLabel>Vendor *</FormLabel>
+                            <FormControl>
+                              <Input {...field} className="h-9" readOnly />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
 
                     <FormField
                       name="courier"
@@ -740,7 +777,9 @@ export function CreatePoDialog({
                           <TableHead className="text-xs uppercase">BCN / Item</TableHead>
                           <TableHead className="text-xs uppercase">Order Qty</TableHead>
                           <TableHead className="text-xs uppercase">In Stock</TableHead>
-                          <TableHead className="text-xs uppercase min-w-[280px]">Zoho SKU / Item *</TableHead>
+                          {zohoBotEnabled ? (
+                            <TableHead className="text-xs uppercase min-w-[280px]">Zoho SKU / Item *</TableHead>
+                          ) : null}
                           <TableHead className="text-xs uppercase">Rate</TableHead>
                           <TableHead className="text-xs uppercase">Purchase Qty</TableHead>
                         </TableRow>
@@ -769,70 +808,72 @@ export function CreatePoDialog({
                                 {getNumeric(item.stock).toFixed(2)}
                               </Badge>
                             </TableCell>
-                            <TableCell>
-                              <FormField
-                                name={`items.${index}.zohoItemId` as const}
-                                control={control}
-                                render={({ field }) => (
-                                  <FormItem>
-                                    <FormControl>
-                                      <Combobox
-                                        options={itemOptionsBySourceId[item.id] || []}
-                                        value={field.value}
-                                        onSelect={(value) => {
-                                          field.onChange(value);
-                                          const selected = itemById[value];
-                                          if (!selected) {
-                                            setValue(`items.${index}.zohoItemName`, "");
-                                            setValue(`items.${index}.zohoSku`, "");
-                                            setValue(`items.${index}.zohoRate`, undefined);
-                                            setValue(`items.${index}.zohoTaxId`, "");
-                                            setValue(`items.${index}.zohoTaxExemptionId`, "");
-                                            setValue(`items.${index}.zohoReverseChargeTaxId`, "");
-                                            setValue(`items.${index}.zohoReverseChargeVatId`, "");
-                                            return;
-                                          }
+                            {zohoBotEnabled ? (
+                              <TableCell>
+                                <FormField
+                                  name={`items.${index}.zohoItemId` as const}
+                                  control={control}
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormControl>
+                                        <Combobox
+                                          options={itemOptionsBySourceId[item.id] || []}
+                                          value={field.value || ""}
+                                          onSelect={(value) => {
+                                            field.onChange(value);
+                                            const selected = itemById[value];
+                                            if (!selected) {
+                                              setValue(`items.${index}.zohoItemName`, "");
+                                              setValue(`items.${index}.zohoSku`, "");
+                                              setValue(`items.${index}.zohoRate`, undefined);
+                                              setValue(`items.${index}.zohoTaxId`, "");
+                                              setValue(`items.${index}.zohoTaxExemptionId`, "");
+                                              setValue(`items.${index}.zohoReverseChargeTaxId`, "");
+                                              setValue(`items.${index}.zohoReverseChargeVatId`, "");
+                                              return;
+                                            }
 
-                                          setValue(`items.${index}.zohoItemName`, selected.name || "");
-                                          setValue(`items.${index}.zohoSku`, selected.sku || "");
-                                          setValue(`items.${index}.zohoTaxId`, selected.taxId || "");
-                                          setValue(`items.${index}.zohoTaxExemptionId`, selected.taxExemptionId || "");
-                                          setValue(`items.${index}.zohoReverseChargeTaxId`, selected.reverseChargeTaxId || "");
-                                          setValue(`items.${index}.zohoReverseChargeVatId`, selected.reverseChargeVatId || "");
+                                            setValue(`items.${index}.zohoItemName`, selected.name || "");
+                                            setValue(`items.${index}.zohoSku`, selected.sku || "");
+                                            setValue(`items.${index}.zohoTaxId`, selected.taxId || "");
+                                            setValue(`items.${index}.zohoTaxExemptionId`, selected.taxExemptionId || "");
+                                            setValue(`items.${index}.zohoReverseChargeTaxId`, selected.reverseChargeTaxId || "");
+                                            setValue(`items.${index}.zohoReverseChargeVatId`, selected.reverseChargeVatId || "");
 
-                                          const rate =
-                                            selected.purchaseRate === undefined || selected.purchaseRate === null
-                                              ? selected.rate
-                                              : selected.purchaseRate;
-                                          if (rate !== undefined && Number.isFinite(Number(rate))) {
-                                            setValue(`items.${index}.zohoRate`, Number(rate));
-                                          }
-                                        }}
-                                        onSearch={async (query) => {
-                                          const selectedVendorId =
-                                            String(form.getValues("zohoVendorId") || "").trim() || undefined;
-                                          try {
-                                            await fetchItemsForRow(item.id, query, selectedVendorId);
-                                          } catch (error: any) {
-                                            toast({
-                                              variant: "destructive",
-                                              title: "Zoho item search failed",
-                                              description: error?.message || "Unable to search Zoho items.",
-                                            });
-                                          }
-                                        }}
-                                        placeholder="Search by BCN/SKU"
-                                        searchPlaceholder="Type BCN or SKU"
-                                        emptyPlaceholder="No Zoho item found"
-                                        showClear
-                                        className="h-9"
-                                      />
-                                    </FormControl>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
-                            </TableCell>
+                                            const rate =
+                                              selected.purchaseRate === undefined || selected.purchaseRate === null
+                                                ? selected.rate
+                                                : selected.purchaseRate;
+                                            if (rate !== undefined && Number.isFinite(Number(rate))) {
+                                              setValue(`items.${index}.zohoRate`, Number(rate));
+                                            }
+                                          }}
+                                          onSearch={async (query) => {
+                                            const selectedVendorId =
+                                              String(form.getValues("zohoVendorId") || "").trim() || undefined;
+                                            try {
+                                              await fetchItemsForRow(item.id, query, selectedVendorId);
+                                            } catch (error: any) {
+                                              toast({
+                                                variant: "destructive",
+                                                title: "Zoho item search failed",
+                                                description: error?.message || "Unable to search Zoho items.",
+                                              });
+                                            }
+                                          }}
+                                          placeholder="Search by BCN/SKU"
+                                          searchPlaceholder="Type BCN or SKU"
+                                          emptyPlaceholder="No Zoho item found"
+                                          showClear
+                                          className="h-9"
+                                        />
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              </TableCell>
+                            ) : null}
                             <TableCell className="w-[120px]">
                               <FormField
                                 name={`items.${index}.zohoRate` as const}

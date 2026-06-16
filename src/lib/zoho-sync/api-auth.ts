@@ -40,6 +40,10 @@ export function canControlZohoInvoiceBot(role: unknown) {
   return ZOHO_BOT_CONTROLLER_ROLES.has(normalizeRole(role));
 }
 
+export function canControlZohoPurchaseBot(role: unknown) {
+  return ZOHO_BOT_CONTROLLER_ROLES.has(normalizeRole(role));
+}
+
 export function isAuthorizedCronRequest(request: Request) {
   if (process.env.NODE_ENV !== "production") return true;
 

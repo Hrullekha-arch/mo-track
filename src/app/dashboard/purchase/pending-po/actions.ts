@@ -16,6 +16,7 @@ import {
   markZohoSyncQueueEntry,
   writeZohoSyncLog,
 } from "@/lib/zoho-sync/logger";
+import { getZohoPurchaseBotSettings } from "@/lib/zoho-sync/bot-settings";
 
 export interface PendingPoItem {
   id: string;
@@ -635,6 +636,14 @@ export async function updatePurchaseOrderAction(
     batch.update(inboundRef, inboundPatch);
     await batch.commit();
 
+    const zohoBotEnabled = (await getZohoPurchaseBotSettings()).enabled === true;
+    if (!zohoBotEnabled) {
+      return {
+        success: true,
+        message: `PO ${poNumber} updated in Mo Track. Zoho PO sync is inactive.`,
+      };
+    }
+
     const zohoPurchaseOrderId = String(
       inboundData.zohoPurchaseOrderId || inboundData.zohoId || ""
     ).trim();
@@ -793,6 +802,7 @@ export async function createPurchaseOrderAction(
     const cleanTallyPoNumber = String(tallyPoNumber || "").trim();
     const cleanZohoVendorId = String(zohoVendorId || "").trim();
     const cleanCandidateZohoPoNumber = String(zohoPoNumber || "").trim();
+    const zohoBotEnabled = (await getZohoPurchaseBotSettings()).enabled === true;
     const nowIso = new Date().toISOString();
     const poDate = nowIso.slice(0, 10);
     const deliveryDate = promiseDeliveryDate
@@ -815,7 +825,7 @@ export async function createPurchaseOrderAction(
       return { success: false, message: "No linked purchase request found for selected items." };
     }
 
-    if (!cleanZohoVendorId) {
+    if (zohoBotEnabled && !cleanZohoVendorId) {
       return { success: false, message: "Please select a Zoho vendor before creating PO." };
     }
 
@@ -828,7 +838,7 @@ export async function createPurchaseOrderAction(
       const line = zohoLineItemsMap.get(String(item.id || "").trim());
       return !line || !String(line.zohoItemId || "").trim();
     });
-    if (missingZohoItems.length > 0) {
+    if (zohoBotEnabled && missingZohoItems.length > 0) {
       return {
         success: false,
         message: "Select Zoho item for every purchase row before creating PO.",
@@ -941,8 +951,8 @@ export async function createPurchaseOrderAction(
         status: allItemsInRequestHavePo ? "PO Generated" : "Approved",
         poNumber,
         vendor,
-        zohoVendorId: cleanZohoVendorId,
-        zohoSyncStatus: "pending",
+        ...(cleanZohoVendorId ? { zohoVendorId: cleanZohoVendorId } : {}),
+        zohoSyncStatus: zohoBotEnabled ? "pending" : "local_only",
         zohoSyncError: null,
         zohoSyncedAt: null,
         zohoId: null,
@@ -1010,11 +1020,11 @@ export async function createPurchaseOrderAction(
       customerName: primaryRequest.customerName,
       vendor,
       poNumber,
-      zohoVendorId: cleanZohoVendorId,
+      ...(cleanZohoVendorId ? { zohoVendorId: cleanZohoVendorId } : {}),
       courier,
       mode,
       promiseDeliveryDate,
-      zohoSyncStatus: "pending",
+      zohoSyncStatus: zohoBotEnabled ? "pending" : "local_only",
       zohoSyncError: null,
       zohoSyncedAt: null,
       zohoId: null,
@@ -1033,6 +1043,13 @@ export async function createPurchaseOrderAction(
 
     batch.set(inboundRef, newInboundRequest);
     await batch.commit();
+
+    if (!zohoBotEnabled) {
+      return {
+        success: true,
+        message: `Purchase Order ${poNumber} created in Mo Track. Zoho PO sync is inactive.`,
+      };
+    }
 
     const queueId = await createZohoSyncQueueEntry({
       entityType: "purchase",

@@ -117,7 +117,6 @@ import { isVasInvoice } from "@/lib/zoho-sync/invoice-eligibility";
 import { useSearchParams } from "next/navigation";
 import {
   buildOrderPricingFromQuotation,
-  reconcileOrderPricingWithQuotation,
   type PricingReconciliationDetail,
   type PricingReconciliationScope,
 } from "@/lib/quotation-order-pricing";
@@ -148,6 +147,7 @@ type InvoiceLineItem = {
   discountPercent?: number;
   discountAmount?: number;
   gst?: number;
+  gstMode?: string;
   hsn?: string;
   group?: string;
   taxableAmount?: number;
@@ -975,6 +975,288 @@ const resolveComparableGoodsTotal = (record: any, items: any[]): number => {
   return 0;
 };
 
+const getInvoicePricingIdentity = (item: any, section: "NORMAL" | "VAS"): string => {
+  const bcn = normalizeKey(item?.bcn || item?.collectionBrand);
+  const description = normalizeKey(
+    item?.description ||
+      item?.salesDescription ||
+      item?.vasName ||
+      item?.itemName ||
+      item?.name
+  );
+  const itemId = normalizeKey(item?.itemId || item?.id);
+  return [section, bcn || description || itemId].join("|");
+};
+
+const getInvoicePricingLabel = (item: any, section: "NORMAL" | "VAS"): string =>
+  String(
+    item?.bcn ||
+      item?.description ||
+      item?.salesDescription ||
+      item?.vasName ||
+      item?.itemName ||
+      item?.name ||
+      `${section} item`
+  ).trim();
+
+const buildCandidateLineFromQuotationLine = (
+  candidateItem: InvoiceLineItem,
+  quotationItem: any,
+  section: "NORMAL" | "VAS"
+): InvoiceLineItem => {
+  const qty = resolveInvoiceItemQty(candidateItem);
+  const exclusiveRate = num(quotationItem?.exclusiveRate ?? quotationItem?.rate);
+  const discountPercent = num(quotationItem?.discountPercent ?? quotationItem?.discount);
+  const gst = num(quotationItem?.gst ?? quotationItem?.gstPercent);
+  const baseAmount = exclusiveRate * qty;
+  const discountAmount = baseAmount * (discountPercent / 100);
+  const taxableAmount = Math.max(0, baseAmount - discountAmount);
+  const gstAmount = taxableAmount * (gst / 100);
+
+  return stripUndefinedDeep({
+    ...candidateItem,
+    roomName: candidateItem.roomName || quotationItem?.roomName,
+    type: section === "VAS" ? "VAS" : candidateItem.type || quotationItem?.type,
+    bcn: candidateItem.bcn || quotationItem?.bcn,
+    description:
+      candidateItem.description ||
+      quotationItem?.description ||
+      quotationItem?.itemName ||
+      quotationItem?.vasName ||
+      quotationItem?.bcn,
+    unit: quotationItem?.unit || candidateItem.unit || (section === "VAS" ? "PCS" : "MTR"),
+    exclusiveRate,
+    rate: exclusiveRate,
+    qty,
+    gst,
+    gstMode: quotationItem?.gstMode,
+    discountPercent,
+    discountAmount,
+    hsn: quotationItem?.hsn || candidateItem.hsn,
+    group: quotationItem?.group || candidateItem.group,
+    taxableAmount,
+    gstAmount,
+    totalAmount: taxableAmount + gstAmount,
+    allocationRef: candidateItem.allocationRef,
+  }) as InvoiceLineItem;
+};
+
+const buildQuotationLineQueues = (items: any[], section: "NORMAL" | "VAS") => {
+  const queues = new Map<string, any[]>();
+  items.forEach((item) => {
+    const key = getInvoicePricingIdentity(item, section);
+    if (!key) return;
+    queues.set(key, [...(queues.get(key) || []), item]);
+  });
+  return queues;
+};
+
+const takeMatchingQuotationLine = (
+  queues: Map<string, any[]>,
+  item: any,
+  section: "NORMAL" | "VAS"
+): any | null => {
+  const key = getInvoicePricingIdentity(item, section);
+  const direct = queues.get(key);
+  if (direct?.length) return direct[0] || null;
+
+  const bcnKey = normalizeKey(item?.bcn);
+  const descKey = normalizeKey(item?.description || item?.itemName || item?.name);
+  if (!bcnKey && !descKey) return null;
+
+  for (const queue of queues.values()) {
+    if (!queue.length) continue;
+    const sample = queue[0];
+    const sampleBcn = normalizeKey(sample?.bcn || sample?.collectionBrand);
+    const sampleDesc = normalizeKey(
+      sample?.description || sample?.salesDescription || sample?.vasName || sample?.itemName
+    );
+    if (
+      (bcnKey && (sampleBcn === bcnKey || sampleDesc === bcnKey)) ||
+      (descKey && (sampleBcn === descKey || sampleDesc === descKey))
+    ) {
+      return queue[0] || null;
+    }
+  }
+
+  return null;
+};
+
+const normalizeCandidatePricingFromQuotation = (
+  candidate: InvoiceCandidate,
+  quotation: Quotation
+): InvoiceCandidate => {
+  const expected = buildOrderPricingFromQuotation(quotation);
+  const normalQueues = buildQuotationLineQueues(expected.normalItems, "NORMAL");
+  const vasQueues = buildQuotationLineQueues(expected.vasItems, "VAS");
+
+  const normalItems = candidate.normalItems.map((item) => {
+    const quotationItem = takeMatchingQuotationLine(normalQueues, item, "NORMAL");
+    return quotationItem
+      ? buildCandidateLineFromQuotationLine(item, quotationItem, "NORMAL")
+      : item;
+  });
+  const vasItems = candidate.vasItems.map((item) => {
+    const quotationItem = takeMatchingQuotationLine(vasQueues, item, "VAS");
+    return quotationItem
+      ? buildCandidateLineFromQuotationLine(item, quotationItem, "VAS")
+      : item;
+  });
+
+  return buildCandidateFromLines(candidate, normalItems, vasItems);
+};
+
+const compareCandidateNumber = (
+  issues: string[],
+  details: PricingReconciliationDetail[],
+  section: "NORMAL" | "VAS",
+  label: string,
+  field: string,
+  orderValue: number,
+  quotationValue: number,
+  reason: string,
+  tolerance = 0.05
+) => {
+  if (Math.abs(orderValue - quotationValue) <= tolerance) return;
+  const message = `${label}: ${field} is ${orderValue.toFixed(2)} in the invoice but ${quotationValue.toFixed(2)} in the converted quotation.`;
+  issues.push(message);
+  details.push({
+    section,
+    product: label,
+    field,
+    orderValue,
+    quotationValue,
+    difference: orderValue - quotationValue,
+    reason,
+    message,
+  });
+};
+
+const verifyCandidateLinesAgainstQuotation = (
+  candidate: InvoiceCandidate,
+  quotation: Quotation,
+  scope: PricingReconciliationScope
+) => {
+  const expected = buildOrderPricingFromQuotation(quotation);
+  const sections: Array<{
+    section: "NORMAL" | "VAS";
+    candidateItems: InvoiceLineItem[];
+    quotationItems: any[];
+  }> = [];
+  if (scope === "ALL" || scope === "NORMAL") {
+    sections.push({
+      section: "NORMAL",
+      candidateItems: candidate.normalItems,
+      quotationItems: expected.normalItems,
+    });
+  }
+  if (scope === "ALL" || scope === "VAS") {
+    sections.push({
+      section: "VAS",
+      candidateItems: candidate.vasItems,
+      quotationItems: expected.vasItems,
+    });
+  }
+
+  const issues: string[] = [];
+  const details: PricingReconciliationDetail[] = [];
+  let quotationAmount = 0;
+
+  sections.forEach(({ section, candidateItems, quotationItems }) => {
+    const queues = buildQuotationLineQueues(quotationItems, section);
+    candidateItems.forEach((item) => {
+      const label = getInvoicePricingLabel(item, section);
+      const quotationItem = takeMatchingQuotationLine(queues, item, section);
+      if (!quotationItem) {
+        const message = `${label}: allocated invoice item is not present in the converted quotation.`;
+        issues.push(message);
+        details.push({
+          section,
+          product: label,
+          field: "item",
+          orderValue: label,
+          quotationValue: "Missing",
+          reason: "Invoice can only be generated for products present in the converted quotation.",
+          message,
+        });
+        return;
+      }
+
+      const expectedLine = buildCandidateLineFromQuotationLine(item, quotationItem, section);
+      quotationAmount += num(expectedLine.totalAmount);
+      compareCandidateNumber(
+        issues,
+        details,
+        section,
+        label,
+        "rate before GST",
+        num(item.exclusiveRate ?? item.rate),
+        num(expectedLine.exclusiveRate ?? expectedLine.rate),
+        "The invoice must use the converted quotation rate for this allocated product."
+      );
+      compareCandidateNumber(
+        issues,
+        details,
+        section,
+        label,
+        "discount %",
+        num(item.discountPercent),
+        num(expectedLine.discountPercent),
+        "The invoice discount must match the converted quotation.",
+        0.001
+      );
+      compareCandidateNumber(
+        issues,
+        details,
+        section,
+        label,
+        "GST %",
+        num(item.gst),
+        num(expectedLine.gst),
+        "The invoice GST percent must match the converted quotation.",
+        0.001
+      );
+      compareCandidateNumber(
+        issues,
+        details,
+        section,
+        label,
+        "taxable amount",
+        num(item.taxableAmount),
+        num(expectedLine.taxableAmount),
+        "Taxable value should be calculated from the quotation rate, discount, GST mode, and allocated quantity."
+      );
+      compareCandidateNumber(
+        issues,
+        details,
+        section,
+        label,
+        "GST amount",
+        num(item.gstAmount),
+        num(expectedLine.gstAmount),
+        "GST amount should be calculated from the converted quotation values."
+      );
+      compareCandidateNumber(
+        issues,
+        details,
+        section,
+        label,
+        "line total",
+        num(item.totalAmount),
+        num(expectedLine.totalAmount),
+        "Invoice line total should match the converted quotation pricing for the allocated quantity."
+      );
+    });
+  });
+
+  return {
+    ok: issues.length === 0,
+    issues,
+    details,
+    quotationAmount,
+  };
+};
+
 const formatMismatchValues = (values: string[]): string => {
   const trimmed = values.filter(Boolean);
   if (!trimmed.length) return "";
@@ -1611,60 +1893,6 @@ const createSectionCandidate = (
     taxSummary: {
       NORMAL: buildTaxSummary(normalItems, candidate.order),
       VAS: buildTaxSummary(vasItems, candidate.order),
-    },
-  };
-};
-
-const normalizeVasCandidateFromQuotation = (
-  candidate: InvoiceCandidate,
-  quotation: Quotation
-): InvoiceCandidate => {
-  if (!isVasOnlyCandidate(candidate)) return candidate;
-
-  const expected = buildOrderPricingFromQuotation(quotation);
-  if (expected.vasItems.length === 0) return candidate;
-
-  const vasItems = expected.vasItems.map((item) => ({
-    ...item,
-    type: "VAS",
-  })) as InvoiceLineItem[];
-  const vasSummary = summarizeItems(vasItems);
-  const storedGoodsTotal = num(
-    candidate.order.overallSummary?.goodsTotal ??
-      candidate.order.sections?.NORMAL?.summary?.grandTotal
-  );
-  const orderOverallSummary = {
-    goodsTotal: storedGoodsTotal,
-    vasTotal: vasSummary.grandTotal,
-    grandTotal: storedGoodsTotal + vasSummary.grandTotal,
-  };
-  const normalizedOrder: Order = {
-    ...candidate.order,
-    sections: {
-      ...candidate.order.sections,
-      VAS: {
-        ...(candidate.order.sections?.VAS || {}),
-        items: vasItems,
-        summary: vasSummary,
-      },
-    },
-    overallSummary: orderOverallSummary,
-    totalAmount: orderOverallSummary.grandTotal,
-  };
-
-  return {
-    ...candidate,
-    order: normalizedOrder,
-    vasItems,
-    vasSummary,
-    overallSummary: {
-      goodsTotal: 0,
-      vasTotal: vasSummary.grandTotal,
-      grandTotal: vasSummary.grandTotal,
-    },
-    taxSummary: {
-      NORMAL: buildTaxSummary(candidate.normalItems, normalizedOrder),
-      VAS: buildTaxSummary(vasItems, normalizedOrder),
     },
   };
 };
@@ -2650,6 +2878,7 @@ function GenerateInvoiceDialog({
           rate,
           qty,
           gst,
+          gstMode: base.gstMode,
           discountPercent,
           discountAmount,
           hsn: base.hsn,
@@ -4729,11 +4958,9 @@ export default function InvoicePage() {
   const hydrateCandidateForGeneration = React.useCallback(
     async (candidate: InvoiceCandidate): Promise<InvoiceCandidate> => {
       const hydratedCandidate = await hydrateCandidateWithLatestBilling(candidate);
-      if (!isVasOnlyCandidate(hydratedCandidate)) return hydratedCandidate;
-
       const quotation = await fetchQuotationForOrder(hydratedCandidate.order);
       return quotation
-        ? normalizeVasCandidateFromQuotation(hydratedCandidate, quotation)
+        ? normalizeCandidatePricingFromQuotation(hydratedCandidate, quotation)
         : hydratedCandidate;
     },
     [fetchQuotationForOrder, hydrateCandidateWithLatestBilling]
@@ -4761,29 +4988,24 @@ export default function InvoicePage() {
           : candidate.vasItems.length === 0 && candidate.normalItems.length > 0
             ? "NORMAL"
             : "ALL";
-      const expected = buildOrderPricingFromQuotation(quotation);
       const orderAmount =
         scope === "VAS"
           ? candidate.vasSummary.grandTotal
           : scope === "NORMAL"
             ? candidate.normalSummary.grandTotal
             : candidate.overallSummary.grandTotal;
-      const quotationAmount = num(
-        scope === "VAS"
-          ? expected.vasSummary.grandTotal
-          : scope === "NORMAL"
-            ? expected.normalSummary.grandTotal
-            : expected.overallSummary.grandTotal
-      );
-      const verification = reconcileOrderPricingWithQuotation(
-        candidate.order,
-        quotation,
-        scope
-      );
+      const verification = verifyCandidateLinesAgainstQuotation(candidate, quotation, scope);
+      const quotationAmount = num(verification.quotationAmount);
+      const amountDifference = orderAmount - quotationAmount;
+      if (Math.abs(amountDifference) > 0.05 && verification.issues.length === 0) {
+        verification.issues.push(
+          `Invoice selected-line total differs from the converted quotation by ${amountDifference.toFixed(2)}.`
+        );
+      }
       return {
-        ok: verification.ok,
+        ok: verification.issues.length === 0,
         issues: verification.issues.slice(0, 12),
-        details: verification.details.filter((detail) => detail.section !== "ORDER").slice(0, 30),
+        details: verification.details.slice(0, 30),
         quotationNo: String(
           quotation.quotationNo ||
             candidate.order.quotationNo ||
@@ -4799,7 +5021,7 @@ export default function InvoicePage() {
         scope,
         orderAmount,
         quotationAmount,
-        difference: orderAmount - quotationAmount,
+        difference: amountDifference,
       };
     },
     [fetchQuotationForOrder]
