@@ -46,7 +46,7 @@ import { useToast } from "@/hooks/use-toast";
 import { runTransaction, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
-import { canAssignInstallerSlots } from "@/lib/visit-assignment-access";
+import { canAssignInstallerSlots, canManageGeneralVisitActions } from "@/lib/visit-assignment-access";
 import CompanyVisitDialog from "@/components/features/customer/CompanyVisitDialog";
 import RegisterComplaintDialog from "@/components/features/visits/RegisterComplaintDialog";
 
@@ -138,7 +138,7 @@ export default function AllVisitsTable({
   const { user } = useAuth();
   const canAssignVisits = canAssignInstallerSlots(user);
   const isAdmin = String(user?.role || "").trim().toLowerCase() === "admin";
-  const showGeneralVisitActions = isAdmin || !canAssignVisits;
+  const showGeneralVisitActions = isAdmin || canManageGeneralVisitActions(user) || !canAssignVisits;
   const { toast } = useToast();
   const [dateFrom, setDateFrom] = React.useState("");
   const [dateTo, setDateTo] = React.useState("");

@@ -40,3 +40,25 @@ export const canAssignInstallerSlots = (
     user.jobTitle,
   ].some((value) => VISIT_ASSIGNMENT_ACCESS_KEYS.has(normalizeAccessKey(value)));
 };
+
+const VISIT_GENERAL_ACTIONS_ACCESS_KEYS = new Set([
+  "admin",
+  "allocator",
+  "allocators",
+  "allocater",
+  "pc",
+]);
+
+export const canManageGeneralVisitActions = (
+  user?: VisitAssignmentUser | null
+): boolean => {
+  if (!user) return false;
+
+  return [
+    user.role,
+    user.designation,
+    user.department,
+    user.title,
+    user.jobTitle,
+  ].some((value) => VISIT_GENERAL_ACTIONS_ACCESS_KEYS.has(normalizeAccessKey(value)));
+};
