@@ -36,9 +36,9 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   createComplaintCompanyVisitAction,
   searchCustomersForComplaintAction,
+  uploadComplaintPhotoAction,
   type ComplaintCustomerSearchResult,
 } from "@/app/dashboard/visits/actions";
-import { uploadFileToStorageAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 
 type Props = {
   open: boolean;
@@ -81,6 +81,22 @@ const fileToBase64 = (file: File): Promise<string> =>
   });
 
 const fileToPreviewUrl = (file: File): string => URL.createObjectURL(file);
+
+const sanitizeCustomerForAction = (customer: ComplaintCustomerSearchResult): ComplaintCustomerSearchResult =>
+  Object.fromEntries(
+    Object.entries({
+      id: String(customer.id || "").trim(),
+      name: String(customer.name || "").trim(),
+      phone: String(customer.phone || "").trim() || undefined,
+      mobileNo: String(customer.mobileNo || "").trim() || undefined,
+      email: String(customer.email || "").trim() || undefined,
+      address: String(customer.address || "").trim() || undefined,
+      billingAddress: String(customer.billingAddress || "").trim() || undefined,
+      pincode: String(customer.pincode || "").trim() || undefined,
+      customerCode: String(customer.customerCode || "").trim() || undefined,
+      source: customer.source,
+    }).filter(([, value]) => value !== undefined)
+  ) as ComplaintCustomerSearchResult;
 
 /* ── Step indicator ── */
 function StepIndicator({ current }: { current: 1 | 2 }) {
@@ -335,16 +351,24 @@ export default function RegisterComplaintDialog({ open, onOpenChange }: Props) {
       for (let i = 0; i < photos.length; i++) {
         const file = photos[i];
         const base64 = await fileToBase64(file);
-        const url = await uploadFileToStorageAction(
-          `complaint-${Date.now()}-${i + 1}-${file.name}`,
-          file.type || "image/jpeg",
-          base64,
-          folder
-        );
-        uploadedUrls.push(url);
+        const uploadResult = await uploadComplaintPhotoAction({
+          fileName: `complaint-${Date.now()}-${i + 1}-${file.name}`,
+          mimeType: file.type || "image/jpeg",
+          base64Data: base64,
+          folder,
+        });
+        if (!uploadResult.success || !uploadResult.url) {
+          toast({
+            variant: "destructive",
+            title: "Failed to upload complaint photo",
+            description: uploadResult.message,
+          });
+          return;
+        }
+        uploadedUrls.push(uploadResult.url);
       }
       const result = await createComplaintCompanyVisitAction({
-        customer: selectedCustomer,
+        customer: sanitizeCustomerForAction(selectedCustomer),
         complaintType,
         visitDate,
         customerAddress: customerAddress.trim(),

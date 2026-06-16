@@ -29,6 +29,7 @@ import {
 import type {
   EditableOnboardingFieldKey,
   OnboardingFieldSection,
+  OnboardingProfileLike,
 } from "@/app/dashboard/hr/utils/onboarding-utils";
 
 const groupedEditableFields = EDITABLE_ONBOARDING_FIELDS.reduce(
@@ -96,6 +97,9 @@ export function RequiredOnboardingDialog() {
 
   const [popupEnabled, setPopupEnabled] = React.useState(false);
   const [configLoading, setConfigLoading] = React.useState(true);
+  const [profileLoading, setProfileLoading] = React.useState(true);
+  const [persistedProfile, setPersistedProfile] =
+    React.useState<OnboardingProfileLike | null>(null);
   const [open, setOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [form, setForm] = React.useState<Record<EditableOnboardingFieldKey, string>>(() =>
@@ -104,11 +108,48 @@ export function RequiredOnboardingDialog() {
 
   React.useEffect(() => {
     if (!user?.id) {
+      setPersistedProfile(null);
+      setProfileLoading(false);
       setForm(createEditableOnboardingFormState({}));
       return;
     }
 
-    const baseForm = createEditableOnboardingFormState(user || {});
+    setProfileLoading(true);
+    const unsubscribe = onSnapshot(
+      doc(db, "users", user.id),
+      (snapshot) => {
+        setPersistedProfile(
+          snapshot.exists() ? ({ ...snapshot.data() } as OnboardingProfileLike) : user
+        );
+        setProfileLoading(false);
+      },
+      () => {
+        setPersistedProfile(user);
+        setProfileLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user?.id]);
+
+  const effectivePersistedProfile = React.useMemo(
+    () => ({ ...(user || {}), ...(persistedProfile || {}) }),
+    [persistedProfile, user]
+  );
+
+  React.useEffect(() => {
+    if (!user?.id || profileLoading) return;
+
+    const baseForm = createEditableOnboardingFormState(effectivePersistedProfile);
+    const persistedMissingFields = getMissingOnboardingFields(effectivePersistedProfile, {
+      includeAutoManaged: false,
+    });
+    if (persistedMissingFields.length === 0) {
+      clearOnboardingDraft(user.id);
+      setForm(baseForm);
+      return;
+    }
+
     const draft = readOnboardingDraft(user.id);
 
     const hydrated = {
@@ -119,7 +160,7 @@ export function RequiredOnboardingDialog() {
     } as Record<EditableOnboardingFieldKey, string>;
 
     setForm(hydrated);
-  }, [user?.id]);
+  }, [effectivePersistedProfile, profileLoading, user?.id]);
 
   React.useEffect(() => {
     if (!user?.id) return;
@@ -150,8 +191,8 @@ export function RequiredOnboardingDialog() {
   }, [user?.id]);
 
   const validationProfile = React.useMemo(
-    () => ({ ...(user || {}), ...form }),
-    [user, form]
+    () => ({ ...effectivePersistedProfile, ...form }),
+    [effectivePersistedProfile, form]
   );
 
   const missingEditableFields = React.useMemo(
@@ -160,8 +201,11 @@ export function RequiredOnboardingDialog() {
   );
 
   const missingPersistedEditableFields = React.useMemo(
-    () => getMissingOnboardingFields(user || {}, { includeAutoManaged: false }),
-    [user]
+    () =>
+      getMissingOnboardingFields(effectivePersistedProfile, {
+        includeAutoManaged: false,
+      }),
+    [effectivePersistedProfile]
   );
 
   const missingAutoManagedFields = React.useMemo(
@@ -174,10 +218,17 @@ export function RequiredOnboardingDialog() {
       user &&
       popupEnabled &&
       !configLoading &&
+      !profileLoading &&
       missingPersistedEditableFields.length > 0
     );
     setOpen(shouldOpen);
-  }, [user, popupEnabled, configLoading, missingPersistedEditableFields.length]);
+  }, [
+    user,
+    popupEnabled,
+    configLoading,
+    profileLoading,
+    missingPersistedEditableFields.length,
+  ]);
 
   const updateField = (key: EditableOnboardingFieldKey, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -190,7 +241,7 @@ export function RequiredOnboardingDialog() {
     setForm(normalizedForm);
 
     const missingBeforeSave = getMissingOnboardingFields(
-      { ...user, ...normalizedForm },
+      { ...effectivePersistedProfile, ...normalizedForm },
       { includeAutoManaged: false }
     );
 
@@ -233,7 +284,7 @@ export function RequiredOnboardingDialog() {
     }
   };
 
-  if (!user || !popupEnabled || configLoading) {
+  if (!user || !popupEnabled || configLoading || profileLoading) {
     return null;
   }
 

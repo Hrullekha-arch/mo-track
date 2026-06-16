@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import {
   ArrowLeft, Calendar, FileText, GanttChartSquare, MessageSquare,
   Package, Receipt as ReceiptIcon, ShoppingCart, MapPin, User as UserIcon,
-  Contact2, Phone, Menu, AlertTriangle, Loader2, ReceiptIndianRupeeIcon,
+  Contact2, Phone, Menu, AlertTriangle, Loader2, ReceiptIndianRupeeIcon, Edit,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,6 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import Link from "next/link";
 import { useDealData } from "./hooks/useDealData";
+import { useAuth } from "@/context/AuthContext";
 
 // ✅ Lazy load ALL tab components
 const VisitsTab = dynamic<any>(() => import("./components/tabs/VisitsTab"), {
@@ -42,6 +43,16 @@ const ProductsTab = dynamic<any>(() => import("./components/tabs/ProductsTab"), 
 const ReceiptsTab = dynamic<any>(() => import("./components/tabs/ReceiptsTab"), {
   loading: () => <TabSkeleton />, ssr: false,
 });
+const InvoicesTab = dynamic<any>(() => import("./components/tabs/InvoicesTab"), {
+  loading: () => <TabSkeleton />, ssr: false,
+});
+const EditCustomerDialog = dynamic<any>(
+  () =>
+    import("@/components/features/customer/NewContactDialog").then(
+      (module) => module.EditCustomerDialog
+    ),
+  { loading: () => null, ssr: false }
+);
 
 function TabSkeleton() {
   return <div className="space-y-3 p-4"><Skeleton className="h-20 w-full" /><Skeleton className="h-20 w-full" /></div>;
@@ -65,11 +76,16 @@ export default function CrmActivityTrackerPage({
   const params = use(paramsPromise);
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { role } = useAuth();
   const { customerId, dealId } = params;
+  const canEditCustomerAddress =
+    role === "admin" || role === "IT" || role === "Data Analytics";
 
   const defaultTab = searchParams.get("tab") || "visits";
   const [activeTab, setActiveTab] = useState(defaultTab);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [editCustomerOpen, setEditCustomerOpen] = useState(false);
+  const [updatedCustomer, setUpdatedCustomer] = useState<any>(null);
 
   // ✅ Only fetches deal document on mount
   const { data, coreLoading, tabLoading, fetchTabData, refreshDeal, invalidateCache } = useDealData(customerId, dealId);
@@ -88,9 +104,12 @@ export default function CrmActivityTrackerPage({
 
   // ✅ Extract data from deal document
   const deal = data.deal;
-  const customer = data.customer;
+  const customer = updatedCustomer || data.customer;
   const representative = deal?.assignedSalesPerson;
-  const savedAddresses = customer?.shippingAddress?.line1;
+  const savedAddresses =
+    customer?.billingAddress?.line1 ||
+    customer?.shippingAddress?.line1 ||
+    customer?.addressPinCode;
   const primaryBillingDetail = customer?.billingDetails;
 
   const renderActiveTab = () => {
@@ -160,7 +179,12 @@ export default function CrmActivityTrackerPage({
           />
         );
       case "invoice":
-        return <ComingSoonCard icon={ReceiptIcon} message="Invoice management coming soon" />;
+        return (
+          <InvoicesTab
+            customerId={customerId}
+            dealId={dealId}
+          />
+        );
       case "reminder":
         return <ComingSoonCard icon={MessageSquare} message="Reminder and notes feature coming soon" />;
       default:
@@ -266,6 +290,8 @@ export default function CrmActivityTrackerPage({
             representative={representative}
             primaryBillingDetail={primaryBillingDetail}
             savedAddresses={savedAddresses}
+            onEditAddress={() => setEditCustomerOpen(true)}
+            canEditAddress={canEditCustomerAddress}
           />
         </div>
       </div>
@@ -276,6 +302,8 @@ export default function CrmActivityTrackerPage({
           deal={deal}
           customer={customer}
           representative={representative}
+          onEditAddress={() => setEditCustomerOpen(true)}
+          canEditAddress={canEditCustomerAddress}
         />
       </div>
 
@@ -306,6 +334,17 @@ export default function CrmActivityTrackerPage({
           {renderActiveTab()}
         </Suspense>
       </div>
+      {canEditCustomerAddress && editCustomerOpen && (
+        <EditCustomerDialog
+          isOpen={editCustomerOpen}
+          onClose={() => setEditCustomerOpen(false)}
+          customer={customer}
+          onSuccess={(nextCustomer: any) => {
+            setUpdatedCustomer(nextCustomer);
+            setEditCustomerOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -329,6 +368,8 @@ const DealInfoCard = React.memo(function DealInfoCard({
   representative,
   primaryBillingDetail,
   savedAddresses,
+  onEditAddress,
+  canEditAddress,
 }: any) {
   return (
     <Card className="w-full overflow-hidden">
@@ -358,8 +399,22 @@ const DealInfoCard = React.memo(function DealInfoCard({
                 <MapPin className="h-5 w-5 text-primary" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
-                  Customer Address
+                <div className="mb-1 flex items-center gap-2">
+                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Customer Address
+                  </div>
+                  {canEditAddress && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-xs"
+                      onClick={onEditAddress}
+                    >
+                      <Edit className="h-3 w-3" />
+                      Edit Address
+                    </Button>
+                  )}
                 </div>
                 <div className="font-semibold text-foreground">
                   {savedAddresses || "No saved address"}
@@ -472,6 +527,8 @@ const MobileDealInfo = React.memo(function MobileDealInfo({
   deal,
   customer,
   representative,
+  onEditAddress,
+  canEditAddress,
 }: any) {
   return (
     <>
@@ -503,6 +560,18 @@ const MobileDealInfo = React.memo(function MobileDealInfo({
               <span className="text-muted-foreground">Mobile:</span>
               <span>{customer.phone || customer.mobileNo || "—"}</span>
             </div>
+            {canEditAddress && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full gap-2"
+                onClick={onEditAddress}
+              >
+                <Edit className="h-3.5 w-3.5" />
+                Edit Customer Address
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>

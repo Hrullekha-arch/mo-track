@@ -18,7 +18,7 @@ Stores user accounts and their roles.
       id: string; // Document ID, same as Firebase Auth UID
       name: string;
       email: string;
-      role: 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
+      role: 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr' | 'PC';
       designation?: 'CRM' | 'Allocators' | 'PC'; // Only for 'employee' role
       salesmanCode?: string; // Only for 'salesman' role
     }

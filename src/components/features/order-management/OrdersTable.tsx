@@ -989,16 +989,8 @@ export function OrdersTable() {
     }
   };
 
-  const isInstallationDone = (order: Order) => {
-    const milestones = getNormalizedOrderMilestones(order);
-    if (!milestones.length) return false;
-    const milestoneIds = milestones.map((milestone) => milestone.id);
-    const lastMilestoneId = Math.max(...milestoneIds);
-    const lastMilestone = milestones.find(
-      (milestone) => milestone.id === lastMilestoneId
-    );
-    return !!lastMilestone?.completed;
-  };
+  const isInstallationDone = (order: Order) =>
+    getOrderStatusLabel(order) === "INSTALLATION DONE";
 
   const activeOrders = React.useMemo(
     () => orders.filter((o) => !isInstallationDone(o)),
@@ -1287,7 +1279,7 @@ export function OrdersTable() {
             value={activeOrders.length}
             icon={Package}
             color="bg-blue-500"
-            sub={`${orders.length} total loaded`}
+            sub={`${activeOrders.length} total loaded`}
           />
           <StatsCard
             title="Fully Allocated"
@@ -1321,7 +1313,7 @@ export function OrdersTable() {
             <TabsTrigger value="all" className="text-sm">
               All Orders
               <Badge variant="secondary" className="ml-2 h-5 text-xs">
-                {orders.length}
+                {activeOrders.length}
               </Badge>
             </TabsTrigger>
           </TabsList>
@@ -1329,7 +1321,7 @@ export function OrdersTable() {
           <TabsContent value="active" className="mt-4">
             <OrderTableComponent
               data={activeOrders}
-              allData={orders}
+              allData={activeOrders}
               columns={columns}
               loading={loading}
               searching={searching}
@@ -1340,8 +1332,8 @@ export function OrdersTable() {
 
           <TabsContent value="all" className="mt-4">
             <OrderTableComponent
-              data={orders}
-              allData={orders}
+              data={activeOrders}
+              allData={activeOrders}
               columns={columns}
               loading={loading}
               searching={searching}

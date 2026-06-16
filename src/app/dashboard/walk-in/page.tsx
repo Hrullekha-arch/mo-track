@@ -1135,7 +1135,7 @@ export default function WalkinDataPage() {
 
   const isAdmin        = user?.role === "admin";
   const isCrm          = user?.designation === "CRM";
-  const isPC           = user?.designation === "PC";
+  const isPC           = user?.role === "PC" || user?.designation === "PC";
   const isSalesmanager = user?.designation === "salesmanager" || user?.designation === "headsalesmanager";
   const canManage      = isCrm || isAdmin;
   const canAcknowledge = isAdmin || isSalesmanager;

@@ -4,7 +4,7 @@
 import { PoGenTable } from "@/components/features/purchase/PoGenTable";
 import { Suspense, useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { collection, onSnapshot, query } from "firebase/firestore";
+import { collection, onSnapshot, query, where, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -15,7 +15,11 @@ export default function PoGenPage() {
     const { toast } = useToast();
 
     useEffect(() => {
-        const requestsQuery = query(collection(db, "purchaseRequests"));
+        const requestsQuery = query(
+            collection(db, "purchaseRequests"),
+            where("status", "in", ["Approved", "PO Generated"]),
+            limit(1000)
+        );
 
         const unsubscribeRequests = onSnapshot(requestsQuery, (snapshot) => {
             const requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));

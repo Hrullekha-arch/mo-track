@@ -184,32 +184,6 @@ export default function AddedProductTab({
 
   // ─── Product Handlers ────────────────────────────────────
   
-  const handleUpdateActivity = useCallback(async () => {
-    if (!user) {
-      toast.error("Authentication required");
-      return;
-    }
-
-    setActivityLoading(true);
-    try {
-      const result = await updateDealProducts(customerId, dealId, products, {
-        id: user.id,
-        name: user.name,
-      });
-
-      if (result.success) {
-        toast.success("Activity updated successfully");
-        onRefresh?.();
-      } else {
-        toast.error(result.message || "Failed to update activity");
-      }
-    } catch (error) {
-      console.error("Update activity error:", error);
-      toast.error("An error occurred while updating");
-    } finally {
-      setActivityLoading(false);
-    }
-  }, [customerId, dealId, products, user, onRefresh]);
 
   const handleDeleteItem = useCallback(async (productId: string) => {
     setDeleteLoading(productId);

@@ -8,7 +8,7 @@ import { db } from "@/lib/firebase";
 import { Order, FabricDetail, FurnitureDetail, Stock, StockTransaction, PurchaseRequest, InvoiceBatch, Invoice } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, User, Phone, MapPin, Tag, CheckCircle2, Calendar, ShoppingBag, Loader2, PlusCircle, Trash2 } from "lucide-react";
+import { ArrowLeft, User, Phone, MapPin, Tag, CheckCircle2, Calendar, ShoppingBag, Loader2, PlusCircle, Trash2, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from 'next/link';
 import { Separator } from "@/components/ui/separator";
@@ -259,7 +259,15 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
     const [stockInfo, setStockInfo] = useState<Stock | null>(null);
     const [loading, setLoading] = useState(true);
     const [allocatedQty, setAllocatedQty] = useState(0);
-    const [status, setStatus] = useState<{ text: string; variant: 'default' | 'secondary' | 'destructive' | 'outline', poNumber?: string, tallyBillNo?: string }>({ text: 'Loading...', variant: 'secondary' });
+    const [status, setStatus] = useState<{
+      text: string;
+      variant: 'default' | 'secondary' | 'destructive' | 'outline';
+      poNumber?: string;
+      tallyBillNo?: string;
+      invoiceDocId?: string;
+      zohoInvoiceId?: string;
+      zohoInvoiceNo?: string;
+    }>({ text: 'Loading...', variant: 'secondary' });
 
     const isOrderApproved = order.status === 'Approved';
     const invoiceRequired = order.invoicing?.invoiceRequired !== false;
@@ -352,7 +360,17 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
                 : 0;
 
             if (matchedInvoice) {
-                 setStatus({ text: `Invoice Generated: ${matchedInvoice.data().tallyVoucherNo || ''}`, variant: 'default', tallyBillNo: matchedInvoice.data().tallyVoucherNo });
+                 const invoiceData = matchedInvoice.data() as Invoice;
+                 const zohoInvoiceNo = String(invoiceData.zohoInvoiceNo || invoiceData.tallyVoucherNo || '').trim();
+                 const zohoInvoiceId = String(invoiceData.zohoInvoiceId || '').trim();
+                 setStatus({
+                    text: `Invoice Generated: ${zohoInvoiceNo}`,
+                    variant: 'default',
+                    tallyBillNo: zohoInvoiceNo,
+                    invoiceDocId: String(matchedInvoice.id || '').trim() || undefined,
+                    zohoInvoiceId: zohoInvoiceId || undefined,
+                    zohoInvoiceNo: zohoInvoiceNo || undefined,
+                  });
             } else if (totalReservedForOrder >= requiredQty) {
                 setStatus({
                     text: invoiceRequired ? 'Pending for Invoice' : 'Ready for Delivery',
@@ -383,6 +401,18 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
 
     const name = (item as any).fabricName || (item as any).furnitureName;
     const unit = item.type === 'Fabric' ? 'Mtr' : '';
+    const handleDownloadInvoice = () => {
+      if (!status.invoiceDocId && !status.zohoInvoiceId && !status.zohoInvoiceNo && !status.tallyBillNo) {
+        return;
+      }
+      const params = new URLSearchParams();
+      if (status.invoiceDocId) params.set("invoiceDocId", status.invoiceDocId);
+      if (status.zohoInvoiceId) params.set("invoiceId", status.zohoInvoiceId);
+      const invoiceNo = status.zohoInvoiceNo || status.tallyBillNo;
+      if (invoiceNo) params.set("invoiceNo", invoiceNo);
+      params.set("print", "true");
+      window.open(`/api/zoho/invoices/pdf?${params.toString()}`, "_blank", "noopener,noreferrer");
+    };
 
     return (
         <TableRow>
@@ -413,9 +443,23 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             </TableCell>
             <TableCell>
                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 
-                 <Badge variant={status.variant} className={status.text.includes('Invoice Generated') ? 'bg-green-600' : ''}>
+                 <div className="flex flex-col items-start gap-1.5">
+                  <Badge variant={status.variant} className={status.text.includes('Invoice Generated') ? 'bg-green-600' : ''}>
                     {status.text} {status.poNumber && `: ${status.poNumber}`}
-                 </Badge>
+                  </Badge>
+                  {status.text.includes('Invoice Generated') ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs px-2"
+                      onClick={handleDownloadInvoice}
+                    >
+                      <Download className="mr-1.5 h-3 w-3" />
+                      Download Invoice
+                    </Button>
+                  ) : null}
+                 </div>
                 }
             </TableCell>
         </TableRow>

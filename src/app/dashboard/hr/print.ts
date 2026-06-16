@@ -1,6 +1,12 @@
 import { format } from "date-fns";
-import type { EmployeeFormState, HrEmployee, PayrollRecord } from "./types";
+import type {
+  EmployeeFormState,
+  HrEmployee,
+  HrExitFormState,
+  PayrollRecord,
+} from "./types";
 import {
+  COMPANY_NAME,
   formatCurrency,
   formatDateLabel,
   formatMonthLabel,
@@ -922,3 +928,381 @@ export const openEmployeeFormPrintWindow = (employee: HrEmployee, form: Employee
   win.document.close();
   return true;
 };
+
+type ExitLetterKind = "experience" | "relieving";
+
+type ExitLetterOptions = {
+  issueDate?: string;
+  lastWorkingDay?: string;
+  exitType?: HrExitFormState["exitType"];
+  fnfStatus?: HrExitFormState["fnfStatus"];
+};
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const toDisplayDate = (value?: string, fallbackToToday = true) => {
+  if (!value) return fallbackToToday ? format(new Date(), "dd MMMM yyyy") : "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return format(parsed, "dd MMMM yyyy");
+};
+
+const getRoleLabel = (employee: HrEmployee) =>
+  String(employee.designation || employee.role || "Employee").trim() || "Employee";
+
+const getDepartmentLabel = (employee: HrEmployee) =>
+  String(employee.department || "").trim();
+
+const getRefNo = (employee: HrEmployee, kind: ExitLetterKind, issueDate: string) => {
+  const code = String(employee.employeeCode || employee.id || "EMP").trim();
+  const year = new Date(issueDate).getFullYear();
+  const suffix = kind === "experience" ? "EXL" : "RLV";
+  return `HR/${suffix}/${code}/${year}`;
+};
+
+const getLetterSubject = (kind: ExitLetterKind) =>
+  kind === "experience" ? "Experience Letter" : "Relieving Letter";
+
+const buildExperienceParagraphs = (
+  employee: HrEmployee,
+  joiningDateText: string,
+  lastWorkingDayText: string
+) => {
+  const name = employee.name || "Employee";
+  const role = getRoleLabel(employee);
+  const department = getDepartmentLabel(employee);
+  const deptText = department ? ` in the ${department} Department` : "";
+  return [
+    "TO WHOMSOEVER IT MAY CONCERN,",
+    `This is to certify that Mr./Ms. ${name} was employed with ${COMPANY_NAME} as ${role}${deptText} from ${joiningDateText} to ${lastWorkingDayText}.`,
+    `${name} carried out assigned responsibilities with professionalism, commitment, and good conduct during the tenure of employment.`,
+    "This letter is issued upon the employee's request for official and professional purposes.",
+  ];
+};
+
+const buildRelievingParagraphs = (
+  employee: HrEmployee,
+  joiningDateText: string,
+  lastWorkingDayText: string,
+  options: ExitLetterOptions
+) => {
+  const name = employee.name || "Employee";
+  const role = getRoleLabel(employee);
+  const department = getDepartmentLabel(employee);
+  const deptText = department ? ` in the ${department} Department` : "";
+  const exitTypeText = options.exitType
+    ? options.exitType.replace(/_/g, " ")
+    : "separation";
+  const fnfText =
+    options.fnfStatus === "settled"
+      ? "Full and Final settlement has been processed as per company policy."
+      : "Full and Final settlement will be processed as per company policy.";
+
+  return [
+    `This is to certify that Mr./Ms. ${name} was employed with ${COMPANY_NAME} as ${role}${deptText} from ${joiningDateText} and has been formally relieved from duties with effect from close of business on ${lastWorkingDayText}.`,
+    `The separation has been recorded under ${exitTypeText}. All assigned responsibilities and company matters have been handed over as per internal process.`,
+    fnfText,
+    `We thank ${name} for contribution during the tenure and wish success in future endeavours.`,
+  ];
+};
+
+const openExitLetterPrintWindow = (
+  kind: ExitLetterKind,
+  employee: HrEmployee,
+  options: ExitLetterOptions = {}
+) => {
+  const win = window.open("", "_blank", "width=900,height=1200");
+  if (!win) return false;
+
+  const logoUrl = `${window.location.origin}/logo.png`;
+  const issueDateText = toDisplayDate(options.issueDate);
+  const joiningDateText = toDisplayDate(employee.joiningDate, false);
+  const lastWorkingDayText = toDisplayDate(options.lastWorkingDay || options.issueDate);
+  const refNo = getRefNo(employee, kind, options.issueDate || new Date().toISOString());
+  const subject = getLetterSubject(kind);
+
+  const role = getRoleLabel(employee);
+  const department = getDepartmentLabel(employee);
+  const store = String(employee.store || "").trim();
+
+  const paragraphs =
+    kind === "experience"
+      ? buildExperienceParagraphs(employee, joiningDateText, lastWorkingDayText)
+      : buildRelievingParagraphs(
+          employee,
+          joiningDateText,
+          lastWorkingDayText,
+          options
+        );
+
+  const bodyHtml = paragraphs
+    .map((p) => `<p>${escapeHtml(p)}</p>`)
+    .join("");
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(subject)} - ${escapeHtml(employee.name || "Employee")}</title>
+  <style>
+    :root {
+      --ink: #0f172a;
+      --muted: #475569;
+      --line: #dbe3ee;
+      --brand: #0f2a4a;
+      --brand-2: #1e3a5f;
+      --surface: #f8fafc;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #eef2f7;
+      color: var(--ink);
+      font-family: "Segoe UI", Arial, sans-serif;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .page {
+      max-width: 860px;
+      margin: 18px auto;
+      background: #fff;
+      border: 1px solid var(--line);
+      box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .header {
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      color: #fff;
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo-wrap {
+      width: 54px;
+      height: 54px;
+      border-radius: 10px;
+      background: #fff;
+      padding: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .logo-wrap img { width: 100%; height: 100%; object-fit: contain; }
+    .brand h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.1;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 800;
+    }
+    .brand p {
+      margin: 4px 0 0;
+      font-size: 11px;
+      opacity: 0.85;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .meta {
+      text-align: right;
+      font-size: 11px;
+      line-height: 1.6;
+      opacity: 0.95;
+    }
+    .top-strip {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .top-item {
+      padding: 10px 18px;
+      font-size: 12px;
+      border-right: 1px solid var(--line);
+    }
+    .top-item:last-child { border-right: none; text-align: right; }
+    .top-item .label {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-right: 6px;
+    }
+    .content { padding: 22px 24px 26px; }
+    .recipient {
+      margin-bottom: 16px;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    .subject {
+      margin: 10px 0 16px;
+      padding: 10px 12px;
+      background: #eff6ff;
+      border-left: 4px solid var(--brand-2);
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .body p {
+      margin: 0 0 12px;
+      font-size: 14px;
+      line-height: 1.85;
+      color: #111827;
+      text-align: justify;
+    }
+    .employee-grid {
+      margin: 16px 0 20px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .employee-cell {
+      padding: 10px 12px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      font-size: 12px;
+    }
+    .employee-cell:nth-child(2n) { border-right: none; }
+    .employee-cell .k {
+      color: var(--muted);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      display: block;
+      margin-bottom: 2px;
+    }
+    .sign {
+      margin-top: 34px;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .sign-box {
+      min-width: 220px;
+      text-align: left;
+    }
+    .sign-line {
+      height: 40px;
+      border-bottom: 1px solid #334155;
+      margin-bottom: 8px;
+    }
+    .sign-box .name {
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .sign-box .role {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .footer {
+      border-top: 1px solid var(--line);
+      padding: 10px 24px 14px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: #64748b;
+      font-size: 10px;
+      line-height: 1.5;
+      background: #fcfdff;
+    }
+    @media print {
+      body { background: #fff; }
+      .page {
+        margin: 0;
+        max-width: none;
+        border: none;
+        box-shadow: none;
+        border-radius: 0;
+      }
+    }
+    @page {
+      size: A4;
+      margin: 12mm;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <div class="brand">
+        <div class="logo-wrap"><img src="${logoUrl}" alt="Logo" /></div>
+        <div>
+          <h1>${escapeHtml(COMPANY_NAME)}</h1>
+          <p>Human Resources Department</p>
+        </div>
+      </div>
+      <div class="meta">
+        B-50, Sushant Lok Phase 2, Sector 56, Gurugram<br />
+        hr@modesigns.in | www.modesigns.in
+      </div>
+    </div>
+    <div class="top-strip">
+      <div class="top-item"><span class="label">Reference</span><strong>${escapeHtml(refNo)}</strong></div>
+      <div class="top-item"><span class="label">Date</span><strong>${escapeHtml(issueDateText)}</strong></div>
+    </div>
+    <div class="content">
+      <div class="recipient">
+        <div><strong>To,</strong></div>
+        <div>${escapeHtml(employee.name || "Employee")}</div>
+      </div>
+      <div class="subject">Subject: ${escapeHtml(subject)}</div>
+      <div class="employee-grid">
+        <div class="employee-cell"><span class="k">Employee Code</span>${escapeHtml(String(employee.employeeCode || "-"))}</div>
+        <div class="employee-cell"><span class="k">Designation</span>${escapeHtml(role)}</div>
+        <div class="employee-cell"><span class="k">Department</span>${escapeHtml(department || "-")}</div>
+        <div class="employee-cell"><span class="k">Store</span>${escapeHtml(store || "-")}</div>
+        <div class="employee-cell"><span class="k">Joining Date</span>${escapeHtml(joiningDateText)}</div>
+        <div class="employee-cell"><span class="k">Last Working Day</span>${escapeHtml(lastWorkingDayText)}</div>
+      </div>
+      <div class="body">${bodyHtml}</div>
+      <div class="sign">
+        <div class="sign-box">
+          <div class="sign-line"></div>
+          <div class="name">Authorised Signatory</div>
+          <div class="role">Human Resources | ${escapeHtml(COMPANY_NAME)}</div>
+        </div>
+      </div>
+    </div>
+    <div class="footer">
+      <div>This document is generated by HR Workspace and is valid without physical signature when issued officially.</div>
+      <div>Confidential Internal HR Record</div>
+    </div>
+  </div>
+  <script>
+    window.onload = function () { window.focus(); window.print(); };
+  </script>
+</body>
+</html>`;
+
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  return true;
+};
+
+export const openExitExperienceLetterPrintWindow = (
+  employee: HrEmployee,
+  options: ExitLetterOptions = {}
+) => openExitLetterPrintWindow("experience", employee, options);
+
+export const openExitRelievingLetterPrintWindow = (
+  employee: HrEmployee,
+  options: ExitLetterOptions = {}
+) => openExitLetterPrintWindow("relieving", employee, options);

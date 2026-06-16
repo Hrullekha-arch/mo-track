@@ -1,101 +1,105 @@
-import { getZohoToken } from "@/lib/zoho";
 import { NextRequest, NextResponse } from "next/server";
+import { adminDb } from "@/lib/firebase-admin";
+import { createZohoCustomer, searchZohoCustomers } from "@/lib/zoho-books";
+
+const ALLOWED_GST_TREATMENTS = new Set([
+  "business_gst",
+  "business_none",
+  "consumer",
+  "overseas",
+]);
 
 export async function GET(req: NextRequest) {
-  console.log("🔥 ===== ZOHO CUSTOMER SEARCH START =====");
-
   try {
-    // 👉 Log full URL
-    console.log("📥 Full URL:", req.url);
-
-    // 👉 Extract query
-    const search = req.nextUrl.searchParams.get("search") || "";
-    console.log("🔍 Search Query:", search);
-
+    const search = String(req.nextUrl.searchParams.get("search") || "").trim();
     if (!search) {
-      console.log("⚠️ No search param provided");
       return NextResponse.json({ customers: [] });
     }
 
-    // 👉 Env logs (IMPORTANT)
-
-    const accessToken = await getZohoToken();
-    const orgId = process.env.ZOHO_ORG_ID;
-
-    console.log("🔑 Token Exists:", !!accessToken);
-    console.log("🏢 Org ID:", orgId);
-
-    if (!accessToken || !orgId) {
-      console.log("❌ Missing ENV variables");
-      return NextResponse.json(
-        { error: "Missing Zoho config" },
-        { status: 500 }
-      );
-    }
-
-    // 👉 Build Zoho URL
-    const zohoUrl = `https://www.zohoapis.in/books/v3/contacts?organization_id=${orgId}&contact_name_contains=${encodeURIComponent(search)}`;
-
-    console.log("🌐 Zoho URL:", zohoUrl);
-
-    // 👉 Call Zoho
-    const response = await fetch(zohoUrl, {
-      method: "GET",
-      headers: {
-        Authorization: `Zoho-oauthtoken ${accessToken}`,
-      },
-    });
-
-    console.log("📡 Zoho Status:", response.status);
-
-    const data = await response.json();
-      if (response.status === 401) {
-    console.log("🔁 Retrying with fresh token...");
-
-    const newToken = await getZohoToken();
-
-    const retry = await fetch(zohoUrl, {
-      headers: {
-        Authorization: `Zoho-oauthtoken ${newToken}`,
-      },
-    });
-
-    const retryData = await retry.json();
-
-    return NextResponse.json({ customers: retryData.contacts || [] });
-  }
-
-    console.log("📦 Raw Zoho Response:", JSON.stringify(data));
-
-    if (!response.ok) {
-      console.log("❌ Zoho API Error:", data);
-      return NextResponse.json(
-        { error: data.message || "Zoho error" },
-        { status: response.status }
-      );
-    }
-
-    // 👉 Process data
-    const customers = (data.contacts || []).slice(0, 10).map((c: any) => ({
-      id: c.contact_id,
-      name: c.contact_name,
-      mobile: c.mobile,
-      email: c.email,
-      gst: c.gstin,
-    }));
-
-    console.log("✅ Customers Found:", customers.length);
-
-    console.log("🔥 ===== ZOHO CUSTOMER SEARCH END =====");
-
+    const customers = await searchZohoCustomers(search, 20);
     return NextResponse.json({ customers });
-
   } catch (error: any) {
-    console.log("💥 SERVER ERROR:", error.message);
-    console.log("🔥 ===== ZOHO CUSTOMER SEARCH FAILED =====");
-
     return NextResponse.json(
-      { error: "Internal Server Error" },
+      { error: error?.message || "Unable to fetch Zoho customers." },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => ({}));
+
+    const invoiceId = String(body?.invoiceId || "").trim() || undefined;
+    const contactName = String(body?.contactName || "").trim();
+    const companyName = String(body?.companyName || "").trim() || undefined;
+    const email = String(body?.email || "").trim() || undefined;
+    const phone = String(body?.phone || "").trim() || undefined;
+    const gstNo = String(body?.gstNo || "").trim() || undefined;
+    const placeOfContact = String(body?.placeOfContact || "").trim() || undefined;
+    const gstTreatmentRaw = String(body?.gstTreatment || "").trim();
+    const gstTreatment = ALLOWED_GST_TREATMENTS.has(gstTreatmentRaw)
+      ? (gstTreatmentRaw as "business_gst" | "business_none" | "consumer" | "overseas")
+      : undefined;
+    const notes = String(body?.notes || "").trim() || undefined;
+
+    const billingAddress = {
+      attention: String(body?.billingAddress?.attention || "").trim() || undefined,
+      address: String(body?.billingAddress?.address || "").trim() || undefined,
+      street2: String(body?.billingAddress?.street2 || "").trim() || undefined,
+      city: String(body?.billingAddress?.city || "").trim() || undefined,
+      state: String(body?.billingAddress?.state || "").trim() || undefined,
+      zip: String(body?.billingAddress?.zip || "").trim() || undefined,
+      country: String(body?.billingAddress?.country || "").trim() || undefined,
+      phone: String(body?.billingAddress?.phone || "").trim() || phone,
+    };
+
+    const shippingAddress = {
+      attention: String(body?.shippingAddress?.attention || "").trim() || undefined,
+      address: String(body?.shippingAddress?.address || "").trim() || undefined,
+      street2: String(body?.shippingAddress?.street2 || "").trim() || undefined,
+      city: String(body?.shippingAddress?.city || "").trim() || undefined,
+      state: String(body?.shippingAddress?.state || "").trim() || undefined,
+      zip: String(body?.shippingAddress?.zip || "").trim() || undefined,
+      country: String(body?.shippingAddress?.country || "").trim() || undefined,
+      phone: String(body?.shippingAddress?.phone || "").trim() || phone,
+    };
+
+    if (!contactName) {
+      return NextResponse.json({ error: "contactName is required." }, { status: 400 });
+    }
+
+    const created = await createZohoCustomer({
+      contactName,
+      companyName,
+      email,
+      phone,
+      gstNo,
+      placeOfContact,
+      gstTreatment,
+      notes,
+      billingAddress,
+      shippingAddress,
+    });
+
+    if (invoiceId) {
+      await adminDb
+        .collection("invoices")
+        .doc(invoiceId)
+        .set(
+          {
+            zohoCustomerId: created.id,
+            zohoCustomerName: created.name,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+    }
+
+    return NextResponse.json({ customer: created });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error?.message || "Unable to create Zoho customer." },
       { status: 500 }
     );
   }

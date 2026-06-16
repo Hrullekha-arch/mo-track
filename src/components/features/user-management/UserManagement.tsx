@@ -3,9 +3,10 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { User, UserRole } from '@/lib/types';
-import { PlusCircle } from 'lucide-react';
+import { PlusCircle, Search, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -18,6 +19,7 @@ import { UserTable } from './UserTable';
 export function UserManagement() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
   const { role } = useAuth();
   const isEmployee = role === 'employee';
 
@@ -38,21 +40,48 @@ export function UserManagement() {
     setIsDialogOpen(true);
   };
 
+  const filteredUsers = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return users;
+
+    return users.filter((user) => {
+      const status = user.isActive === false ? "inactive" : "active";
+      if (query === "active" || query === "inactive") {
+        return status === query;
+      }
+      const searchableValues = [
+        user.name,
+        user.email,
+        user.role,
+        user.designation,
+        user.salesmanCode,
+        user.store,
+        user.dayOff,
+        user.weekOff,
+        user.employeeCode,
+      ];
+
+      return searchableValues.some((value) =>
+        String(value || "").toLowerCase().includes(query)
+      );
+    });
+  }, [searchQuery, users]);
+
   const { admins, employees, installers, salesmen, accounts, hr, purchase, crm, allocators, pc } = useMemo(() => {
-    const admins = users.filter(u => u.role === 'admin');
-    const employees = users.filter(u => u.role === 'employee');
-    const installers = users.filter(u => u.role === 'installer');
-    const salesmen = users.filter(u => u.role === 'salesman');
-    const accounts = users.filter(u => u.role === 'Accounts');
-    const hr = users.filter(u => u.role === 'Hr');
-    const purchase = users.filter(u => u.role === 'Purchase');
+    const admins = filteredUsers.filter(u => u.role === 'admin');
+    const employees = filteredUsers.filter(u => u.role === 'employee');
+    const installers = filteredUsers.filter(u => u.role === 'installer');
+    const salesmen = filteredUsers.filter(u => u.role === 'salesman');
+    const accounts = filteredUsers.filter(u => u.role === 'Accounts');
+    const hr = filteredUsers.filter(u => u.role === 'Hr');
+    const purchase = filteredUsers.filter(u => u.role === 'Purchase');
 
     const crm = employees.filter(e => e.designation === 'CRM');
     const allocators = employees.filter(e => e.designation === 'Allocators');
-    const pc = employees.filter(e => e.designation === 'PC');
+    const pc = filteredUsers.filter(u => u.role === 'PC' || (u.role === 'employee' && u.designation === 'PC'));
 
     return { admins, employees, installers, salesmen, accounts, hr, purchase, crm, allocators, pc };
-  }, [users]);
+  }, [filteredUsers]);
 
 
   if (loading) {
@@ -75,10 +104,11 @@ export function UserManagement() {
         </div>
 
         <Tabs defaultValue="all" className="w-full">
-            <TabsList className="grid w-full grid-cols-8">
+            <TabsList className="grid w-full grid-cols-9">
                 <TabsTrigger value="all">All Users</TabsTrigger>
                 <TabsTrigger value="admin">Admins</TabsTrigger>
                 <TabsTrigger value="employee">Employees</TabsTrigger>
+                <TabsTrigger value="pc">PC</TabsTrigger>
                 <TabsTrigger value="installer">Installers</TabsTrigger>
                 <TabsTrigger value="salesman">Salesmen</TabsTrigger>
                 <TabsTrigger value="accounts">Accounts</TabsTrigger>
@@ -88,12 +118,36 @@ export function UserManagement() {
             
             <TabsContent value="all">
                 <Card>
-                    <CardHeader>
-                        <CardTitle>All Users</CardTitle>
-                        <CardDescription>A comprehensive list of every user in the system.</CardDescription>
+                    <CardHeader className="flex flex-row items-center justify-between gap-4">
+                        <div>
+                            <CardTitle>All Users</CardTitle>
+                            <CardDescription>A comprehensive list of every user in the system.</CardDescription>
+                        </div>
+                        <div className="relative w-full max-w-md">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                                value={searchQuery}
+                                onChange={(event) => setSearchQuery(event.target.value)}
+                                placeholder="Search users..."
+                                className="pl-9 pr-10"
+                                aria-label="Search users"
+                            />
+                            {searchQuery && (
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                                    onClick={() => setSearchQuery("")}
+                                    aria-label="Clear user search"
+                                >
+                                    <X className="h-4 w-4" />
+                                </Button>
+                            )}
+                        </div>
                     </CardHeader>
                     <CardContent>
-                        <UserTable users={users} title="All Users" description="A comprehensive list of every user in the system." />
+                        <UserTable users={filteredUsers} title="All Users" description="A comprehensive list of every user in the system." />
                     </CardContent>
                 </Card>
             </TabsContent>
@@ -112,11 +166,10 @@ export function UserManagement() {
 
             <TabsContent value="employee">
                 <Tabs defaultValue="all" className="w-full">
-                    <TabsList className="grid w-full grid-cols-4">
+                    <TabsList className="grid w-full grid-cols-3">
                         <TabsTrigger value="all">All Employees</TabsTrigger>
                         <TabsTrigger value="crm">CRM</TabsTrigger>
                         <TabsTrigger value="allocators">Allocators</TabsTrigger>
-                        <TabsTrigger value="pc">PC</TabsTrigger>
                     </TabsList>
                     <TabsContent value="all">
                          <Card>
@@ -151,18 +204,19 @@ export function UserManagement() {
                             </CardContent>
                         </Card>
                     </TabsContent>
-                    <TabsContent value="pc">
-                         <Card>
-                            <CardHeader>
-                                <CardTitle>PC Team</CardTitle>
-                                <CardDescription>Employees with the PC designation.</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <UserTable users={pc} title="PC Team" description="Employees with the PC designation." />
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
                 </Tabs>
+            </TabsContent>
+
+            <TabsContent value="pc">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>PC Team</CardTitle>
+                        <CardDescription>Users with the PC role, including legacy PC-designated employees.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <UserTable users={pc} title="PC Team" description="Users with the PC role, including legacy PC-designated employees." />
+                    </CardContent>
+                </Card>
             </TabsContent>
 
              <TabsContent value="installer">

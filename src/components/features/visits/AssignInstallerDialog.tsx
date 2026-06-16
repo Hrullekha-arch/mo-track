@@ -5,6 +5,8 @@ import { EnrichedDealVisit } from "@/types/visits";
 import { User } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { assignVisitAction } from "@/app/dashboard/visits/actions";
+import { useAuth } from "@/context/AuthContext";
+import { canAssignInstallerSlots } from "@/lib/visit-assignment-access";
 
 import {
   AssignInstallerDialog as OriginalAssignInstallerDialog,
@@ -26,6 +28,7 @@ export default function AssignInstallerDialog({
   installers,
 }: AssignInstallerDialogProps) {
   const { toast } = useToast();
+  const { user, firebaseUser } = useAuth();
   const isSavingRef = React.useRef(false);
 
   if (!visit) return null;
@@ -51,6 +54,22 @@ export default function AssignInstallerDialog({
 
   const handleAssign = async (installerId: string, slots?: SlotSelection[]) => {
     if (isSavingRef.current) return;
+    if (!canAssignInstallerSlots(user)) {
+      toast({
+        variant: "destructive",
+        title: "Access denied",
+        description: "Your role cannot assign installers and slots.",
+      });
+      return;
+    }
+    if (!firebaseUser) {
+      toast({
+        variant: "destructive",
+        title: "Session expired",
+        description: "Please sign in again.",
+      });
+      return;
+    }
     if (!installerId) {
       toast({ variant: "destructive", title: "Installer required", description: "Please select an installer." });
       return;
@@ -62,7 +81,9 @@ export default function AssignInstallerDialog({
 
     isSavingRef.current = true;
     try {
+      const idToken = await firebaseUser.getIdToken();
       const result = await assignVisitAction({
+        idToken,
         visitId: visit.id,
         customerId: visit.customerId,
         dealDocId: visit.dealDocId,

@@ -15,10 +15,11 @@ export default function DashboardLayout({
   const { user, loading, role } = useAuth();
   const router = useRouter();
   const [showWelcome, setShowWelcome] = useState(false);
+  const isActiveUser = user?.isActive !== false;
 
   useEffect(() => {
     // Show welcome message on login.
-    if (!loading && user) {
+    if (!loading && user && user.isActive !== false) {
         const hasSeenWelcome = sessionStorage.getItem('hasSeenWelcome');
         if (!hasSeenWelcome) {
             setShowWelcome(true);
@@ -48,6 +49,21 @@ export default function DashboardLayout({
             </div>
         </div>
       </div>
+    );
+  }
+
+  if (!isActiveUser) {
+    return (
+      <AppShell>
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <div className="max-w-md text-center">
+            <h1 className="text-2xl font-semibold tracking-tight">Account Inactive</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              This account is inactive and has no dashboard modules available.
+            </p>
+          </div>
+        </div>
+      </AppShell>
     );
   }
 

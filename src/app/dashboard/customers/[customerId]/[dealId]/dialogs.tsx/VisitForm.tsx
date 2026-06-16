@@ -812,6 +812,8 @@ export function VisitForm({
                         <Input
                           type="number"
                           min="1"
+                          step="any"
+                          inputMode="decimal"
                           className="h-8 w-20"
                           value={selected.noOfPcs || String(item.qty)}
                           onChange={(e) =>
@@ -915,6 +917,8 @@ export function VisitForm({
                       {field.value && (
                         <Input
                           type="number"
+                          step="any"
+                          inputMode="decimal"
                           className="w-16 h-8"
                           placeholder="Pcs"
                           value={field.value.noOfPcs || "1"}
@@ -977,6 +981,8 @@ export function VisitForm({
                         {field.value && (
                           <Input
                             type="number"
+                            step="any"
+                            inputMode="decimal"
                             className="w-16 h-8"
                             placeholder="Pcs"
                             value={field.value.noOfPcs || "1"}

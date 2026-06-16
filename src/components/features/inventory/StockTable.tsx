@@ -7,15 +7,15 @@ export function StockTable({
   lastDocId,
   totalCount,
 }: {
-  initialData: InventoryItem[];
-  lastDocId: string | null;
-  totalCount: number;
+  initialData?: InventoryItem[];
+  lastDocId?: string | null;
+  totalCount?: number;
 }) {
   return (
     <StockTableClient
-      initialData={initialData}
-      initialLastDocId={lastDocId}
-      totalCount={totalCount}
+      initialData={initialData || []}
+      initialLastDocId={lastDocId ?? null}
+      totalCount={totalCount ?? 0}
     />
   );
 }

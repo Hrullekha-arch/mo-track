@@ -51,12 +51,13 @@ import {
   runTransaction,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Invoice, Order, Quotation } from "@/lib/types";
+import { CustomerAddress, Invoice, Order, Quotation } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -71,15 +72,15 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
 import { InvoiceLogTable } from "@/components/features/invoice/InvoiceLogTable";
+import { ZohoInvoiceBotCard } from "@/components/features/invoice/ZohoInvoiceBotCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -106,6 +107,30 @@ import {
   Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  applyZohoInvoicePrefixForStore,
+  resolveZohoInvoiceSeriesForStore,
+} from "@/lib/zoho-invoice-series";
+import { getOrderStatusLabel } from "@/lib/order-workflow";
+import { getMoDesignsCompanyName } from "@/lib/financial-year";
+import { isVasInvoice } from "@/lib/zoho-sync/invoice-eligibility";
+import { useSearchParams } from "next/navigation";
+import {
+  buildOrderPricingFromQuotation,
+  reconcileOrderPricingWithQuotation,
+  type PricingReconciliationDetail,
+  type PricingReconciliationScope,
+} from "@/lib/quotation-order-pricing";
+import {
+  allocateGstByTaxMode,
+  DEFAULT_DESTINATION_STATE,
+  DEFAULT_DESTINATION_STATE_CODE,
+  formatInvoiceState,
+  formatIndianAddress,
+  getGstStateCodeFromAddress,
+  resolveGstTaxMode,
+  sanitizeLegacySelectText,
+} from "@/lib/gst-jurisdiction";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -129,9 +154,23 @@ type InvoiceLineItem = {
   gstAmount?: number;
   totalAmount?: number;
   allocationRef?: { lengthId?: string; stockItemId?: string };
+  zohoItemId?: string;
+  zohoItemName?: string;
+  zohoSku?: string;
+  zohoTaxId?: string;
 };
 
-type InvoiceVerificationResult = { ok: boolean; issues: string[] };
+type InvoiceVerificationResult = {
+  ok: boolean;
+  issues: string[];
+  details: PricingReconciliationDetail[];
+  quotationNo: string;
+  orderNo: string;
+  scope: PricingReconciliationScope;
+  orderAmount: number;
+  quotationAmount: number;
+  difference: number;
+};
 
 type InvoiceCandidate = {
   order: Order;
@@ -146,13 +185,151 @@ type InvoiceCandidate = {
   };
 };
 
+const isVasOnlyCandidate = (candidate?: InvoiceCandidate | null): boolean =>
+  Boolean(candidate && candidate.normalItems.length === 0 && candidate.vasItems.length > 0);
+
 type BillingDetailsSnapshot = {
   billingName?: string;
   billingPhone?: string;
   billingAddress?: string;
   gstin?: string;
   isDefault?: boolean;
+  customerBillingAddress?: CustomerAddress;
+  customerShippingAddress?: CustomerAddress;
+  customerGstin?: string;
 };
+
+type ZohoCustomer = {
+  id: string;
+  name: string;
+  email?: string;
+  mobile?: string;
+  gstNo?: string;
+};
+
+type ZohoItem = {
+  id: string;
+  name: string;
+  sku?: string;
+  description?: string;
+  unit?: string;
+  purchaseRate?: number;
+  rate?: number;
+  itemType?: string;
+  preferredVendorId?: string;
+  taxId?: string;
+  taxExemptionId?: string;
+  reverseChargeTaxId?: string;
+  reverseChargeVatId?: string;
+  interstateTaxId?: string;
+  intrastateTaxId?: string;
+};
+
+type ZohoLineMapping = {
+  sourceKey: string;
+  label: string;
+  searchText: string;
+  quantity: number;
+  rate: number;
+  gstPercent?: number;
+  discountPercent?: number;
+  discountAmount?: number;
+  itemType: "NORMAL" | "VAS";
+  isManual?: boolean;
+  sourceItem?: InvoiceLineItem;
+  zohoItemId: string;
+  zohoItemName?: string;
+  zohoSku?: string;
+  zohoRate?: number;
+  taxId?: string;
+  taxExemptionId?: string;
+  reverseChargeTaxId?: string;
+  reverseChargeVatId?: string;
+};
+
+type ZohoCustomerDraftAddress = {
+  attention?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
+  phone?: string;
+};
+
+type ZohoCustomerDraft = {
+  contactName: string;
+  companyName: string;
+  email: string;
+  phone: string;
+  gstNo: string;
+  placeOfContact: string;
+  gstTreatment: "business_gst" | "business_none" | "consumer" | "overseas";
+  notes: string;
+  billingAddress: ZohoCustomerDraftAddress;
+  shippingAddress: ZohoCustomerDraftAddress;
+};
+
+type ZohoItemDraft = {
+  lineKey: string;
+  name: string;
+  rate: number;
+  description: string;
+  sku: string;
+  unit: string;
+  productType: "goods" | "service" | "digital_service";
+  itemType: "sales" | "purchases" | "sales_and_purchases" | "inventory";
+  hsnOrSac: string;
+  isTaxable: boolean;
+  taxPercentage: number;
+  purchaseDescription: string;
+  purchaseRate?: number;
+};
+
+const GST_STATE_CODE_TO_PLACE_OF_CONTACT: Record<string, string> = {
+  "01": "JK",
+  "02": "HP",
+  "03": "PB",
+  "04": "CH",
+  "05": "UK",
+  "06": "HR",
+  "07": "DL",
+  "08": "RJ",
+  "09": "UP",
+  "10": "BR",
+  "11": "SK",
+  "12": "AR",
+  "13": "NL",
+  "14": "MN",
+  "15": "MZ",
+  "16": "TR",
+  "17": "ML",
+  "18": "AS",
+  "19": "WB",
+  "20": "JH",
+  "21": "OD",
+  "22": "CG",
+  "23": "MP",
+  "24": "GJ",
+  "26": "DN",
+  "27": "MH",
+  "29": "KA",
+  "30": "GA",
+  "31": "LD",
+  "32": "KL",
+  "33": "TN",
+  "34": "PY",
+  "35": "AN",
+  "36": "TS",
+  "37": "AP",
+  "38": "LA",
+};
+
+const INVOICE_STORE_OPTIONS: ComboboxOption[] = [
+  { value: "MO MG ROAD", label: "MO MG ROAD" },
+  { value: "MO GCR BRANCH", label: "MO GCR BRANCH" },
+  { value: "MO SULTANPUR", label: "MO SULTANPUR" },
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FIX 4: CENTRALISED QTY RESOLVER
@@ -175,10 +352,53 @@ const normalizeKey = (value?: string) =>
     .replace(/[^a-z0-9\s/-]/g, "")
     .trim();
 
+const addOrderReferenceVariants = (target: Set<string>, value: unknown) => {
+  const raw = String(value || "").trim();
+  if (!raw) return;
+  const upper = raw.toUpperCase();
+  const compact = upper.replace(/^MOTRACK-/, "");
+  [upper, compact, compact ? `MOTRACK-${compact}` : ""]
+    .filter(Boolean)
+    .forEach((entry) => target.add(entry));
+};
+
+const getOrderReferenceKeys = (order: Partial<Order> | null | undefined) => {
+  const keys = new Set<string>();
+  addOrderReferenceVariants(keys, order?.id);
+  addOrderReferenceVariants(keys, order?.orderNo);
+  addOrderReferenceVariants(keys, order?.crmOrderNo);
+  addOrderReferenceVariants(keys, order?.quotationNo);
+  return keys;
+};
+
+const getInvoiceReferenceKeys = (invoice: Partial<Invoice> | null | undefined) => {
+  const keys = new Set<string>();
+  addOrderReferenceVariants(keys, invoice?.orderId);
+  addOrderReferenceVariants(keys, invoice?.orderNo);
+  addOrderReferenceVariants(keys, (invoice as any)?.crmOrderNo);
+  addOrderReferenceVariants(keys, (invoice as any)?.quotationNo);
+  return keys;
+};
+
+const isInvoiceForOrder = (invoice: Invoice, order: Order) => {
+  const orderKeys = getOrderReferenceKeys(order);
+  if (orderKeys.size === 0) return false;
+  for (const invoiceKey of getInvoiceReferenceKeys(invoice)) {
+    if (orderKeys.has(invoiceKey)) return true;
+  }
+  return false;
+};
+
+const getInvoicesForOrder = (invoices: Invoice[], order: Order) =>
+  invoices.filter((invoice) => isInvoiceForOrder(invoice, order));
+
 const num = (value: unknown): number => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 };
+
+const roundMoney = (value: number): number =>
+  Math.round((value + Number.EPSILON) * 100) / 100;
 
 const numOrUndefined = (value: unknown): number | undefined => {
   if (value === undefined || value === null || value === "") return undefined;
@@ -190,6 +410,215 @@ const toTrimmedText = (value: unknown): string | undefined => {
   const text = String(value ?? "").trim();
   return text || undefined;
 };
+
+const asTrimmedString = (value: unknown) => String(value ?? "").trim();
+
+const resolvePlaceOfContactFromGstin = (gstNo: string): string | undefined => {
+  const normalized = asTrimmedString(gstNo).toUpperCase();
+  if (!normalized) return undefined;
+  const stateCode = normalized.slice(0, 2);
+  return GST_STATE_CODE_TO_PLACE_OF_CONTACT[stateCode];
+};
+
+const asAddressLine = (value: unknown): string => {
+  if (typeof value === "string") return value.trim();
+  if (!value || typeof value !== "object") return "";
+
+  const raw = value as Record<string, unknown>;
+  const parts = [
+    raw.address,
+    raw.addressLine1,
+    raw.addressLine2,
+    raw.street,
+    raw.locality,
+    raw.landmark,
+    raw.city,
+    raw.state,
+    raw.pincode,
+    raw.zip,
+  ]
+    .map((entry) => asTrimmedString(entry))
+    .filter(Boolean);
+
+  return Array.from(new Set(parts)).join(", ");
+};
+
+const splitContactName = (name: string) => {
+  const normalized = asTrimmedString(name).replace(/\s+/g, " ");
+  const [first = "", ...rest] = normalized.split(" ");
+  return {
+    firstName: first || "Customer",
+    lastName: rest.join(" ").trim(),
+  };
+};
+
+const buildZohoCustomerDraftFromOrder = (
+  order: Order,
+  customerNameHint?: string
+): ZohoCustomerDraft => {
+  const snapshot = (order.customerSnapshot || {}) as Record<string, any>;
+  const customerName =
+    asTrimmedString(customerNameHint) ||
+    asTrimmedString(snapshot.name || order.customerName) ||
+    "Customer";
+  const companyName = customerName;
+  const phone = asTrimmedString(snapshot.phone || order.customerPhone) || "";
+  const email = asTrimmedString(snapshot.email) || "";
+
+  const billingDetails = (snapshot.billingDetails || {}) as Record<string, unknown>;
+  const billingAddressLine =
+    asTrimmedString(billingDetails.billingAddress) ||
+    asAddressLine(snapshot.billingAddress) ||
+    asTrimmedString(snapshot.address) ||
+    asTrimmedString(order.customerAddress);
+  const shippingAddressLine = asAddressLine(snapshot.shippingAddress) || billingAddressLine;
+  const destinationStateCode =
+    getGstStateCodeFromAddress(snapshot.shippingAddress) ||
+    getGstStateCodeFromAddress(snapshot.billingAddress) ||
+    DEFAULT_DESTINATION_STATE_CODE;
+
+  const gstNo =
+    asTrimmedString(billingDetails.gstin) || asTrimmedString(snapshot.gstin) || "";
+  const placeOfContact =
+    asTrimmedString(billingDetails.placeOfContact) ||
+    resolvePlaceOfContactFromGstin(gstNo) ||
+    (destinationStateCode
+      ? GST_STATE_CODE_TO_PLACE_OF_CONTACT[destinationStateCode]
+      : "") ||
+    "";
+  const gstTreatment = (gstNo ? "business_gst" : "business_none") as
+    | "business_gst"
+    | "business_none"
+    | "consumer"
+    | "overseas";
+
+  const { firstName, lastName } = splitContactName(customerName);
+  const attention = [firstName, lastName].filter(Boolean).join(" ").trim() || customerName;
+
+  return {
+    contactName: customerName,
+    companyName,
+    email,
+    phone,
+    gstNo,
+    placeOfContact,
+    gstTreatment,
+    notes: `Created from Mo Track order ${asTrimmedString(order.orderNo || order.id)}.`,
+    billingAddress: {
+      attention,
+      address: billingAddressLine || undefined,
+      city: asTrimmedString(snapshot.billingAddress?.city) || undefined,
+      state:
+        asTrimmedString(snapshot.billingAddress?.state) ||
+        DEFAULT_DESTINATION_STATE,
+      zip: asTrimmedString(snapshot.billingAddress?.pincode) || undefined,
+      phone: phone || undefined,
+      country: "India",
+    },
+    shippingAddress: {
+      attention,
+      address: shippingAddressLine || undefined,
+      city: asTrimmedString(snapshot.shippingAddress?.city) || undefined,
+      state:
+        asTrimmedString(snapshot.shippingAddress?.state) ||
+        DEFAULT_DESTINATION_STATE,
+      zip: asTrimmedString(snapshot.shippingAddress?.pincode) || undefined,
+      phone: phone || undefined,
+      country: "India",
+    },
+  };
+};
+
+const buildZohoCustomerDraftFromName = (customerNameHint?: string): ZohoCustomerDraft => {
+  const customerName = asTrimmedString(customerNameHint) || "Customer";
+  const { firstName, lastName } = splitContactName(customerName);
+  const attention = [firstName, lastName].filter(Boolean).join(" ").trim() || customerName;
+  return {
+    contactName: customerName,
+    companyName: customerName,
+    email: "",
+    phone: "",
+    gstNo: "",
+    placeOfContact: "",
+    gstTreatment: "business_none",
+    notes: "Created from manual invoice flow in Mo Track.",
+    billingAddress: {
+      attention,
+      country: "India",
+    },
+    shippingAddress: {
+      attention,
+      country: "India",
+    },
+  };
+};
+
+const deriveSkuFromLineText = (value: string): string => {
+  const text = asTrimmedString(value);
+  if (!text) return "";
+  const direct = text.match(/\b([A-Za-z]{1,6}\s*[-/]?\s*\d{3,})\b/);
+  if (direct?.[1]) {
+    return direct[1].replace(/\s+/g, " ").trim().toUpperCase();
+  }
+  return "";
+};
+
+const buildZohoItemDraftFromLine = (line: ZohoLineMapping): ZohoItemDraft => {
+  const label = asTrimmedString(line.label || line.searchText) || "New Item";
+  const source = (line.sourceItem || {}) as Record<string, unknown>;
+  const unit = asTrimmedString(source.unit) || (line.itemType === "VAS" ? "PCS" : "MTR");
+  const description =
+    asTrimmedString(source.description) || asTrimmedString(line.searchText) || label;
+  const skuCandidate =
+    deriveSkuFromLineText(asTrimmedString(source.bcn)) ||
+    deriveSkuFromLineText(label) ||
+    deriveSkuFromLineText(asTrimmedString(line.searchText));
+  const gstPercent = Math.min(100, Math.max(0, num(line.gstPercent)));
+  const rate = Math.max(0, num(line.rate));
+
+  return {
+    lineKey: line.sourceKey,
+    name: label,
+    rate,
+    description,
+    sku: skuCandidate,
+    unit,
+    productType: line.itemType === "VAS" ? "service" : "goods",
+    itemType: "sales",
+    hsnOrSac: asTrimmedString(source.hsn),
+    isTaxable: true,
+    taxPercentage: gstPercent,
+    purchaseDescription: description,
+    purchaseRate: rate > 0 ? rate : undefined,
+  };
+};
+
+const toZohoCustomerOption = (customer: ZohoCustomer): ComboboxOption => ({
+  value: customer.id,
+  label: (
+    <div className="flex flex-col py-0.5">
+      <span className="text-sm font-medium">{customer.name}</span>
+      <span className="text-xs text-muted-foreground truncate">
+        {[customer.mobile, customer.email].filter(Boolean).join(" - ") || "Customer"}
+      </span>
+    </div>
+  ),
+});
+
+const toZohoItemOption = (item: ZohoItem): ComboboxOption => ({
+  value: item.id,
+  label: (
+    <div className="flex flex-col py-0.5">
+      <span className="text-sm font-medium">
+        {item.sku ? `${item.sku} - ${item.name}` : item.name}
+      </span>
+      <span className="text-xs text-muted-foreground truncate">
+        Rate {num(item.rate ?? item.purchaseRate).toFixed(2)}
+        {item.unit ? ` - ${item.unit}` : ""}
+      </span>
+    </div>
+  ),
+});
 
 const stripUndefinedDeep = (value: any): any => {
   if (value === undefined) return undefined;
@@ -233,8 +662,14 @@ const resolvePreferredBillingDetails = (
         .map((entry) => normalizeBillingDetailsSnapshot(entry))
         .filter((entry): entry is BillingDetailsSnapshot => Boolean(entry))
     : [];
-  if (entries.length === 0) return undefined;
-  return entries.find((entry) => entry.isDefault) || entries[0];
+  const preferred = entries.find((entry) => entry.isDefault) || entries[0];
+  const hydrated = stripUndefinedDeep({
+    ...preferred,
+    customerBillingAddress: customerData?.billingAddress,
+    customerShippingAddress: customerData?.shippingAddress,
+    customerGstin: toTrimmedText(customerData?.gstin)?.toUpperCase(),
+  }) as BillingDetailsSnapshot;
+  return Object.keys(hydrated).length > 0 ? hydrated : undefined;
 };
 
 const applyBillingDetailsToCandidate = (
@@ -246,38 +681,59 @@ const applyBillingDetailsToCandidate = (
   const order = candidate.order;
   const currentSnapshot = order.customerSnapshot || {};
   const currentBillingAddress = currentSnapshot.billingAddress || {};
+  const {
+    customerBillingAddress,
+    customerShippingAddress,
+    customerGstin,
+    ...billingDetails
+  } = preferredBilling;
   const mergedBillingDetails = stripUndefinedDeep({
     ...(currentSnapshot.billingDetails || {}),
-    ...preferredBilling,
+    ...billingDetails,
   });
 
   const nextSnapshot = stripUndefinedDeep({
     ...currentSnapshot,
     name: preferredBilling.billingName || currentSnapshot.name || order.customerName,
     phone: preferredBilling.billingPhone || currentSnapshot.phone || order.customerPhone,
-    gstin: preferredBilling.gstin || currentSnapshot.gstin,
+    gstin:
+      preferredBilling.gstin ||
+      customerGstin ||
+      currentSnapshot.gstin,
     billingAddress: {
       ...currentBillingAddress,
+      ...(customerBillingAddress || {}),
       line1:
         preferredBilling.billingAddress ||
+        customerBillingAddress?.line1 ||
         currentBillingAddress.line1 ||
         order.customerAddress ||
         undefined,
     },
+    shippingAddress:
+      customerShippingAddress ||
+      currentSnapshot.shippingAddress ||
+      customerBillingAddress,
     billingDetails: mergedBillingDetails,
   }) as NonNullable<Order["customerSnapshot"]>;
 
+  const hydratedOrder = {
+    ...order,
+    customerSnapshot: nextSnapshot,
+    customerName: nextSnapshot.name || order.customerName,
+    customerPhone: nextSnapshot.phone || order.customerPhone,
+    customerAddress:
+      preferredBilling.billingAddress ||
+      formatIndianAddress(nextSnapshot.billingAddress) ||
+      order.customerAddress,
+  };
+
   return {
     ...candidate,
-    order: {
-      ...order,
-      customerSnapshot: nextSnapshot,
-      customerName: nextSnapshot.name || order.customerName,
-      customerPhone: nextSnapshot.phone || order.customerPhone,
-      customerAddress:
-        preferredBilling.billingAddress ||
-        nextSnapshot.billingAddress?.line1 ||
-        order.customerAddress,
+    order: hydratedOrder,
+    taxSummary: {
+      NORMAL: buildTaxSummary(candidate.normalItems, hydratedOrder),
+      VAS: buildTaxSummary(candidate.vasItems, hydratedOrder),
     },
   };
 };
@@ -294,16 +750,88 @@ const toRateKey = (value: unknown): string =>
 const toFixedKey = (value: unknown, decimals = 4) =>
   num(value).toFixed(decimals);
 
+const extractBcnLikeKey = (value: unknown): string | undefined => {
+  const raw = String(value || "").trim();
+  if (!raw) return undefined;
+  const matched = raw.match(/\b([A-Za-z]{1,5}\s*[-/]?\s*\d{3,})\b/);
+  if (!matched) return undefined;
+  return normalizeKey(matched[1]?.replace(/[-/]/g, " "));
+};
+
+const collectDiscountLookupKeys = (value: unknown): string[] => {
+  const raw = String(value || "").trim();
+  if (!raw) return [];
+  const keys = new Set<string>();
+  const add = (candidate: unknown) => {
+    const key = normalizeKey(candidate as string);
+    if (key) keys.add(key);
+  };
+
+  add(raw);
+  raw.split(/\n+/).forEach(add);
+  raw.split(/\s+-\s+/).forEach(add);
+  raw.split("/").forEach(add);
+  add(raw.split(" - ")[0]?.trim());
+
+  const bcnLike = extractBcnLikeKey(raw);
+  if (bcnLike) keys.add(bcnLike);
+
+  return [...keys];
+};
+
+const collectFabricDiscountKeys = (entry: any): Set<string> => {
+  const keys = new Set<string>();
+  [entry?.bcn, entry?.itemName, entry?.fabricName].forEach((value) => {
+    collectDiscountLookupKeys(value).forEach((key) => keys.add(key));
+  });
+  return keys;
+};
+
 const resolveDiscountPercent = (order: Order, item: any): number => {
   const direct = numOrUndefined(item?.discountPercent ?? item?.discount);
   if (direct !== undefined) return direct;
-  const key = normalizeKey(item?.bcn || item?.description || item?.itemName);
-  if (!key) return 0;
-  const fabricDetails = (order as any)?.fabricDetails || [];
-  const match = fabricDetails.find(
-    (entry: any) => normalizeKey(entry?.fabricName) === key
-  );
-  return numOrUndefined(match?.discountPercent) ?? 0;
+
+  const targetKeys = new Set<string>();
+  [item?.bcn, item?.description, item?.itemName].forEach((value) => {
+    collectDiscountLookupKeys(value).forEach((key) => targetKeys.add(key));
+  });
+  const targetList = [...targetKeys];
+  if (!targetList.length) return 0;
+
+  const fabricDetails = Array.isArray((order as any)?.fabricDetails)
+    ? (order as any).fabricDetails
+    : [];
+  if (!fabricDetails.length) return 0;
+
+  const exactMatch = fabricDetails.find((entry: any) => {
+    const entryKeys = collectFabricDiscountKeys(entry);
+    for (const key of entryKeys) {
+      if (targetKeys.has(key)) return true;
+    }
+    return false;
+  });
+  if (exactMatch) return numOrUndefined(exactMatch?.discountPercent) ?? 0;
+
+  const fuzzyMatches = fabricDetails.filter((entry: any) => {
+    const entryKeys = [...collectFabricDiscountKeys(entry)];
+    return entryKeys.some((entryKey) =>
+      targetList.some((targetKey) => entryKey.includes(targetKey) || targetKey.includes(entryKey))
+    );
+  });
+
+  if (fuzzyMatches.length === 1) {
+    return numOrUndefined(fuzzyMatches[0]?.discountPercent) ?? 0;
+  }
+
+  if (fuzzyMatches.length > 1) {
+    const candidateDiscounts: number[] = fuzzyMatches
+      .map((entry: any) => numOrUndefined(entry?.discountPercent))
+      .filter((value: number | undefined): value is number => value !== undefined);
+    const uniqueDiscounts = Array.from(new Set(candidateDiscounts));
+    if (uniqueDiscounts.length === 1) return uniqueDiscounts[0];
+  }
+
+  return 0;
 };
 
 const resolveExclusiveRateForInvoice = (item: any): number => {
@@ -311,11 +839,11 @@ const resolveExclusiveRateForInvoice = (item: any): number => {
   const gstMode = String(item?.gstMode ?? item?.gstType ?? "").toUpperCase();
   const rawRate = num(item?.rate);
   const rawExclusive = numOrUndefined(item?.exclusiveRate);
+  if (rawExclusive !== undefined && rawExclusive > 0) return rawExclusive;
   if (gstMode === "INCL" && gst > 0) {
-    const base = rawRate || rawExclusive || 0;
-    return base ? base / (1 + gst / 100) : 0;
+    return rawRate ? rawRate / (1 + gst / 100) : 0;
   }
-  return rawExclusive ?? rawRate;
+  return rawRate;
 };
 
 // FIX 3 applied: rateKey now uses toRateKey (paise precision) not toFixedKey
@@ -393,6 +921,60 @@ const getItemMismatches = (orderItems: any[], quotationItems: any[]) => {
 const sumFabricQty = (items: any[]): number =>
   items.reduce((sum, item) => sum + resolveInvoiceItemQty(item), 0);
 
+const resolveComparableItemAmount = (item: any): number => {
+  const qty = resolveInvoiceItemQty(item);
+  const rawRate = numOrUndefined(item?.rate ?? item?.mrp ?? item?.price);
+  const storedExclusiveRate = numOrUndefined(item?.exclusiveRate);
+  const gstPercent = num(item?.gst ?? item?.gstPercent);
+  const gstMode = String(item?.gstMode ?? item?.gstType ?? "").trim().toUpperCase();
+  const exclusiveRate =
+    storedExclusiveRate !== undefined && storedExclusiveRate > 0
+      ? storedExclusiveRate
+      : rawRate !== undefined && rawRate > 0
+        ? gstMode === "INCL" && gstPercent > 0
+          ? rawRate / (1 + gstPercent / 100)
+          : rawRate
+        : undefined;
+
+  if (qty > 0 && exclusiveRate !== undefined && exclusiveRate > 0) {
+    const discountPercent = num(item?.discountPercent ?? item?.discount);
+    const baseAmount = qty * exclusiveRate;
+    const discountAmount =
+      numOrUndefined(item?.discountAmount) ?? baseAmount * (discountPercent / 100);
+    const taxableAmount = Math.max(0, baseAmount - discountAmount);
+    return taxableAmount + taxableAmount * (gstPercent / 100);
+  }
+
+  const taxableAmount = numOrUndefined(item?.taxableAmount ?? item?.taxableValue ?? item?.taxableAmt);
+  const gstAmount = numOrUndefined(item?.gstAmount ?? item?.taxAmount);
+  if (taxableAmount !== undefined) {
+    return taxableAmount + (gstAmount || 0);
+  }
+
+  const explicitTotal = numOrUndefined(item?.totalAmount ?? item?.total);
+  if (explicitTotal !== undefined && explicitTotal > 0) return explicitTotal;
+
+  return num(item?.amount);
+};
+
+const sumComparableItemAmount = (items: any[]): number =>
+  items.reduce((sum, item) => sum + resolveComparableItemAmount(item), 0);
+
+const resolveComparableGoodsTotal = (record: any, items: any[]): number => {
+  const lineTotal = sumComparableItemAmount(items);
+  if (lineTotal > 0) return lineTotal;
+
+  const storedTotals = [
+    record?.sections?.NORMAL?.summary?.grandTotal,
+    record?.overallSummary?.goodsTotal,
+  ];
+  for (const value of storedTotals) {
+    const amount = numOrUndefined(value);
+    if (amount !== undefined && amount > 0) return amount;
+  }
+  return 0;
+};
+
 const formatMismatchValues = (values: string[]): string => {
   const trimmed = values.filter(Boolean);
   if (!trimmed.length) return "";
@@ -418,14 +1000,178 @@ const pickQuotationFromSnapshot = (docs: any[]): any => {
   return withPriority[0]?.data || null;
 };
 
+const isVasLikeItem = (item: any): boolean => {
+  if (!item || typeof item !== "object") return false;
+
+  const fields = [
+    item.type,
+    item.itemType,
+    item.productType,
+    item.invoiceType,
+    item.section,
+    item.category,
+    item.categoryGroup,
+    item.group,
+  ]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  if (fields.some((value) => value === "vas" || value === "value added service")) {
+    return true;
+  }
+
+  return Boolean(item.vasName);
+};
+
 const extractQuotationNormalItems = (quotation: any): any[] => {
   const sectionItems = quotation?.sections?.NORMAL?.items;
-  if (Array.isArray(sectionItems) && sectionItems.length > 0) return sectionItems;
+  if (Array.isArray(sectionItems) && sectionItems.length > 0) {
+    return sectionItems.filter((item: any) => !isVasLikeItem(item));
+  }
   const items = Array.isArray(quotation?.items) ? quotation.items : [];
-  return items.filter((item: any) => {
+  return items.filter((item: any) => !isVasLikeItem(item));
+};
+
+const isInstantSaleLikeOrder = (order: Order): boolean => {
+  const orderRecord = order as unknown as Record<string, unknown>;
+  const instantMeta =
+    typeof orderRecord.instantQuotationMeta === "object" &&
+    orderRecord.instantQuotationMeta !== null
+      ? (orderRecord.instantQuotationMeta as Record<string, unknown>)
+      : {};
+  const instantSource = String(instantMeta.source || "").trim().toLowerCase();
+  const instantDealName = String(instantMeta.dealName || "").trim().toLowerCase();
+  const saleFlowType = String(orderRecord.saleFlowType || "").trim().toLowerCase();
+  const dealTitle = String(order.dealSnapshot?.title || "").trim().toLowerCase();
+  const updateActions = Array.isArray(order.updates)
+    ? order.updates.map((entry) => String(entry?.action || "").trim().toLowerCase())
+    : [];
+
+  return (
+    instantSource === "quotation-builder" ||
+    instantDealName.includes("cashsale") ||
+    instantDealName.includes("walkin") ||
+    saleFlowType.includes("cashsale") ||
+    saleFlowType.includes("walkin") ||
+    dealTitle.includes("cashsale") ||
+    dealTitle.includes("walkin") ||
+    updateActions.some(
+      (action) =>
+        action.includes("instant_quotation_created") || action.includes("instant-sale")
+    )
+  );
+};
+
+const mapLegacyFabricDetailToItem = (detail: any): any | null => {
+  const bcn = String(detail?.bcn || detail?.fabricName || detail?.itemName || "").trim();
+  const description = String(detail?.itemName || detail?.fabricName || detail?.bcn || "").trim();
+  const qty = num(detail?.qty ?? detail?.quantity);
+  if ((!bcn && !description) || qty <= 0) return null;
+
+  const exclusiveRate = numOrUndefined(detail?.exclusiveRate ?? detail?.rate) ?? 0;
+  return stripUndefinedDeep({
+    bcn,
+    description: description || bcn,
+    qty,
+    unit: String(detail?.unit || "MTR").trim() || "MTR",
+    rate: numOrUndefined(detail?.rate ?? detail?.exclusiveRate) ?? exclusiveRate,
+    exclusiveRate,
+    gst: numOrUndefined(detail?.gst ?? detail?.gstPercent) ?? 0,
+    discountPercent: numOrUndefined(detail?.discountPercent ?? detail?.discount) ?? 0,
+    hsn: toTrimmedText(detail?.hsn ?? detail?.hsnCode),
+    group: toTrimmedText(detail?.group),
+  });
+};
+
+const mapLegacyVasDetailToItem = (detail: any): any | null => {
+  const description = String(detail?.vasName || detail?.description || detail?.itemName || "").trim();
+  const qty = num(detail?.qty ?? detail?.quantity);
+  if (!description || qty <= 0) return null;
+
+  const exclusiveRate = numOrUndefined(detail?.exclusiveRate ?? detail?.rate) ?? 0;
+  return stripUndefinedDeep({
+    type: "VAS",
+    description,
+    qty,
+    unit: String(detail?.unit || "PCS").trim() || "PCS",
+    rate: numOrUndefined(detail?.rate ?? detail?.exclusiveRate) ?? exclusiveRate,
+    exclusiveRate,
+    gst: numOrUndefined(detail?.gst ?? detail?.gstPercent) ?? 0,
+    discountPercent: numOrUndefined(detail?.discountPercent ?? detail?.discount) ?? 0,
+    hsn: toTrimmedText(detail?.hsn ?? detail?.hsnCode),
+    group: toTrimmedText(detail?.group),
+  });
+};
+
+const extractOrderNormalItems = (order: Order): any[] => {
+  const sectionItems = order.sections?.NORMAL?.items;
+  if (Array.isArray(sectionItems) && sectionItems.length > 0) return sectionItems;
+
+  const orderItems = Array.isArray((order as any)?.items) ? (order as any).items : [];
+  const normalFromItems = orderItems.filter((item: any) => {
     const type = String(item?.type || item?.productType || "").toLowerCase();
     return type !== "vas";
   });
+  if (normalFromItems.length > 0) return normalFromItems;
+
+  const fabricDetails = Array.isArray((order as any)?.fabricDetails)
+    ? (order as any).fabricDetails
+    : [];
+  return fabricDetails
+    .map((detail: any) => mapLegacyFabricDetailToItem(detail))
+    .filter(Boolean) as any[];
+};
+
+const extractOrderVasItems = (order: Order): any[] => {
+  const sectionItems = order.sections?.VAS?.items;
+  if (Array.isArray(sectionItems) && sectionItems.length > 0) return sectionItems;
+
+  const orderItems = Array.isArray((order as any)?.items) ? (order as any).items : [];
+  const vasFromItems = orderItems.filter((item: any) => {
+    const type = String(item?.type || item?.productType || "").toLowerCase();
+    return type === "vas";
+  });
+  if (vasFromItems.length > 0) return vasFromItems;
+
+  const vasDetails = Array.isArray((order as any)?.vasDetails)
+    ? (order as any).vasDetails
+    : [];
+  return vasDetails
+    .map((detail: any) => mapLegacyVasDetailToItem(detail))
+    .filter(Boolean) as any[];
+};
+
+const resolveAllocatedQtyForInvoiceLine = (item: any): number => {
+  const lengths = Array.isArray(item?.allocation?.lengths)
+    ? item.allocation.lengths
+    : [];
+  const lots = Array.isArray(item?.allocation?.lots) ? item.allocation.lots : [];
+  const fromLengths = lengths.reduce(
+    (sum: number, entry: any) => sum + num(entry?.allocatedQty),
+    0
+  );
+  if (fromLengths > 0) return fromLengths;
+  const fromLots = lots.reduce(
+    (sum: number, entry: any) => sum + num(entry?.allocatedQty),
+    0
+  );
+  if (fromLots > 0) return fromLots;
+  return num(item?.allocation?.allocatedQty ?? item?.allocatedQty);
+};
+
+const isNormalItemEligibleForPendingInvoice = (
+  item: any,
+  allowUnallocatedFallback: boolean
+): boolean => {
+  if (allowUnallocatedFallback) return resolveInvoiceItemQty(item) > 0;
+  if (item?.allocation?.forceReinvoice === true) return true;
+  const allocationStatus = String(item?.allocation?.status || "")
+    .trim()
+    .toUpperCase();
+  if (allocationStatus === "ALLOCATED" || allocationStatus === "PARTIAL") {
+    return true;
+  }
+  return resolveAllocatedQtyForInvoiceLine(item) > 0;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -443,29 +1189,79 @@ const summarizeItems = (items: InvoiceLineItem[]) =>
     { subTotal: 0, gstTotal: 0, grandTotal: 0 }
   );
 
-const buildTaxSummary = (items: InvoiceLineItem[]) =>
+const resolveOrderTaxMode = (order: Order) =>
+  resolveGstTaxMode({
+    sellerGstin: "06AAMCM5012B1ZY",
+    destinationGstin:
+      order.customerSnapshot?.billingDetails?.gstin ||
+      order.customerSnapshot?.gstin,
+    shippingAddress: order.customerSnapshot?.shippingAddress,
+    billingAddress:
+      order.customerSnapshot?.billingAddress || order.customerAddress,
+  }).mode;
+
+const buildTaxSummary = (items: InvoiceLineItem[], order: Order) =>
   items.reduce(
     (acc, item) => {
       const gst = num(item.gstAmount);
-      acc.cgst += gst / 2;
-      acc.sgst += gst / 2;
+      const allocated = allocateGstByTaxMode(gst, resolveOrderTaxMode(order));
+      acc.cgst += allocated.cgst;
+      acc.sgst += allocated.sgst;
+      acc.igst += allocated.igst;
       return acc;
     },
     { cgst: 0, sgst: 0, igst: 0 }
+  );
+
+const isInvoiceCountableForInvoicing = (invoice: Invoice): boolean => {
+  const rawStatus = String((invoice as any)?.status || "").trim().toUpperCase();
+  if (rawStatus === "CANCELLED" || rawStatus === "VOID") return false;
+  if (rawStatus === "PENDINGINVOICE") return false;
+  return true;
+};
+
+const invoiceIncludesSection = (invoice: Invoice, section: "NORMAL" | "VAS"): boolean => {
+  const invoiceType = String(invoice.invoiceType || ((invoice as any).isVas ? "VAS" : ""))
+    .trim()
+    .toUpperCase();
+  if (invoiceType === "MIXED") return true;
+  if (section === "NORMAL" && (invoiceType === "NORMAL" || invoiceType === "GOODS")) {
+    return true;
+  }
+  if (section === "VAS" && invoiceType === "VAS") return true;
+
+  const sectionItems = invoice.sections?.[section]?.items;
+  if (Array.isArray(sectionItems) && sectionItems.length > 0) return true;
+
+  if (section === "NORMAL" && !invoice.sections?.VAS?.items?.length) {
+    return Array.isArray(invoice.items) && invoice.items.length > 0 && invoiceType !== "VAS";
+  }
+
+  return false;
+};
+
+const hasGeneratedInvoiceForSection = (
+  order: Order,
+  invoices: Invoice[],
+  section: "NORMAL" | "VAS"
+): boolean =>
+  getInvoicesForOrder(invoices.filter(isInvoiceCountableForInvoicing), order).some((invoice) =>
+    invoiceIncludesSection(invoice, section)
   );
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FIX 4: computeInvoicingStatus — now uses resolveInvoiceItemQty everywhere
 // ─────────────────────────────────────────────────────────────────────────────
 const computeInvoicingStatus = (order: Order, invoices: Invoice[]): string => {
+  const effectiveInvoices = invoices.filter(isInvoiceCountableForInvoicing);
   const orderedNormal = new Map<string, number>();
-  (order.sections?.NORMAL?.items || []).forEach((item: any) => {
+  extractOrderNormalItems(order).forEach((item: any) => {
     const key = normalizeKey(item.bcn || item.description || item.itemName);
     if (key) orderedNormal.set(key, num(orderedNormal.get(key)) + resolveInvoiceItemQty(item)); // ← FIX 4
   });
 
   const orderedVas = new Map<string, number>();
-  (order.sections?.VAS?.items || []).forEach((item: any) => {
+  extractOrderVasItems(order).forEach((item: any) => {
     const key = normalizeKey(item.description || item.bcn || item.itemName);
     if (key) orderedVas.set(key, num(orderedVas.get(key)) + resolveInvoiceItemQty(item)); // ← FIX 4
   });
@@ -473,7 +1269,7 @@ const computeInvoicingStatus = (order: Order, invoices: Invoice[]): string => {
   const invoicedNormal = new Map<string, number>();
   const invoicedVas = new Map<string, number>();
 
-  invoices.forEach((invoice) => {
+  effectiveInvoices.forEach((invoice) => {
     const hasSections =
       (invoice.sections?.NORMAL?.items?.length || 0) > 0 ||
       (invoice.sections?.VAS?.items?.length || 0) > 0;
@@ -501,7 +1297,7 @@ const computeInvoicingStatus = (order: Order, invoices: Invoice[]): string => {
     });
   });
 
-  if (!invoices.length) return "NOT_INVOICED";
+  if (!effectiveInvoices.length) return "NOT_INVOICED";
 
   const goodsRemaining = [...orderedNormal.entries()].some(
     ([key, qty]) => num(invoicedNormal.get(key)) < qty
@@ -540,23 +1336,41 @@ async function commitInChunks(ops: BatchOp[]): Promise<void> {
     await batch.commit();
   }
 }
+// ─────────────────────────────────────────────────────────────────────────────
+// Returns true when the order's status resolves to "INSTALLATION DONE".
+// Uses the same logic as the Orders Dashboard so old and new order formats both match.
+const isOrderInstallationDone = (order: Order): boolean =>
+  getOrderStatusLabel(order) === "INSTALLATION DONE";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CORE: buildInvoiceCandidates — FIX 2 (VAS per-item tracking) + FIX 3 + FIX 4
 // ─────────────────────────────────────────────────────────────────────────────
-const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCandidate[] => {
-  const invoicesByOrder = invoices.reduce((acc, invoice) => {
-    const key = invoice.orderId;
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(invoice);
-    return acc;
-  }, {} as Record<string, Invoice[]>);
+type BuildInvoiceCandidateOptions = {
+  includeInvoiceBypassOrders?: boolean;
+  allowUnallocatedForBypassOrders?: boolean;
+};
+
+const buildInvoiceCandidates = (
+  orders: Order[],
+  invoices: Invoice[],
+  options?: BuildInvoiceCandidateOptions
+): InvoiceCandidate[] => {
+  const includeInvoiceBypassOrders = options?.includeInvoiceBypassOrders === true;
+  const allowUnallocatedForBypassOrders = options?.allowUnallocatedForBypassOrders === true;
+  const effectiveInvoices = invoices.filter(isInvoiceCountableForInvoicing);
 
   return orders
     .map((order) => {
-      if (order.invoicing?.invoiceRequired === false) return null;
+      if (!includeInvoiceBypassOrders && order.invoicing?.invoiceRequired === false) return null;
 
-      const orderInvoices = invoicesByOrder[order.id] || [];
+      // Orders that have reached "Installation Done" are considered complete —
+      // they should not appear in the pending invoice queue.
+      // Uses milestone-based check so older orders without workflow.status also match.
+      if (!includeInvoiceBypassOrders && !isInstantSaleLikeOrder(order)) {
+        if (isOrderInstallationDone(order)) return null;
+      }
+
+      const orderInvoices = getInvoicesForOrder(effectiveInvoices, order);
       const invoicedQtyByGroup = new Map<string, number>();
       const invoicedQtyByLength = new Map<string, number>();
 
@@ -589,19 +1403,26 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
       });
 
       // ── NORMAL items ────────────────────────────────────────────────────────
-      const normalItemsRaw = order.sections?.NORMAL?.items || [];
+      const normalItemsRaw = extractOrderNormalItems(order);
       const normalInvoiceItems: InvoiceLineItem[] = [];
 
       type GroupEntry = {
         representative: any;
         groupKey: string;
         requiredQty: number;
-        lotsAllocatedQty: number;
+        allocatedQty: number;
         lengths: Map<string, { qty: number; stockItemId?: string }>;
+        forceReinvoice: boolean;
       };
       const groupedNormalItems = new Map<string, GroupEntry>();
+      const shouldAllowUnallocatedFallback =
+        allowUnallocatedForBypassOrders &&
+        (order.invoicing?.invoiceRequired === false || isInstantSaleLikeOrder(order));
 
       normalItemsRaw.forEach((item: any) => {
+        if (!isNormalItemEligibleForPendingInvoice(item, shouldAllowUnallocatedFallback)) {
+          return;
+        }
         const discountPercent = resolveDiscountPercent(order, item);
         const bcnKey = normalizeKey(item?.bcn || item?.description || item?.itemName);
         const groupKey = buildNormalInvoiceGroupingKey(item, discountPercent); // FIX 3
@@ -612,15 +1433,16 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
           representative: item,
           groupKey,
           requiredQty: 0,
-          lotsAllocatedQty: 0,
+          allocatedQty: 0,
           lengths: new Map(),
+          forceReinvoice: false,
         };
 
         group.requiredQty += resolveInvoiceItemQty(item); // FIX 4
-        group.lotsAllocatedQty += (item?.allocation?.lots || []).reduce(
-          (sum: number, entry: any) => sum + num(entry?.allocatedQty),
-          0
-        );
+        if ((item as any)?.allocation?.forceReinvoice === true) {
+          group.forceReinvoice = true;
+        }
+        group.allocatedQty += resolveAllocatedQtyForInvoiceLine(item);
 
         (item?.allocation?.lengths || []).forEach((length: any) => {
           const lengthId = String(length?.lengthId || "").trim();
@@ -645,9 +1467,26 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
           (sum, entry) => sum + num(entry.qty),
           0
         );
-        const allocatedTotalRaw = allocatedFromLengths + num(group.lotsAllocatedQty);
+        const allocatedFromLines = num(group.allocatedQty);
+        // Length allocations and lot allocations often describe the same quantity.
+        // Prefer the larger of length-level rollup and line-level allocation rollup.
+        let allocatedTotalRaw =
+          allocatedFromLengths > 0
+            ? Math.max(allocatedFromLengths, allocatedFromLines)
+            : allocatedFromLines;
+        if (
+          shouldAllowUnallocatedFallback &&
+          allocatedTotalRaw <= 0 &&
+          num(group.requiredQty) > 0
+        ) {
+          // Instant / cashsale flow may not have stock allocation yet.
+          // Allow manual invoicing from order/quotation quantities.
+          allocatedTotalRaw = num(group.requiredQty);
+        }
         const allocatedTotal = Math.min(allocatedTotalRaw, num(group.requiredQty));
-        const alreadyInvoiced = num(invoicedQtyByGroup.get(group.groupKey));
+        const alreadyInvoiced = group.forceReinvoice
+          ? 0
+          : num(invoicedQtyByGroup.get(group.groupKey));
         let remaining = Math.max(0, allocatedTotal - alreadyInvoiced);
         if (remaining <= 0) return;
 
@@ -663,7 +1502,9 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
             if (remaining <= 0) break;
             const lengthRemaining = Math.max(
               0,
-              num(lengthMeta.qty) - num(invoicedQtyByLength.get(lengthId))
+              group.forceReinvoice
+                ? num(lengthMeta.qty)
+                : num(lengthMeta.qty) - num(invoicedQtyByLength.get(lengthId))
             );
             if (lengthRemaining <= 0) continue;
             const qty = Math.min(remaining, lengthRemaining);
@@ -682,7 +1523,7 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
           }
         }
 
-        if (remaining > 0) {
+        if (remaining > 0.000001) {
           const qty = remaining;
           const baseAmount = rate * qty;
           const discountAmount = baseAmount * (discountPercent / 100);
@@ -698,7 +1539,7 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
       });
 
       // ── FIX 2: VAS items — per-item qty tracking ────────────────────────────
-      const vasItemsRaw = order.sections?.VAS?.items || [];
+      const vasItemsRaw = extractOrderVasItems(order);
       const vasInvoiceItems: InvoiceLineItem[] = [];
 
       vasItemsRaw.forEach((item: any) => {
@@ -742,8 +1583,8 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
           grandTotal: normalSummary.grandTotal + vasSummary.grandTotal,
         },
         taxSummary: {
-          NORMAL: buildTaxSummary(normalInvoiceItems),
-          VAS: buildTaxSummary(vasInvoiceItems),
+          NORMAL: buildTaxSummary(normalInvoiceItems, order),
+          VAS: buildTaxSummary(vasInvoiceItems, order),
         },
       } as InvoiceCandidate;
     })
@@ -767,12 +1608,198 @@ const createSectionCandidate = (
       vasTotal: vasSummary.grandTotal,
       grandTotal: normalSummary.grandTotal + vasSummary.grandTotal,
     },
-    taxSummary: { NORMAL: buildTaxSummary(normalItems), VAS: buildTaxSummary(vasItems) },
+    taxSummary: {
+      NORMAL: buildTaxSummary(normalItems, candidate.order),
+      VAS: buildTaxSummary(vasItems, candidate.order),
+    },
+  };
+};
+
+const normalizeVasCandidateFromQuotation = (
+  candidate: InvoiceCandidate,
+  quotation: Quotation
+): InvoiceCandidate => {
+  if (!isVasOnlyCandidate(candidate)) return candidate;
+
+  const expected = buildOrderPricingFromQuotation(quotation);
+  if (expected.vasItems.length === 0) return candidate;
+
+  const vasItems = expected.vasItems.map((item) => ({
+    ...item,
+    type: "VAS",
+  })) as InvoiceLineItem[];
+  const vasSummary = summarizeItems(vasItems);
+  const storedGoodsTotal = num(
+    candidate.order.overallSummary?.goodsTotal ??
+      candidate.order.sections?.NORMAL?.summary?.grandTotal
+  );
+  const orderOverallSummary = {
+    goodsTotal: storedGoodsTotal,
+    vasTotal: vasSummary.grandTotal,
+    grandTotal: storedGoodsTotal + vasSummary.grandTotal,
+  };
+  const normalizedOrder: Order = {
+    ...candidate.order,
+    sections: {
+      ...candidate.order.sections,
+      VAS: {
+        ...(candidate.order.sections?.VAS || {}),
+        items: vasItems,
+        summary: vasSummary,
+      },
+    },
+    overallSummary: orderOverallSummary,
+    totalAmount: orderOverallSummary.grandTotal,
+  };
+
+  return {
+    ...candidate,
+    order: normalizedOrder,
+    vasItems,
+    vasSummary,
+    overallSummary: {
+      goodsTotal: 0,
+      vasTotal: vasSummary.grandTotal,
+      grandTotal: vasSummary.grandTotal,
+    },
+    taxSummary: {
+      NORMAL: buildTaxSummary(candidate.normalItems, normalizedOrder),
+      VAS: buildTaxSummary(vasItems, normalizedOrder),
+    },
+  };
+};
+
+const buildManualCandidateFromOrder = (order: Order): InvoiceCandidate | null => {
+  const normalItemsRaw = extractOrderNormalItems(order);
+  const vasItemsRaw = extractOrderVasItems(order);
+
+  const normalItems: InvoiceLineItem[] = normalItemsRaw
+    .map((item: any) => {
+      const qty = resolveInvoiceItemQty(item);
+      if (qty <= 0) return null;
+      const exclusiveRate = item.exclusiveRate ?? resolveExclusiveRateForInvoice(item);
+      const rate = exclusiveRate;
+      const gst = num(item.gst ?? item.gstPercent);
+      const discountPercent = resolveDiscountPercent(order, item);
+      const baseAmount = rate * qty;
+      const discountAmount = baseAmount * (discountPercent / 100);
+      const taxableAmount = Math.max(0, baseAmount - discountAmount);
+      const gstAmount = taxableAmount * (gst / 100);
+      return {
+        roomName: item.roomName,
+        type: item.type,
+        bcn: item.bcn,
+        description: item.description || item.itemName || item.bcn,
+        unit: item.unit || "MTR",
+        exclusiveRate,
+        rate,
+        qty,
+        gst,
+        discountPercent,
+        discountAmount,
+        hsn: item.hsn,
+        group: item.group,
+        taxableAmount,
+        gstAmount,
+        totalAmount: taxableAmount + gstAmount,
+      } as InvoiceLineItem;
+    })
+    .filter(Boolean) as InvoiceLineItem[];
+
+  const vasItems: InvoiceLineItem[] = vasItemsRaw
+    .map((item: any) => {
+      const qty = resolveInvoiceItemQty(item);
+      if (qty <= 0) return null;
+      const exclusiveRate = item.exclusiveRate ?? resolveExclusiveRateForInvoice(item);
+      const rate = exclusiveRate;
+      const gst = num(item.gst ?? item.gstPercent);
+      const discountPercent = resolveDiscountPercent(order, item);
+      const baseAmount = rate * qty;
+      const discountAmount = baseAmount * (discountPercent / 100);
+      const taxableAmount = Math.max(0, baseAmount - discountAmount);
+      const gstAmount = taxableAmount * (gst / 100);
+      return {
+        roomName: item.roomName,
+        type: "VAS",
+        description: item.description || item.itemName || item.vasName || "VAS",
+        unit: item.unit || "PCS",
+        exclusiveRate,
+        rate,
+        qty,
+        gst,
+        discountPercent,
+        discountAmount,
+        hsn: item.hsn,
+        group: item.group,
+        taxableAmount,
+        gstAmount,
+        totalAmount: taxableAmount + gstAmount,
+      } as InvoiceLineItem;
+    })
+    .filter(Boolean) as InvoiceLineItem[];
+
+  if (normalItems.length === 0 && vasItems.length === 0) return null;
+
+  const normalSummary = summarizeItems(normalItems);
+  const vasSummary = summarizeItems(vasItems);
+
+  return {
+    order,
+    normalItems,
+    vasItems,
+    normalSummary,
+    vasSummary,
+    overallSummary: {
+      goodsTotal: normalSummary.grandTotal,
+      vasTotal: vasSummary.grandTotal,
+      grandTotal: normalSummary.grandTotal + vasSummary.grandTotal,
+    },
+    taxSummary: {
+      NORMAL: buildTaxSummary(normalItems, order),
+      VAS: buildTaxSummary(vasItems, order),
+    },
+  };
+};
+
+const buildCandidateFromLines = (
+  baseCandidate: InvoiceCandidate,
+  normalItems: InvoiceLineItem[],
+  vasItems: InvoiceLineItem[]
+): InvoiceCandidate => {
+  const normalSummary = summarizeItems(normalItems);
+  const vasSummary = summarizeItems(vasItems);
+
+  return {
+    order: baseCandidate.order,
+    normalItems,
+    vasItems,
+    normalSummary,
+    vasSummary,
+    overallSummary: {
+      goodsTotal: normalSummary.grandTotal,
+      vasTotal: vasSummary.grandTotal,
+      grandTotal: normalSummary.grandTotal + vasSummary.grandTotal,
+    },
+    taxSummary: {
+      NORMAL: buildTaxSummary(normalItems, baseCandidate.order),
+      VAS: buildTaxSummary(vasItems, baseCandidate.order),
+    },
   };
 };
 
 const buildPrintablePayload = (candidate: InvoiceCandidate, invoiceNo?: string) => {
   const { order, normalItems, vasItems } = candidate;
+  const isVasOnly = normalItems.length === 0 && vasItems.length > 0;
+  const sellerGstin = isVasOnly ? "06CDOPP2805B1ZR" : "06AAMCM5012B1ZY";
+  const taxJurisdiction = resolveGstTaxMode({
+    sellerGstin,
+    destinationGstin:
+      order.customerSnapshot?.billingDetails?.gstin ||
+      order.customerSnapshot?.gstin,
+    shippingAddress: order.customerSnapshot?.shippingAddress,
+    billingAddress:
+      order.customerSnapshot?.billingAddress || order.customerAddress,
+  });
   const mergedItems = [...normalItems, ...vasItems].map((item) => {
     const gstAmount = num(item.gstAmount);
     const discountPercent = num(item.discountPercent);
@@ -780,13 +1807,16 @@ const buildPrintablePayload = (candidate: InvoiceCandidate, invoiceNo?: string) 
     const baseAmount = rate * num(item.qty);
     const discountAmount =
       numOrUndefined(item.discountAmount) ?? baseAmount * (discountPercent / 100);
+    const allocatedTax = allocateGstByTaxMode(gstAmount, taxJurisdiction.mode);
     return {
       name: item.description || item.bcn || "",
       bcn: item.bcn || (item.type === "VAS" ? `VAS-${item.description}` : ""),
       hsn: item.hsn || "", quantity: num(item.qty), uom: item.unit || "MTR",
       rate, exclusiveRate: numOrUndefined(item.exclusiveRate), discountPercent,
-      taxableAmount: num(item.taxableAmount), cgst: gstAmount / 2, sgst: gstAmount / 2,
-      igst: 0, total: num(item.totalAmount), discountAmount,
+      taxableAmount: num(item.taxableAmount),
+      ...allocatedTax,
+      total: num(item.totalAmount),
+      discountAmount,
     };
   });
 
@@ -808,27 +1838,61 @@ const buildPrintablePayload = (candidate: InvoiceCandidate, invoiceNo?: string) 
     { subTotal: 0, discount: 0, taxableValue: 0, cgst: 0, sgst: 0, igst: 0 }
   );
 
-  const netAmount = totals.taxableValue + totals.cgst + totals.sgst + totals.igst;
+  const netAmount = roundMoney(
+    totals.taxableValue + totals.cgst + totals.sgst + totals.igst
+  );
   const roundedTotal = Math.round(netAmount);
-  const isVasOnly = normalItems.length === 0 && vasItems.length > 0;
+  const gstBreakdown = Array.from(
+    mergedItems.reduce((groups, item) => {
+      const totalTax = item.cgst + item.sgst + item.igst;
+      const rate = item.taxableAmount > 0
+        ? roundMoney((totalTax / item.taxableAmount) * 100)
+        : 0;
+      const current = groups.get(rate) || {
+        rate,
+        taxable: 0,
+        cgst: 0,
+        sgst: 0,
+        igst: 0,
+      };
+      current.taxable += item.taxableAmount;
+      current.cgst += item.cgst;
+      current.sgst += item.sgst;
+      current.igst += item.igst;
+      groups.set(rate, current);
+      return groups;
+    }, new Map<number, {
+      rate: number;
+      taxable: number;
+      cgst: number;
+      sgst: number;
+      igst: number;
+    }>()).values()
+  );
   const snapshotBillingDetails = order.customerSnapshot?.billingDetails;
   const resolvedCustomerName =
     snapshotBillingDetails?.billingName || order.customerSnapshot?.name || order.customerName;
   const resolvedCustomerPhone =
     snapshotBillingDetails?.billingPhone || order.customerSnapshot?.phone || order.customerPhone;
   const resolvedCustomerAddress =
-    snapshotBillingDetails?.billingAddress ||
-    order.customerSnapshot?.billingAddress?.line1 ||
+    sanitizeLegacySelectText(snapshotBillingDetails?.billingAddress) ||
+    formatIndianAddress(order.customerSnapshot?.billingAddress) ||
     order.customerAddress;
   const resolvedCustomerGstin =
     snapshotBillingDetails?.gstin || order.customerSnapshot?.gstin;
+  const destinationAddress =
+    order.customerSnapshot?.shippingAddress ||
+    order.customerSnapshot?.billingAddress;
+  const destinationState = formatInvoiceState(destinationAddress?.state);
+  const destinationPincode = destinationAddress?.pincode;
+  const invoiceDate = new Date().toISOString();
 
   return {
     meta: {
       invoiceNo,
       orderNo: order.orderNo || order.id,
       quotationNo: order.quotationNo || order.crmOrderNo,
-      invoiceDate: new Date().toISOString(),
+      invoiceDate,
       isVas: isVasOnly,
       salesPerson: order.salesPerson,
     },
@@ -837,25 +1901,29 @@ const buildPrintablePayload = (candidate: InvoiceCandidate, invoiceNo?: string) 
       phone: resolvedCustomerPhone,
       address: resolvedCustomerAddress,
       gstin: resolvedCustomerGstin,
+      state: destinationState,
+      pincode: destinationPincode,
+      placeOfSupply: destinationState,
+      taxMode: taxJurisdiction.mode,
       billingDetails: snapshotBillingDetails,
     },
     seller: {
       companyName: isVasOnly
         ? "SP SERVICES"
-        : "MO Designs Private Limited - (2024-2025)",
+        : getMoDesignsCompanyName(invoiceDate),
       address: isVasOnly
         ? "2nd Floor, B-50 (MO), Sushant Lok Phase 2, Block B, Sector 56, Gurugram - 122011, Haryana, India"
         : "A-6, Sushant Lok-1, Gurgaon",
-      gstin: isVasOnly ? "06CDOPP2805B1ZR" : "06AAMCM5012B1ZY",
+      gstin: sellerGstin,
     },
     items: mergedItems,
     totals: {
       ...totals,
-      roundOff: roundedTotal - netAmount,
+      roundOff: roundMoney(roundedTotal - netAmount),
       grandTotal: roundedTotal,
       totalGst: totals.cgst + totals.sgst + totals.igst,
     },
-    gstBreakdown: [],
+    gstBreakdown,
   };
 };
 
@@ -864,51 +1932,1119 @@ const buildPrintablePayload = (candidate: InvoiceCandidate, invoiceNo?: string) 
 // ─────────────────────────────────────────────────────────────────────────────
 
 function GenerateInvoiceDialog({
+  isOpen,
   candidate,
   invoices,
+  zohoBotEnabled,
   onValidateBeforeGenerate,
-  allowVerificationBypass,
   onClose,
+  onSuccess,
 }: {
+  isOpen: boolean;
   candidate: InvoiceCandidate | null;
   invoices: Invoice[];
+  zohoBotEnabled: boolean;
   onValidateBeforeGenerate: (candidate: InvoiceCandidate) => Promise<InvoiceVerificationResult>;
-  allowVerificationBypass: boolean;
   onClose: () => void;
+  onSuccess?: (hasRemainingVas: boolean, invoice?: Invoice) => void;
 }) {
-  const { user } = useAuth();
+  const { user, firebaseUser } = useAuth();
   const { toast } = useToast();
   const [isGenerating, setIsGenerating] = React.useState(false);
+  const [isInvoiceNumberLoading, setIsInvoiceNumberLoading] = React.useState(false);
+  const [isAutoLinkingItems, setIsAutoLinkingItems] = React.useState(false);
+  const [zohoCustomerId, setZohoCustomerId] = React.useState("");
+  const [zohoInvoiceNumber, setZohoInvoiceNumber] = React.useState("");
+  const [zohoInvoiceDate, setZohoInvoiceDate] = React.useState(() =>
+    new Date().toISOString().slice(0, 10)
+  );
+  const [zohoSalesperson, setZohoSalesperson] = React.useState("");
+  const [zohoStoreName, setZohoStoreName] = React.useState("");
+  const [zohoCustomerSearchQuery, setZohoCustomerSearchQuery] = React.useState("");
+  const [hasCustomerSearchAttempted, setHasCustomerSearchAttempted] = React.useState(false);
+  const [zohoCustomerOptions, setZohoCustomerOptions] = React.useState<ComboboxOption[]>([]);
+  const [zohoCustomerById, setZohoCustomerById] = React.useState<Record<string, ZohoCustomer>>(
+    {}
+  );
+  const [isCreateCustomerOpen, setIsCreateCustomerOpen] = React.useState(false);
+  const [isCreatingCustomer, setIsCreatingCustomer] = React.useState(false);
+  const [customerDraft, setCustomerDraft] = React.useState<ZohoCustomerDraft | null>(null);
+  const [zohoLineMappings, setZohoLineMappings] = React.useState<ZohoLineMapping[]>([]);
+  const [zohoItemOptionsByLineKey, setZohoItemOptionsByLineKey] = React.useState<
+    Record<string, ComboboxOption[]>
+  >({});
+  const [zohoItemById, setZohoItemById] = React.useState<Record<string, ZohoItem>>({});
+  const [itemSearchQueryByLineKey, setItemSearchQueryByLineKey] = React.useState<
+    Record<string, string>
+  >({});
+  const [itemSearchAttemptedByLineKey, setItemSearchAttemptedByLineKey] = React.useState<
+    Record<string, boolean>
+  >({});
+  const [isCreateItemOpen, setIsCreateItemOpen] = React.useState(false);
+  const [isCreatingItem, setIsCreatingItem] = React.useState(false);
+  const [itemDraft, setItemDraft] = React.useState<ZohoItemDraft | null>(null);
+  const autoLinkedOrderRef = React.useRef<string | null>(null);
+  const isManualMode = !candidate;
 
-  if (!candidate) return null;
+  const fetchZohoInvoiceNumber = React.useCallback(
+    async (customerId: string, storeName?: string) => {
+      const selectedCustomerId = String(customerId || "").trim();
+      if (!selectedCustomerId) {
+        setZohoInvoiceNumber("");
+        return;
+      }
+      setIsInvoiceNumberLoading(true);
+      try {
+        const query = new URLSearchParams({
+          customerId: selectedCustomerId,
+        });
+        const trimmedStore = String(storeName || "").trim();
+        if (trimmedStore) query.set("store", trimmedStore);
+        const response = await fetch(
+          `/api/zoho/invoices/next-number?${query.toString()}`,
+          { cache: "no-store" }
+        );
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(String(result?.error || "Unable to fetch Zoho invoice number."));
+        }
+        const nextNumber = applyZohoInvoicePrefixForStore(result?.nextNumber, trimmedStore);
+        setZohoInvoiceNumber(String(nextNumber || "").trim());
+      } catch (error: any) {
+        setZohoInvoiceNumber("");
+        toast({
+          variant: "destructive",
+          title: "Zoho invoice number failed",
+          description:
+            error?.message || "Could not fetch Zoho invoice number. Zoho will auto-generate it.",
+        });
+      } finally {
+        setIsInvoiceNumberLoading(false);
+      }
+    },
+    [toast]
+  );
 
-  const payload = buildPrintablePayload(candidate);
+  const searchZohoCustomers = React.useCallback(async (query: string) => {
+    const trimmed = String(query || "").trim();
+    if (trimmed.length < 2) {
+      setZohoCustomerOptions([]);
+      return;
+    }
 
-  // ─── FIX 1: ATOMIC INVOICE NUMBER via runTransaction ───────────────────────
+    const response = await fetch(`/api/zoho/customers?search=${encodeURIComponent(trimmed)}`, {
+      cache: "no-store",
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(String(result?.error || "Could not load Zoho customers."));
+    }
+
+    const customers = (Array.isArray(result.customers) ? result.customers : []) as ZohoCustomer[];
+    setZohoCustomerById((prev) => {
+      const next = { ...prev };
+      customers.forEach((customer) => {
+        next[customer.id] = customer;
+      });
+      return next;
+    });
+    setZohoCustomerOptions(customers.map(toZohoCustomerOption));
+  }, []);
+
+  const handleZohoCustomerSearch = React.useCallback(
+    async (query: string) => {
+      const trimmed = String(query || "").trim();
+      setZohoCustomerSearchQuery(query);
+      setHasCustomerSearchAttempted(trimmed.length >= 2);
+      await searchZohoCustomers(query);
+    },
+    [searchZohoCustomers]
+  );
+
+  const updateCustomerDraft = React.useCallback((patch: Partial<ZohoCustomerDraft>) => {
+    setCustomerDraft((prev) => (prev ? { ...prev, ...patch } : prev));
+  }, []);
+
+  const updateCustomerAddressDraft = React.useCallback(
+    (key: "billingAddress" | "shippingAddress", patch: Partial<ZohoCustomerDraftAddress>) => {
+      setCustomerDraft((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          [key]: {
+            ...(prev[key] || {}),
+            ...patch,
+          },
+        };
+      });
+    },
+    []
+  );
+
+  const openCreateCustomerDialog = React.useCallback(
+    (nameHint?: string) => {
+      if (isVasOnlyCandidate(candidate)) return;
+      const resolvedNameHint = asTrimmedString(nameHint) || asTrimmedString(zohoCustomerSearchQuery);
+      const nextDraft = candidate
+        ? buildZohoCustomerDraftFromOrder(candidate.order, resolvedNameHint)
+        : buildZohoCustomerDraftFromName(resolvedNameHint);
+      setCustomerDraft(nextDraft);
+      setIsCreateCustomerOpen(true);
+    },
+    [candidate, zohoCustomerSearchQuery]
+  );
+
+  const handleCreateZohoCustomer = React.useCallback(async () => {
+    if (isVasOnlyCandidate(candidate)) return;
+    if (!customerDraft) return;
+
+    setIsCreatingCustomer(true);
+    try {
+      const response = await fetch("/api/zoho/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(customerDraft),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(String(result?.error || "Failed to create Zoho customer."));
+      }
+
+      const created = result?.customer as ZohoCustomer | undefined;
+      const customerId = asTrimmedString(created?.id);
+      const customerName = asTrimmedString(created?.name || customerDraft.contactName);
+      if (!customerId) {
+        throw new Error("Zoho customer was created but response is missing customer id.");
+      }
+
+      setZohoCustomerById((prev) => ({
+        ...prev,
+        [customerId]: {
+          id: customerId,
+          name: customerName || customerDraft.contactName,
+          mobile: asTrimmedString(created?.mobile || customerDraft.phone) || undefined,
+          email: asTrimmedString(created?.email || customerDraft.email) || undefined,
+          gstNo: asTrimmedString(created?.gstNo || customerDraft.gstNo) || undefined,
+        },
+      }));
+      setZohoCustomerOptions((prev) => {
+        const existing = prev.some((option) => String(option.value) === customerId);
+        if (existing) return prev;
+        const option = toZohoCustomerOption({
+          id: customerId,
+          name: customerName || customerDraft.contactName,
+          mobile: asTrimmedString(created?.mobile || customerDraft.phone) || undefined,
+          email: asTrimmedString(created?.email || customerDraft.email) || undefined,
+          gstNo: asTrimmedString(created?.gstNo || customerDraft.gstNo) || undefined,
+        });
+        return [option, ...prev];
+      });
+      setZohoCustomerId(customerId);
+      setIsCreateCustomerOpen(false);
+
+      toast({
+        title: "Zoho customer created",
+        description: customerName
+          ? `${customerName} has been created in Zoho.`
+          : "Customer has been created in Zoho.",
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Create customer failed",
+        description: asTrimmedString(error?.message) || "Could not create Zoho customer.",
+      });
+    } finally {
+      setIsCreatingCustomer(false);
+    }
+  }, [candidate, customerDraft, toast]);
+
+  const fetchZohoItemsForLine = React.useCallback(async (lineKey: string, query: string) => {
+    const trimmed = String(query || "").trim();
+    if (trimmed.length < 2) {
+      setZohoItemOptionsByLineKey((prev) => ({ ...prev, [lineKey]: [] }));
+      return [] as ZohoItem[];
+    }
+
+    const response = await fetch(
+      `/api/zoho/items?usage=sales&search=${encodeURIComponent(trimmed)}`,
+      { cache: "no-store" }
+    );
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(String(result?.error || "Unable to search Zoho items."));
+    }
+
+    const fetchedItems = (Array.isArray(result.items) ? result.items : []) as ZohoItem[];
+    setZohoItemById((prev) => {
+      const next = { ...prev };
+      fetchedItems.forEach((item) => {
+        next[item.id] = item;
+      });
+      return next;
+    });
+    setZohoItemOptionsByLineKey((prev) => ({
+      ...prev,
+      [lineKey]: fetchedItems.map(toZohoItemOption),
+    }));
+
+    return fetchedItems;
+  }, []);
+
+  const selectZohoItemForLine = React.useCallback(
+    (lineKey: string, itemId: string) => {
+      const selectedItemId = String(itemId || "").trim();
+      const item = zohoItemById[selectedItemId];
+      const selectedSearchText = asTrimmedString(item?.sku || item?.name);
+      if (selectedSearchText) {
+        setItemSearchQueryByLineKey((prev) => ({ ...prev, [lineKey]: selectedSearchText }));
+      }
+      setItemSearchAttemptedByLineKey((prev) => ({ ...prev, [lineKey]: false }));
+      setZohoLineMappings((prev) =>
+        prev.map((line) =>
+          line.sourceKey !== lineKey
+            ? line
+            : {
+                ...line,
+                zohoItemId: selectedItemId,
+                label:
+                  line.isManual && !String(line.label || "").trim()
+                    ? String(item?.sku || item?.name || line.label || "").trim()
+                    : line.label,
+                searchText:
+                  line.isManual && !String(line.searchText || "").trim()
+                    ? String(item?.sku || item?.name || line.searchText || "").trim()
+                    : line.searchText,
+                rate:
+                  line.isManual && num(line.rate) <= 0
+                    ? num(item?.rate ?? item?.purchaseRate)
+                    : line.rate,
+                zohoItemName: item?.name,
+                zohoSku: item?.sku,
+                zohoRate: numOrUndefined(item?.rate ?? item?.purchaseRate),
+                taxId: item?.taxId,
+                taxExemptionId: item?.taxExemptionId,
+                reverseChargeTaxId: item?.reverseChargeTaxId,
+                reverseChargeVatId: item?.reverseChargeVatId,
+              }
+        )
+      );
+    },
+    [zohoItemById]
+  );
+
+  const updateLineMapping = React.useCallback(
+    (lineKey: string, patch: Partial<ZohoLineMapping>) => {
+      setZohoLineMappings((prev) =>
+        prev.map((line) =>
+          line.sourceKey === lineKey
+            ? {
+                ...line,
+                ...patch,
+              }
+            : line
+        )
+      );
+    },
+    []
+  );
+
+  const handleZohoItemSearch = React.useCallback(
+    async (lineKey: string, query: string) => {
+      const trimmed = asTrimmedString(query);
+      setItemSearchQueryByLineKey((prev) => ({ ...prev, [lineKey]: query }));
+      setItemSearchAttemptedByLineKey((prev) => ({
+        ...prev,
+        [lineKey]: trimmed.length >= 2,
+      }));
+      updateLineMapping(lineKey, { searchText: query });
+      await fetchZohoItemsForLine(lineKey, query);
+    },
+    [fetchZohoItemsForLine, updateLineMapping]
+  );
+
+  const openCreateItemDialog = React.useCallback(
+    (lineKey: string, itemNameHint?: string) => {
+      if (isVasOnlyCandidate(candidate)) return;
+      const line = zohoLineMappings.find((entry) => entry.sourceKey === lineKey);
+      if (!line) return;
+
+      const draft = buildZohoItemDraftFromLine(line);
+      const nextName = asTrimmedString(itemNameHint);
+      if (nextName) {
+        draft.name = nextName;
+        if (!draft.description) draft.description = nextName;
+        if (!draft.sku) draft.sku = deriveSkuFromLineText(nextName);
+      }
+
+      setItemDraft(draft);
+      setIsCreateItemOpen(true);
+    },
+    [candidate, zohoLineMappings]
+  );
+
+  const updateItemDraft = React.useCallback((patch: Partial<ZohoItemDraft>) => {
+    setItemDraft((prev) => (prev ? { ...prev, ...patch } : prev));
+  }, []);
+
+  const handleCreateZohoItem = React.useCallback(async () => {
+    if (isVasOnlyCandidate(candidate)) return;
+    if (!itemDraft) return;
+    const lineKey = asTrimmedString(itemDraft.lineKey);
+    if (!lineKey) return;
+
+    setIsCreatingItem(true);
+    try {
+      const response = await fetch("/api/zoho/items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: itemDraft.name,
+          rate: itemDraft.rate,
+          description: itemDraft.description || undefined,
+          sku: itemDraft.sku || undefined,
+          unit: itemDraft.unit || undefined,
+          productType: itemDraft.productType,
+          itemType: itemDraft.itemType,
+          hsnOrSac: itemDraft.hsnOrSac || undefined,
+          isTaxable: itemDraft.isTaxable,
+          taxPercentage: itemDraft.taxPercentage,
+          purchaseDescription: itemDraft.purchaseDescription || undefined,
+          purchaseRate: itemDraft.purchaseRate,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(String(result?.error || "Failed to create Zoho item."));
+      }
+
+      const created = (result?.item || {}) as ZohoItem;
+      const createdId = asTrimmedString(created.id);
+      if (!createdId) {
+        throw new Error("Zoho item was created but response is missing item id.");
+      }
+
+      setZohoItemById((prev) => ({ ...prev, [createdId]: created }));
+      setZohoItemOptionsByLineKey((prev) => {
+        const option = toZohoItemOption(created);
+        const existing = prev[lineKey] || [];
+        const next = existing.some((entry) => String(entry.value) === createdId)
+          ? existing
+          : [option, ...existing];
+        return { ...prev, [lineKey]: next };
+      });
+
+      selectZohoItemForLine(lineKey, createdId);
+      setItemSearchAttemptedByLineKey((prev) => ({ ...prev, [lineKey]: false }));
+      setItemSearchQueryByLineKey((prev) => ({ ...prev, [lineKey]: created.sku || created.name || "" }));
+      setIsCreateItemOpen(false);
+      setItemDraft(null);
+
+      toast({
+        title: "Zoho item created",
+        description: asTrimmedString(created.name)
+          ? `${asTrimmedString(created.name)} has been created in Zoho.`
+          : "Item has been created in Zoho.",
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Create item failed",
+        description: asTrimmedString(error?.message) || "Could not create Zoho item.",
+      });
+    } finally {
+      setIsCreatingItem(false);
+    }
+  }, [candidate, itemDraft, selectZohoItemForLine, toast]);
+
+  const removeLineMapping = React.useCallback((lineKey: string) => {
+    setZohoLineMappings((prev) => prev.filter((line) => line.sourceKey !== lineKey));
+    setZohoItemOptionsByLineKey((prev) => {
+      const next = { ...prev };
+      delete next[lineKey];
+      return next;
+    });
+    setItemSearchQueryByLineKey((prev) => {
+      const next = { ...prev };
+      delete next[lineKey];
+      return next;
+    });
+    setItemSearchAttemptedByLineKey((prev) => {
+      const next = { ...prev };
+      delete next[lineKey];
+      return next;
+    });
+  }, []);
+
+  const addManualLine = React.useCallback(() => {
+    const defaultItemType: "NORMAL" | "VAS" =
+      candidate?.normalItems?.length === 0 && (candidate?.vasItems?.length || 0) > 0
+        ? "VAS"
+        : "NORMAL";
+    const suffix = Date.now().toString(36);
+    const sourceKey = `manual:${suffix}`;
+
+    setZohoLineMappings((prev) => [
+      ...prev,
+      {
+        sourceKey,
+        label: "",
+        searchText: "",
+        quantity: 1,
+        rate: 0,
+        gstPercent: 0,
+        discountPercent: 0,
+        discountAmount: 0,
+        itemType: defaultItemType,
+        isManual: true,
+        sourceItem: {
+          type: defaultItemType === "VAS" ? "VAS" : "NORMAL",
+          unit: defaultItemType === "VAS" ? "PCS" : "MTR",
+          gst: 0,
+          qty: 1,
+          rate: 0,
+          exclusiveRate: 0,
+          description: "",
+        },
+        zohoItemId: "",
+      },
+    ]);
+  }, [candidate?.normalItems?.length, candidate?.vasItems?.length]);
+
+  const autoLinkLinesToZohoItems = React.useCallback(async () => {
+    if (!zohoLineMappings.length) return;
+    setIsAutoLinkingItems(true);
+    try {
+      for (const line of zohoLineMappings) {
+        const query = String(line.searchText || "").trim();
+        if (query.length < 2) continue;
+
+        const fetchedItems = await fetchZohoItemsForLine(line.sourceKey, query);
+        if (!fetchedItems.length) {
+          setItemSearchQueryByLineKey((prev) => ({ ...prev, [line.sourceKey]: query }));
+          setItemSearchAttemptedByLineKey((prev) => ({ ...prev, [line.sourceKey]: true }));
+          continue;
+        }
+
+        const needle = query.toLowerCase();
+        const exactSku = fetchedItems.find(
+          (item) => String(item.sku || "").toLowerCase() === needle
+        );
+        const startsWithSku = fetchedItems.find((item) =>
+          String(item.sku || "").toLowerCase().startsWith(needle)
+        );
+        const exactName = fetchedItems.find(
+          (item) => String(item.name || "").toLowerCase() === needle
+        );
+        const containsName = fetchedItems.find((item) =>
+          String(item.name || "").toLowerCase().includes(needle)
+        );
+        const bestMatch = exactSku || startsWithSku || exactName || containsName || fetchedItems[0];
+        if (!bestMatch) continue;
+
+        selectZohoItemForLine(line.sourceKey, bestMatch.id);
+      }
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Auto-link failed",
+        description: error?.message || "Could not auto-map invoice lines to Zoho items.",
+      });
+    } finally {
+      setIsAutoLinkingItems(false);
+    }
+  }, [fetchZohoItemsForLine, selectZohoItemForLine, toast, zohoLineMappings]);
+
+  const handleZohoCustomerSelect = React.useCallback((customerId: string) => {
+    const selectedCustomerId = String(customerId || "").trim();
+    setZohoCustomerId(selectedCustomerId);
+    if (selectedCustomerId) {
+      setHasCustomerSearchAttempted(false);
+    }
+    if (!selectedCustomerId) {
+      setZohoInvoiceNumber("");
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    autoLinkedOrderRef.current = null;
+    setZohoCustomerId("");
+    setZohoCustomerSearchQuery("");
+    setHasCustomerSearchAttempted(false);
+    setZohoInvoiceNumber("");
+    setZohoCustomerOptions([]);
+    setZohoCustomerById({});
+    setIsCreateCustomerOpen(false);
+    setCustomerDraft(null);
+    setIsCreatingCustomer(false);
+    setZohoItemOptionsByLineKey({});
+    setZohoItemById({});
+    setItemSearchQueryByLineKey({});
+    setItemSearchAttemptedByLineKey({});
+    setIsCreateItemOpen(false);
+    setItemDraft(null);
+    setIsCreatingItem(false);
+    setZohoInvoiceDate(new Date().toISOString().slice(0, 10));
+    setZohoSalesperson(
+      String(
+        candidate?.order?.salesPerson ||
+          candidate?.order?.createdBy?.name ||
+          user?.name ||
+          ""
+      ).trim()
+    );
+    setZohoStoreName(String(candidate?.order?.storeName || "").trim());
+
+    if (!candidate) {
+      const sourceKey = `manual:${Date.now().toString(36)}`;
+      setZohoLineMappings([
+        {
+          sourceKey,
+          label: "",
+          searchText: "",
+          quantity: 1,
+          rate: 0,
+          gstPercent: 0,
+          discountPercent: 0,
+          discountAmount: 0,
+          itemType: "NORMAL",
+          isManual: true,
+          sourceItem: {
+            type: "NORMAL",
+            unit: "MTR",
+            gst: 0,
+            qty: 1,
+            rate: 0,
+            exclusiveRate: 0,
+            description: "",
+          },
+          zohoItemId: "",
+        },
+      ]);
+      return;
+    }
+
+    const mappedLines: ZohoLineMapping[] = [
+      ...candidate.normalItems.map((item, index) => {
+        const quantity = num(item.qty);
+        const label = String(item.bcn || item.description || `Line ${index + 1}`).trim();
+        const searchText = String(item.bcn || item.description || label).trim();
+        return {
+          sourceKey: `normal:${index}:${normalizeKey(label) || `line-${index + 1}`}`,
+          label,
+          searchText,
+          quantity,
+          rate: num(item.exclusiveRate ?? item.rate),
+          gstPercent: numOrUndefined(item.gst),
+          discountPercent: numOrUndefined(item.discountPercent),
+          itemType: "NORMAL" as const,
+          isManual: false,
+          sourceItem: { ...item },
+          zohoItemId: "",
+        };
+      }),
+      ...candidate.vasItems.map((item, index) => {
+        const quantity = num(item.qty);
+        const label = String(item.description || item.bcn || `VAS ${index + 1}`).trim();
+        const searchText = String(item.description || item.bcn || label).trim();
+        return {
+          sourceKey: `vas:${index}:${normalizeKey(label) || `line-${index + 1}`}`,
+          label,
+          searchText,
+          quantity,
+          rate: num(item.exclusiveRate ?? item.rate),
+          gstPercent: numOrUndefined(item.gst),
+          discountPercent: numOrUndefined(item.discountPercent),
+          itemType: "VAS" as const,
+          isManual: false,
+          sourceItem: { ...item, type: "VAS" },
+          zohoItemId: "",
+        };
+      }),
+    ].filter((line) => line.quantity > 0);
+
+    setZohoLineMappings(mappedLines);
+  }, [candidate, isOpen, user?.name]);
+
+  React.useEffect(() => {
+    if (!candidate) return;
+    if (!zohoBotEnabled) return;
+    if (isVasOnlyCandidate(candidate)) return;
+    const hint = String(candidate.order.customerSnapshot?.name || candidate.order.customerName || "").trim();
+    if (hint.length < 2) return;
+
+    void searchZohoCustomers(hint).catch(() => {
+      // Best effort pre-search only.
+    });
+  }, [candidate, searchZohoCustomers, zohoBotEnabled]);
+
+  React.useEffect(() => {
+    if (!zohoBotEnabled) return;
+    if (isVasOnlyCandidate(candidate)) return;
+    const selectedCustomerId = String(zohoCustomerId || "").trim();
+    if (!selectedCustomerId) return;
+    void fetchZohoInvoiceNumber(selectedCustomerId, zohoStoreName);
+  }, [fetchZohoInvoiceNumber, zohoBotEnabled, zohoCustomerId, zohoStoreName]);
+
+  React.useEffect(() => {
+    if (!zohoBotEnabled) return;
+    if (isVasOnlyCandidate(candidate)) return;
+    const orderId = String(candidate?.order?.id || "");
+    if (!orderId) return;
+    if (!zohoLineMappings.length) return;
+    if (autoLinkedOrderRef.current === orderId) return;
+
+    autoLinkedOrderRef.current = orderId;
+    void autoLinkLinesToZohoItems();
+  }, [
+    autoLinkLinesToZohoItems,
+    candidate?.order?.id,
+    zohoBotEnabled,
+    zohoLineMappings.length,
+  ]);
+
+  const activeLineMappings = React.useMemo(
+    () => zohoLineMappings.filter((line) => num(line.quantity) > 0),
+    [zohoLineMappings]
+  );
+
+  const pendingLineMappings = React.useMemo(
+    () =>
+      activeLineMappings.filter((line) => !String(line.zohoItemId || "").trim()),
+    [activeLineMappings]
+  );
+
+  const manualLabelIssues = React.useMemo(
+    () =>
+      activeLineMappings.filter(
+        (line) => line.isManual && !String(line.label || "").trim()
+      ),
+    [activeLineMappings]
+  );
+
+  const selectedLineEntries = React.useMemo(
+    () =>
+      activeLineMappings.map((line) => {
+        const base = line.sourceItem || {};
+        const qty = Math.max(0, num(line.quantity));
+        const rate = num(line.rate);
+        const gst = Math.min(100, Math.max(0, numOrUndefined(line.gstPercent ?? base.gst) ?? 0));
+        const discountPercent = numOrUndefined(line.discountPercent ?? base.discountPercent) ?? 0;
+        const baseAmount = rate * qty;
+        const discountAmount = baseAmount * (discountPercent / 100);
+        const taxableAmount = Math.max(0, baseAmount - discountAmount);
+        const gstAmount = taxableAmount * (gst / 100);
+        const label = String(line.label || base.bcn || base.description || "").trim();
+
+        const item: InvoiceLineItem = {
+          ...base,
+          type: line.itemType === "VAS" ? "VAS" : base.type,
+          bcn:
+            line.itemType === "NORMAL"
+              ? String(base.bcn || label || "").trim() || undefined
+              : base.bcn,
+          description: label || base.description || base.bcn || undefined,
+          unit: base.unit || (line.itemType === "VAS" ? "PCS" : "MTR"),
+          exclusiveRate: rate,
+          rate,
+          qty,
+          gst,
+          discountPercent,
+          discountAmount,
+          hsn: base.hsn,
+          group: base.group,
+          roomName: base.roomName,
+          taxableAmount,
+          gstAmount,
+          totalAmount: taxableAmount + gstAmount,
+          allocationRef: line.isManual ? undefined : base.allocationRef,
+        };
+        return { line, item };
+      }),
+    [activeLineMappings]
+  );
+
+  const editableCandidate = React.useMemo(() => {
+    if (!candidate) return null;
+    const normalItems = selectedLineEntries
+      .filter((entry) => entry.line.itemType === "NORMAL")
+      .map((entry) => entry.item);
+    const vasItems = selectedLineEntries
+      .filter((entry) => entry.line.itemType === "VAS")
+      .map((entry) => ({ ...entry.item, type: "VAS" }));
+    return buildCandidateFromLines(candidate, normalItems, vasItems);
+  }, [candidate, selectedLineEntries]);
+
+  const editablePayload = React.useMemo(
+    () => {
+      if (!editableCandidate) return null;
+      const payload = buildPrintablePayload(editableCandidate);
+      return {
+        ...payload,
+        meta: {
+          ...payload.meta,
+          salesPerson:
+            asTrimmedString(zohoSalesperson) ||
+            asTrimmedString(payload.meta.salesPerson) ||
+            undefined,
+        },
+      };
+    },
+    [editableCandidate, zohoSalesperson]
+  );
+
+  const lineCalcByKey = React.useMemo(() => {
+    const next: Record<
+      string,
+      {
+        qty: number;
+        rate: number;
+        discountPercent: number;
+        discountAmount: number;
+        taxableValue: number;
+        cgstRate: number;
+        sgstRate: number;
+        igstRate: number;
+        cgstAmount: number;
+        sgstAmount: number;
+        igstAmount: number;
+        amount: number;
+      }
+    > = {};
+
+    selectedLineEntries.forEach(({ line, item }) => {
+      const qty = num(item.qty);
+      const rate = num(item.exclusiveRate ?? item.rate);
+      const discountPercent = num(item.discountPercent);
+      const discountAmount = num(item.discountAmount);
+      const taxableValue = num(item.taxableAmount);
+      const totalGstPercent = num(item.gst);
+      const isInterstate = editablePayload?.customer.taxMode === "INTERSTATE";
+      const cgstRate = isInterstate ? 0 : totalGstPercent / 2;
+      const sgstRate = isInterstate ? 0 : totalGstPercent / 2;
+      const igstRate = isInterstate ? totalGstPercent : 0;
+      const allocatedTax = allocateGstByTaxMode(
+        num(item.gstAmount),
+        editablePayload?.customer.taxMode || "UNKNOWN"
+      );
+      const { cgst: cgstAmount, sgst: sgstAmount, igst: igstAmount } =
+        allocatedTax;
+      const amount = taxableValue + cgstAmount + sgstAmount + igstAmount;
+
+      next[line.sourceKey] = {
+        qty,
+        rate,
+        discountPercent,
+        discountAmount,
+        taxableValue,
+        cgstRate,
+        sgstRate,
+        igstRate,
+        cgstAmount,
+        sgstAmount,
+        igstAmount,
+        amount,
+      };
+    });
+
+    return next;
+  }, [editablePayload?.customer.taxMode, selectedLineEntries]);
+
+  const hasDeletedOrderLines = React.useMemo(() => {
+    if (!candidate) return false;
+    const originalCount = candidate.normalItems.length + candidate.vasItems.length;
+    const activeOrderLineCount = activeLineMappings.filter((line) => !line.isManual).length;
+    return activeOrderLineCount < originalCount;
+  }, [activeLineMappings, candidate]);
+
+  const hasManualAddedLines = React.useMemo(
+    () => activeLineMappings.some((line) => line.isManual),
+    [activeLineMappings]
+  );
+
+  const ensureZohoCustomerForGenerate = async (): Promise<string> => {
+    const existingCustomerId = asTrimmedString(zohoCustomerId);
+    if (existingCustomerId) return existingCustomerId;
+
+    const nameHint =
+      asTrimmedString(zohoCustomerSearchQuery) ||
+      asTrimmedString(editableCandidate?.order.customerSnapshot?.name) ||
+      asTrimmedString(editableCandidate?.order.customerName) ||
+      "Customer";
+    const draft = editableCandidate
+      ? buildZohoCustomerDraftFromOrder(editableCandidate.order, nameHint)
+      : buildZohoCustomerDraftFromName(nameHint);
+
+    setIsCreatingCustomer(true);
+    try {
+      if (nameHint.length >= 2) {
+        const searchResponse = await fetch(
+          `/api/zoho/customers?search=${encodeURIComponent(nameHint)}`,
+          { cache: "no-store" }
+        );
+        const searchResult = await searchResponse.json().catch(() => ({}));
+        if (searchResponse.ok) {
+          const foundCustomers = (Array.isArray(searchResult?.customers)
+            ? searchResult.customers
+            : []) as ZohoCustomer[];
+          const normalizedHint = nameHint.toLowerCase();
+          const match =
+            foundCustomers.find(
+              (customer) => asTrimmedString(customer.name).toLowerCase() === normalizedHint
+            ) || foundCustomers[0];
+          const foundId = asTrimmedString(match?.id);
+          if (foundId) {
+            setZohoCustomerById((prev) => ({ ...prev, [foundId]: match }));
+            setZohoCustomerOptions((prev) =>
+              prev.some((option) => String(option.value) === foundId)
+                ? prev
+                : [toZohoCustomerOption(match), ...prev]
+            );
+            setZohoCustomerId(foundId);
+            setZohoCustomerSearchQuery(asTrimmedString(match.name) || nameHint);
+            return foundId;
+          }
+        }
+      }
+
+      const response = await fetch("/api/zoho/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draft),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(String(result?.error || "Failed to create Zoho customer."));
+      }
+
+      const created = result?.customer as ZohoCustomer | undefined;
+      const customerId = asTrimmedString(created?.id);
+      const customerName = asTrimmedString(created?.name || draft.contactName);
+      if (!customerId) {
+        throw new Error("Zoho customer was created but response is missing customer id.");
+      }
+
+      const normalizedCustomer: ZohoCustomer = {
+        id: customerId,
+        name: customerName || draft.contactName,
+        mobile: asTrimmedString(created?.mobile || draft.phone) || undefined,
+        email: asTrimmedString(created?.email || draft.email) || undefined,
+        gstNo: asTrimmedString(created?.gstNo || draft.gstNo) || undefined,
+      };
+      setZohoCustomerById((prev) => ({ ...prev, [customerId]: normalizedCustomer }));
+      setZohoCustomerOptions((prev) =>
+        prev.some((option) => String(option.value) === customerId)
+          ? prev
+          : [toZohoCustomerOption(normalizedCustomer), ...prev]
+      );
+      setZohoCustomerId(customerId);
+      setZohoCustomerSearchQuery(normalizedCustomer.name);
+      return customerId;
+    } finally {
+      setIsCreatingCustomer(false);
+    }
+  };
+
+  const createZohoItemForLine = async (line: ZohoLineMapping): Promise<ZohoItem> => {
+    const draft = buildZohoItemDraftFromLine(line);
+    const searchText = asTrimmedString(line.searchText || line.label || draft.name);
+    if (searchText.length >= 2) {
+      const searchResponse = await fetch(
+        `/api/zoho/items?usage=sales&search=${encodeURIComponent(searchText)}`,
+        { cache: "no-store" }
+      );
+      const searchResult = await searchResponse.json().catch(() => ({}));
+      if (searchResponse.ok) {
+        const foundItems = (Array.isArray(searchResult?.items) ? searchResult.items : []) as ZohoItem[];
+        const normalizedDraftName = draft.name.toLowerCase();
+        const normalizedSearchText = searchText.toLowerCase();
+        const match =
+          foundItems.find((item) => {
+            const name = asTrimmedString(item.name).toLowerCase();
+            const sku = asTrimmedString(item.sku).toLowerCase();
+            return (
+              name === normalizedDraftName ||
+              name === normalizedSearchText ||
+              (sku && (sku === normalizedDraftName || sku === normalizedSearchText))
+            );
+          }) || foundItems[0];
+        const foundId = asTrimmedString(match?.id);
+        if (foundId) {
+          return { ...match, id: foundId, name: asTrimmedString(match.name) || draft.name };
+        }
+      }
+    }
+
+    const response = await fetch("/api/zoho/items", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: draft.name,
+        rate: draft.rate,
+        description: draft.description || undefined,
+        sku: draft.sku || undefined,
+        unit: draft.unit || undefined,
+        productType: draft.productType,
+        itemType: draft.itemType,
+        hsnOrSac: draft.hsnOrSac || undefined,
+        isTaxable: draft.isTaxable,
+        taxPercentage: draft.taxPercentage,
+        purchaseDescription: draft.purchaseDescription || undefined,
+        purchaseRate: draft.purchaseRate,
+      }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(String(result?.error || `Failed to create Zoho item "${draft.name}".`));
+    }
+
+    const created = (result?.item || {}) as ZohoItem;
+    const createdId = asTrimmedString(created.id);
+    if (!createdId) {
+      throw new Error(`Zoho item "${draft.name}" was created but response is missing item id.`);
+    }
+    return { ...created, id: createdId, name: asTrimmedString(created.name) || draft.name };
+  };
+
+  const ensureZohoItemsForGenerate = async (): Promise<ZohoLineMapping[]> => {
+    const missingLines = activeLineMappings.filter(
+      (line) => !asTrimmedString(line.zohoItemId)
+    );
+    if (!missingLines.length) return activeLineMappings;
+
+    setIsCreatingItem(true);
+    try {
+      const createdByLineKey: Record<string, ZohoItem> = {};
+      for (const line of missingLines) {
+        createdByLineKey[line.sourceKey] = await createZohoItemForLine(line);
+      }
+
+      const nextMappings = activeLineMappings.map((line) => {
+        const created = createdByLineKey[line.sourceKey];
+        if (!created) return line;
+        return {
+          ...line,
+          zohoItemId: created.id,
+          zohoItemName: created.name,
+          zohoSku: created.sku,
+          zohoRate: numOrUndefined(created.rate ?? created.purchaseRate),
+          taxId: created.taxId || line.taxId,
+          taxExemptionId: created.taxExemptionId || line.taxExemptionId,
+          reverseChargeTaxId: created.reverseChargeTaxId || line.reverseChargeTaxId,
+          reverseChargeVatId: created.reverseChargeVatId || line.reverseChargeVatId,
+        };
+      });
+
+      setZohoItemById((prev) => ({ ...prev, ...createdByLineKey }));
+      setZohoLineMappings(nextMappings);
+      return nextMappings;
+    } finally {
+      setIsCreatingItem(false);
+    }
+  };
+
+
   const handleGenerate = async () => {
+    if (!isOpen) return;
     if (!user) {
       toast({ variant: "destructive", title: "Login required" });
       return;
     }
+
+    if (!zohoInvoiceDate) {
+      toast({
+        variant: "destructive",
+        title: "Invoice date required",
+        description: "Pick an invoice date.",
+      });
+      return;
+    }
+
+    if (activeLineMappings.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "No line items",
+        description: "Add at least one line item before generating invoice.",
+      });
+      return;
+    }
+
+    if (manualLabelIssues.length > 0) {
+      toast({
+        variant: "destructive",
+        title: "Manual item name required",
+        description: `Add item name for ${manualLabelIssues.length} manual line(s).`,
+      });
+      return;
+    }
+
+    const order = editableCandidate?.order;
+    const selectedStoreForRequest = String(zohoStoreName || order?.storeName || "").trim();
+    let localInvoiceCreated = false;
+    let localInvoiceId = "";
+    let localInvoiceNo = "";
+    let localHasRemainingVas = false;
+    let createdLocalInvoice: Invoice | null = null;
+
     setIsGenerating(true);
     try {
-      const verification = await onValidateBeforeGenerate(candidate);
-      if (!verification.ok && !allowVerificationBypass) {
-        toast({
-          variant: "destructive",
-          title: "Verification failed",
-          description: "Reopen and choose Generate anyway to continue.",
+      if (candidate) {
+        if (hasManualAddedLines) {
+          toast({
+            variant: "destructive",
+            title: "Manual invoice lines are not allowed",
+            description:
+              "Remove manual lines before generating this quotation-linked invoice.",
+          });
+          return;
+        }
+        const changedPricingLine = activeLineMappings.find((line) => {
+          if (line.isManual || !line.sourceItem) return false;
+          const source = line.sourceItem;
+          return (
+            Math.abs(num(line.quantity) - resolveInvoiceItemQty(source)) > 0.001 ||
+            Math.abs(
+              num(line.rate) -
+                num(source.exclusiveRate ?? source.rate)
+            ) > 0.01 ||
+            Math.abs(
+              num(line.discountPercent) - num(source.discountPercent)
+            ) > 0.001 ||
+            Math.abs(num(line.gstPercent) - num(source.gst)) > 0.001
+          );
         });
-        return;
+        if (changedPricingLine) {
+          toast({
+            variant: "destructive",
+            title: "Invoice pricing was changed",
+            description:
+              `${changedPricingLine.label}: quantity, rate, discount, and GST must remain exactly as recorded in the order.`,
+          });
+          return;
+        }
+        const verification = await onValidateBeforeGenerate(candidate);
+        if (!verification.ok) {
+          toast({
+            variant: "destructive",
+            title: "Invoice blocked",
+            description:
+              verification.issues[0] ||
+              "The order no longer matches its quotation.",
+          });
+          return;
+        }
       }
 
-      const order = candidate.order;
-      const now = new Date().toISOString();
-      const invoiceId = doc(collection(db, "invoices")).id;
+      if (!editableCandidate || !editablePayload || !order) {
+        throw new Error("Software invoice payload is unavailable.");
+      }
 
-      // FIX 1: Atomic counter — runTransaction prevents duplicate invoice numbers
+      const now = new Date().toISOString();
+      localInvoiceId = doc(collection(db, "invoices")).id;
+
       const counterRef = doc(db, "counters", "invoiceNo");
-      const invoiceNo = await runTransaction(db, async (txn) => {
+      localInvoiceNo = await runTransaction(db, async (txn) => {
         const counterSnap = await txn.get(counterRef);
         const current = counterSnap.exists() ? num(counterSnap.data().value) : 1000;
         const next = current + 1;
@@ -917,50 +3053,131 @@ function GenerateInvoiceDialog({
       });
 
       const invoiceType =
-        candidate.normalItems.length > 0 && candidate.vasItems.length > 0
+        editableCandidate.normalItems.length > 0 && editableCandidate.vasItems.length > 0
           ? "MIXED"
-          : candidate.vasItems.length > 0
+          : editableCandidate.vasItems.length > 0
           ? "VAS"
           : "NORMAL";
+      const creatorId = user.id || firebaseUser?.uid || "";
+      const creatorName =
+        asTrimmedString(user.name) ||
+        asTrimmedString(firebaseUser?.displayName) ||
+        asTrimmedString(user.email) ||
+        creatorId ||
+        "System";
+      const botItems = selectedLineEntries.map(({ line, item }) => ({
+        ...item,
+        zohoItemId:
+          zohoBotEnabled ? asTrimmedString(line.zohoItemId) || undefined : undefined,
+        zohoItemName:
+          zohoBotEnabled ? asTrimmedString(line.zohoItemName) || undefined : undefined,
+        zohoSku:
+          zohoBotEnabled ? asTrimmedString(line.zohoSku) || undefined : undefined,
+        zohoTaxId:
+          zohoBotEnabled ? asTrimmedString(line.taxId) || undefined : undefined,
+      }));
+      const selectedZohoCustomer = zohoCustomerById[zohoCustomerId];
+      const normalLines = selectedLineEntries.filter(
+        ({ line }) => line.itemType === "NORMAL"
+      );
+      const stockAllocationStatus =
+        normalLines.length === 0
+          ? "not_required"
+          : normalLines.every(
+              ({ line, item }) => line.isManual || Boolean(item.allocationRef?.lengthId)
+            )
+          ? "allocated"
+          : "verified_override";
 
       const invoiceDoc: Omit<Invoice, "id"> = {
-        invoiceId, invoiceNo, invoiceType, invoiceDate: now,
-        orderId: order.id, orderNo: order.orderNo || order.id,
+        invoiceId: localInvoiceId,
+        invoiceNo: localInvoiceNo,
+        invoiceType,
+        invoiceDate: zohoInvoiceDate,
+        orderId: order.id,
+        orderNo: order.orderNo || order.id,
         customerId: order.customerId,
-        sellerSnapshot: payload.seller,
-        customerSnapshot: payload.customer,
+        storeName: selectedStoreForRequest || undefined,
+        zohoCustomerId:
+          zohoBotEnabled ? asTrimmedString(zohoCustomerId) || undefined : undefined,
+        zohoCustomerName:
+          zohoBotEnabled
+            ? asTrimmedString(selectedZohoCustomer?.name) || undefined
+            : undefined,
+        zohoRequestedInvoiceNo:
+          zohoBotEnabled ? asTrimmedString(zohoInvoiceNumber) || undefined : undefined,
+        sellerSnapshot: editablePayload.seller,
+        customerSnapshot: stripUndefinedDeep({
+          ...order.customerSnapshot,
+          ...editablePayload.customer,
+          billingAddress: order.customerSnapshot?.billingAddress,
+          shippingAddress: order.customerSnapshot?.shippingAddress,
+          billingDetails:
+            editablePayload.customer.billingDetails ||
+            order.customerSnapshot?.billingDetails,
+        }),
         sections: {
-          NORMAL: { items: candidate.normalItems, summary: candidate.normalSummary },
-          VAS: { items: candidate.vasItems, summary: candidate.vasSummary },
+          NORMAL: { items: editableCandidate.normalItems, summary: editableCandidate.normalSummary },
+          VAS: { items: editableCandidate.vasItems, summary: editableCandidate.vasSummary },
         },
-        overallSummary: candidate.overallSummary,
-        taxSummary: candidate.taxSummary,
-        payment: {}, status: "ISSUED", isLocked: true,
-        createdAt: now, updatedAt: now,
-        createdBy: user.displayName || "System",
+        overallSummary: {
+          ...editableCandidate.overallSummary,
+          grandTotal: editablePayload.totals.grandTotal,
+        },
+        taxSummary: editableCandidate.taxSummary,
+        payment: {},
+        status: "ISSUED",
+        isLocked: true,
+        approvalStatus: "approved",
+        approvedAt: now,
+        approvedBy: {
+          id: creatorId || undefined,
+          name: creatorName,
+          email: user.email || undefined,
+          role: user.role || undefined,
+        },
+        stockAllocationStatus,
+        stockAllocationValidated: true,
+        createdAt: now,
+        createdBy: creatorName,
         customer: {
-          name: payload.customer.name,
-          phone: payload.customer.phone,
-          address: payload.customer.address,
+          name: editablePayload.customer.name,
+          phone: editablePayload.customer.phone,
+          address: editablePayload.customer.address,
         },
-        salesPerson: payload.meta.salesPerson || "",
-        items: payload.items,
-        totals: payload.totals,
+        salesPerson:
+          asTrimmedString(zohoSalesperson) ||
+          editablePayload.meta.salesPerson ||
+          "",
+        items: botItems,
+        totals: editablePayload.totals,
+        zohoSyncStatus:
+          invoiceType === "VAS"
+            ? "not_applicable"
+            : zohoBotEnabled
+            ? "pending"
+            : "local_only",
+        zohoSyncError: null,
+        zohoSyncedAt: null,
+        zohoId: null,
+        zohoNumber: null,
+        zohoRetryCount: 0,
+        createdById: creatorId || undefined,
+        createdByName: creatorName,
+        createdByRole: user.role || undefined,
       };
+      createdLocalInvoice = { ...(invoiceDoc as Invoice), id: localInvoiceId };
 
-      // Build all write operations
-      const ops: BatchOp[] = [];
+      const ops: BatchOp[] = [
+        {
+          type: "set",
+          ref: doc(db, "invoices", localInvoiceId),
+          data: stripUndefinedDeep(invoiceDoc),
+        },
+      ];
 
-      // Invoice document
-      ops.push({
-        type: "set",
-        ref: doc(db, "invoices", invoiceId),
-        data: stripUndefinedDeep(invoiceDoc),
-      });
-
-      // Stock updates for each NORMAL item
-      candidate.normalItems.forEach((item) => {
-        if (!item.bcn) return;
+      selectedLineEntries.forEach(({ line, item }) => {
+        if (line.isManual || line.itemType !== "NORMAL" || !item.bcn) return;
         const stockId = item.bcn.replace(/\//g, "-");
         const qty = num(item.qty);
 
@@ -980,21 +3197,41 @@ function GenerateInvoiceDialog({
         }
       });
 
-      // Order update — invoicing status
-      const orderInvoices = invoices.filter((inv) => inv.orderId === order.id);
+      const orderInvoices = getInvoicesForOrder(invoices, order);
       const invoicesWithNew = [
         ...orderInvoices,
-        { ...(invoiceDoc as Invoice), id: invoiceId },
+        { ...(invoiceDoc as Invoice), id: localInvoiceId },
       ];
       const invoicingStatus = computeInvoicingStatus(order, invoicesWithNew);
       const updatedInvoicesList = [
         ...(order.invoicing?.invoices || []),
         {
-          invoiceId, invoiceNo, invoiceType,
+          invoiceId: localInvoiceId,
+          invoiceNo: localInvoiceNo,
+          invoiceType,
           createdAt: now,
-          amount: candidate.overallSummary.grandTotal,
+          amount: editablePayload.totals.grandTotal,
         },
       ];
+      const clearedReinvoiceSections = (() => {
+        const sections = order.sections;
+        if (!sections?.NORMAL?.items?.length) return sections;
+        const nextNormalItems = sections.NORMAL.items.map((entry: any) => {
+          const allocation = entry?.allocation;
+          if (!allocation || allocation.forceReinvoice !== true) return entry;
+          const {
+            forceReinvoice,
+            forceReinvoiceAt,
+            forceReinvoiceBy,
+            ...restAllocation
+          } = allocation;
+          return { ...entry, allocation: restAllocation };
+        });
+        return {
+          ...sections,
+          NORMAL: { ...sections.NORMAL, items: nextNormalItems },
+        };
+      })();
 
       ops.push({
         type: "update",
@@ -1004,27 +3241,84 @@ function GenerateInvoiceDialog({
             ...(order.invoicing || {}),
             status: invoicingStatus,
             invoices: updatedInvoicesList,
-            canCreateGoodsInvoice: (order.sections?.NORMAL?.items?.length || 0) > 0,
-            canCreateVasInvoice: (order.sections?.VAS?.items?.length || 0) > 0,
+            canCreateGoodsInvoice: extractOrderNormalItems(order).length > 0,
+            canCreateVasInvoice: extractOrderVasItems(order).length > 0,
           },
+          ...(clearedReinvoiceSections ? { sections: clearedReinvoiceSections } : {}),
           updatedAt: now,
         },
       });
 
-      // FIX 5: Commit in chunks of ≤490 ops
       await commitInChunks(ops);
+      localInvoiceCreated = true;
+
+      const vasWasIncluded = editableCandidate.vasItems.length > 0;
+      const orderHasVasItems = extractOrderVasItems(order).length > 0;
+      localHasRemainingVas = !vasWasIncluded && orderHasVasItems;
+
+      if (isVasInvoice(invoiceDoc)) {
+        toast({
+          title: `Invoice #${localInvoiceNo} created`,
+          description: "VAS invoice saved in Mo Track. No Zoho entry was created.",
+        });
+        onSuccess?.(localHasRemainingVas, createdLocalInvoice || undefined);
+        onClose();
+        return;
+      }
+
+      if (!zohoBotEnabled) {
+        toast({
+          title: `Invoice #${localInvoiceNo} created`,
+          description: "Saved only in Mo Track. No Zoho invoice was created.",
+        });
+        onSuccess?.(localHasRemainingVas, createdLocalInvoice || undefined);
+        onClose();
+        return;
+      }
 
       toast({
-        title: `Invoice #${invoiceNo} created`,
-        description: "Invoice has been generated successfully.",
+        title: `Invoice #${localInvoiceNo} created`,
+        description: "Approved and queued for automatic Zoho synchronization.",
       });
+      onSuccess?.(localHasRemainingVas, createdLocalInvoice || undefined);
       onClose();
+
+      if (firebaseUser) {
+        void firebaseUser
+          .getIdToken()
+          .then((token) =>
+            fetch("/api/zoho-sync/sync-invoice", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ invoiceId: localInvoiceId }),
+            })
+          )
+          .catch((syncError) => {
+            console.error("Unable to wake Zoho invoice bot:", syncError);
+          });
+      }
     } catch (error: any) {
       console.error(error);
+
+      if (localInvoiceCreated) {
+        toast({
+          title: `Invoice #${localInvoiceNo} created`,
+          description: zohoBotEnabled
+            ? "Saved in Mo Track and queued for automatic Zoho synchronization."
+            : "Saved only in Mo Track. No Zoho invoice was created.",
+        });
+        onSuccess?.(localHasRemainingVas, createdLocalInvoice || undefined);
+        onClose();
+        return;
+      }
+
       toast({
         variant: "destructive",
         title: "Generation failed",
-        description: error.message || "Failed to generate invoice.",
+        description: error?.message || "Failed to generate invoice.",
       });
     } finally {
       setIsGenerating(false);
@@ -1040,34 +3334,60 @@ function GenerateInvoiceDialog({
       `<html><head><title>Print Invoice</title></head><body>${printContent.innerHTML}</body></html>`
     );
     printWindow.document.close();
-    setTimeout(() => { printWindow.focus(); printWindow.print(); }, 250);
+    setTimeout(() => {
+      printWindow.focus();
+      printWindow.print();
+    }, 250);
   };
 
-  const isVas = candidate.normalItems.length === 0 && candidate.vasItems.length > 0;
-  const grandTotal = candidate.overallSummary.grandTotal;
-  const customer = candidate.order.customerSnapshot?.name || candidate.order.customerName;
+  if (!isOpen) return null;
+
+  const selectedZohoCustomer = zohoCustomerById[zohoCustomerId];
+  const isVas = !isManualMode && isVasOnlyCandidate(editableCandidate);
+  const grandTotal = isManualMode
+    ? activeLineMappings.reduce(
+        (sum, line) => sum + num(lineCalcByKey[line.sourceKey]?.amount),
+        0
+      )
+    : editablePayload?.totals.grandTotal || 0;
+  const customer = isManualMode
+    ? selectedZohoCustomer?.name || "Manual"
+    : editableCandidate
+    ? editableCandidate.order.customerSnapshot?.name || editableCandidate.order.customerName
+    : "-";
+  const selectedStore = String(
+    zohoStoreName || editableCandidate?.order.storeName || ""
+  ).trim();
+  const storeSeries = resolveZohoInvoiceSeriesForStore(selectedStore);
+  const canGenerate =
+    !!zohoInvoiceDate &&
+    activeLineMappings.length > 0 &&
+    manualLabelIssues.length === 0;
 
   return (
-    <Dialog open={!!candidate} onOpenChange={onClose}>
-      <DialogContent className="max-w-7xl h-[92vh] flex flex-col p-0 gap-0 overflow-hidden">
+    <>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="w-screen h-screen max-w-none rounded-none p-0 gap-0 overflow-hidden border-0">
         <DialogHeader className="px-6 pt-5 pb-4 border-b shrink-0">
           <div className="flex items-start justify-between gap-4">
             <div>
               <DialogTitle className="text-lg font-bold">Generate Invoice</DialogTitle>
               <DialogDescription className="mt-0.5">
-                Review before generating — only allocated items are included.
+                {isManualMode
+                  ? "Create a manual Zoho invoice by selecting customer and mapping item lines."
+                  : "Review before generating. You can delete items to split this invoice or add manual items."}
               </DialogDescription>
             </div>
             <div className="flex items-center gap-3 text-right shrink-0">
               <div>
                 <p className="text-xs text-muted-foreground">Customer</p>
-                <p className="text-sm font-semibold">{customer || "—"}</p>
+                <p className="text-sm font-semibold">{customer || "-"}</p>
               </div>
               <div className="h-8 w-px bg-border" />
               <div>
                 <p className="text-xs text-muted-foreground">Total</p>
                 <p className="text-sm font-bold text-emerald-700">
-                  ₹ {grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                  INR {grandTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                 </p>
               </div>
               <div className="h-8 w-px bg-border" />
@@ -1086,12 +3406,484 @@ function GenerateInvoiceDialog({
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto bg-muted/30 p-6">
+        <div className="flex-1 overflow-y-auto bg-muted/30 p-6 space-y-6">
+          {isVas || !zohoBotEnabled ? (
+            <div className="max-w-full mx-auto rounded-xl border border-violet-200 bg-violet-50 p-4 md:p-5">
+              <h3 className="text-base font-semibold text-violet-900">
+                {isVas ? "VAS Invoice" : "Local Software Invoice"}
+              </h3>
+              <p className="mt-1 text-sm text-violet-700">
+                {isVas
+                  ? "This invoice will be saved only in Mo Track. VAS invoices are not created in Zoho."
+                  : "This invoice will be saved only in Mo Track. No customer, item, or invoice entry will be created in Zoho because automated Zoho invoicing is inactive."}
+              </p>
+            </div>
+          ) : (
+          <div className="max-w-full mx-auto rounded-xl border bg-card p-4 md:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold">Zoho Invoice Setup</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Select Zoho customer, confirm invoice number, and map all lines by BCN/SKU.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    pendingLineMappings.length === 0
+                      ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                      : "border-amber-300 bg-amber-50 text-amber-700"
+                  )}
+                >
+                  {pendingLineMappings.length === 0
+                    ? "All line items mapped"
+                    : `${pendingLineMappings.length} line item(s) pending`}
+                </Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void autoLinkLinesToZohoItems()}
+                  disabled={isAutoLinkingItems || activeLineMappings.length === 0}
+                >
+                  {isAutoLinkingItems ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Auto-linking
+                    </>
+                  ) : (
+                    "Auto-link BCN"
+                  )}
+                </Button>
+                {hasDeletedOrderLines ? (
+                  <Badge
+                    variant="outline"
+                    className="border-blue-300 bg-blue-50 text-blue-700"
+                  >
+                    Split invoice mode
+                  </Badge>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-4">
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Zoho Customer *
+                </p>
+                <Combobox
+                  options={zohoCustomerOptions}
+                  value={zohoCustomerId}
+                  onSelect={(value) => {
+                    void handleZohoCustomerSelect(value);
+                  }}
+                  onSearch={handleZohoCustomerSearch}
+                  placeholder="Search customer in Zoho"
+                  searchPlaceholder="Type customer name"
+                  emptyPlaceholder="No customer found."
+                  showClear
+                  className="h-9"
+                />
+                {!zohoCustomerId &&
+                hasCustomerSearchAttempted &&
+                asTrimmedString(zohoCustomerSearchQuery).length >= 2 &&
+                zohoCustomerOptions.length === 0 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-blue-700 hover:text-blue-800"
+                    onClick={() => openCreateCustomerDialog()}
+                  >
+                    Create "{asTrimmedString(zohoCustomerSearchQuery)}" in Zoho
+                  </Button>
+                ) : null}
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Zoho Invoice No.
+                </p>
+                <Input
+                  className="h-9"
+                  value={zohoInvoiceNumber}
+                  onChange={(e) => setZohoInvoiceNumber(e.target.value)}
+                  placeholder={isInvoiceNumberLoading ? "Fetching..." : "Auto from Zoho"}
+                  disabled={isInvoiceNumberLoading}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Store
+                </p>
+                <Combobox
+                  options={INVOICE_STORE_OPTIONS}
+                  value={zohoStoreName}
+                  onSelect={(value) => setZohoStoreName(String(value || "").trim())}
+                  placeholder="Select store"
+                  searchPlaceholder="Search store"
+                  emptyPlaceholder="No store found."
+                  showClear
+                  className="h-9"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Series: <span className="font-medium text-foreground">{storeSeries.seriesName}</span>
+                  {" · "}
+                  Invoice format:{" "}
+                  <span className="font-medium text-foreground">
+                    {storeSeries.invoicePrefix ? `${storeSeries.invoicePrefix}{number}` : "{number}"}
+                  </span>
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Salesman
+                </p>
+                <Input
+                  className="h-9"
+                  value={zohoSalesperson}
+                  onChange={(e) => setZohoSalesperson(e.target.value)}
+                  placeholder="Salesman name"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Invoice Date *
+                </p>
+                <Input
+                  className="h-9"
+                  type="date"
+                  value={zohoInvoiceDate}
+                  onChange={(e) => setZohoInvoiceDate(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {selectedZohoCustomer ? (
+              <p className="text-xs text-muted-foreground mt-3">
+                Selected customer: <span className="font-medium text-foreground">{selectedZohoCustomer.name}</span>
+                {selectedZohoCustomer.gstNo ? ` | GSTIN: ${selectedZohoCustomer.gstNo}` : ""}
+                {asTrimmedString(zohoSalesperson)
+                  ? ` | Salesman: ${asTrimmedString(zohoSalesperson)}`
+                  : ""}
+              </p>
+            ) : hasCustomerSearchAttempted && asTrimmedString(zohoCustomerSearchQuery).length >= 2 ? (
+              <p className="text-xs text-amber-700 mt-3">
+                Customer not found in Zoho. Create customer to continue invoice generation.
+              </p>
+            ) : null}
+          </div>
+          )}
+
+          <div className="max-w-full mx-auto rounded-xl border bg-card overflow-hidden">
+            <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold">Line Item Mapping</h3>
+              <Badge variant="outline">Pricing locked to quotation</Badge>
+            </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40">
+                    <TableHead className="w-14 text-xs uppercase">#</TableHead>
+                    <TableHead className="text-xs uppercase min-w-[150px]">
+                      {zohoBotEnabled ? "BCN / Zoho SKUs" : "BCN / Item"}
+                    </TableHead>
+                    <TableHead className="text-xs uppercase w-[110px]">Qty</TableHead>
+                    <TableHead className="text-xs uppercase w-[140px]">Rate</TableHead>
+                    <TableHead className="text-xs uppercase w-[110px]">Dis%</TableHead>
+                    <TableHead className="text-xs uppercase w-[110px]">GST%</TableHead>
+                    <TableHead className="text-xs uppercase w-[140px] text-right">Value</TableHead>
+                    <TableHead className="text-xs uppercase w-[150px] text-right">CGST</TableHead>
+                    <TableHead className="text-xs uppercase w-[150px] text-right">SGST</TableHead>
+                    <TableHead className="text-xs uppercase w-[120px] text-right">IGST</TableHead>
+                    <TableHead className="text-xs uppercase w-[140px] text-right">Amt</TableHead>
+                    <TableHead className="text-xs uppercase w-[80px] text-right">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {zohoLineMappings.map((line, index) => (
+                    <TableRow key={line.sourceKey}>
+                      <TableCell className="text-sm text-muted-foreground">{index + 1}</TableCell>
+                      <TableCell>
+                        <div className="space-y-1.5">
+                          {line.isManual ? (
+                            <Input
+                              value={line.label}
+                              onChange={(event) =>
+                                updateLineMapping(line.sourceKey, {
+                                  label: event.target.value,
+                                })
+                              }
+                              placeholder="Item / BCN name"
+                              className="h-8"
+                            />
+                          ) : (
+                            <p className="text-sm font-medium leading-tight">{line.label}</p>
+                          )}
+                          {zohoBotEnabled ? (
+                            <Combobox
+                              options={zohoItemOptionsByLineKey[line.sourceKey] || []}
+                              value={line.zohoItemId}
+                              onSelect={(value) => selectZohoItemForLine(line.sourceKey, value)}
+                              onSearch={async (query) => {
+                                await handleZohoItemSearch(line.sourceKey, query);
+                              }}
+                              placeholder="Zoho Item Selection"
+                              searchPlaceholder="Type BCN, SKU or item name"
+                              emptyPlaceholder="No Zoho item found."
+                              showClear
+                              className="h-9"
+                            />
+                          ) : null}
+                          <p className="text-xs text-muted-foreground">
+                            Search: {line.searchText || line.label || "N/A"}
+                          </p>
+                          {!line.zohoItemId &&
+                          itemSearchAttemptedByLineKey[line.sourceKey] &&
+                          asTrimmedString(
+                            itemSearchQueryByLineKey[line.sourceKey] || line.searchText
+                          ).length >= 2 &&
+                          (zohoItemOptionsByLineKey[line.sourceKey] || []).length === 0 ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs text-blue-700 hover:text-blue-800"
+                              onClick={() =>
+                                openCreateItemDialog(
+                                  line.sourceKey,
+                                  asTrimmedString(itemSearchQueryByLineKey[line.sourceKey])
+                                )
+                              }
+                            >
+                              Create "{asTrimmedString(itemSearchQueryByLineKey[line.sourceKey])}" in Zoho
+                            </Button>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={line.quantity}
+                          disabled={!line.isManual}
+                          onChange={(event) =>
+                            updateLineMapping(line.sourceKey, {
+                              quantity: Math.max(0, num(event.target.value)),
+                            })
+                          }
+                          className="h-8"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={line.rate}
+                          disabled={!line.isManual}
+                          onChange={(event) =>
+                            updateLineMapping(line.sourceKey, {
+                              rate: Math.max(0, num(event.target.value)),
+                            })
+                          }
+                          className="h-8"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={num(line.discountPercent)}
+                          disabled={!line.isManual}
+                          onChange={(event) =>
+                            updateLineMapping(line.sourceKey, {
+                              discountPercent: Math.max(0, num(event.target.value)),
+                            })
+                          }
+                          className="h-8"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={Math.max(0, num(line.gstPercent))}
+                          disabled={!line.isManual}
+                          onChange={(event) =>
+                            updateLineMapping(line.sourceKey, {
+                              gstPercent: Math.min(100, Math.max(0, num(event.target.value))),
+                            })
+                          }
+                          className="h-8"
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span className="text-sm font-medium">
+                          ₹{" "}
+                          {lineCalcByKey[line.sourceKey]?.taxableValue.toLocaleString("en-IN", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          }) || "0.00"}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="text-sm font-medium">
+                          ₹{" "}
+                          {lineCalcByKey[line.sourceKey]?.cgstAmount.toLocaleString("en-IN", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          }) || "0.00"}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          @{lineCalcByKey[line.sourceKey]?.cgstRate.toFixed(1) || "0.0"}%
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="text-sm font-medium">
+                          ₹{" "}
+                          {lineCalcByKey[line.sourceKey]?.sgstAmount.toLocaleString("en-IN", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          }) || "0.00"}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          @{lineCalcByKey[line.sourceKey]?.sgstRate.toFixed(1) || "0.0"}%
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="text-sm font-medium">
+                          ₹{" "}
+                          {lineCalcByKey[line.sourceKey]?.igstAmount.toLocaleString("en-IN", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          }) || "0.00"}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          @{lineCalcByKey[line.sourceKey]?.igstRate.toFixed(1) || "0.0"}%
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span className="text-sm font-semibold">
+                          ₹{" "}
+                          {lineCalcByKey[line.sourceKey]?.amount.toLocaleString("en-IN", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          }) || "0.00"}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          onClick={() => removeLineMapping(line.sourceKey)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {zohoLineMappings.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={12} className="h-16 text-center text-sm text-muted-foreground">
+                        No invoice lines found for Zoho mapping.
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                </TableBody>
+              </Table>
+            </div>
+            {editablePayload ? (
+              <div className="px-4 py-3 border-t bg-muted/20 flex justify-end">
+                <div className="w-full max-w-sm space-y-1 text-sm">
+                  <div className="flex items-center justify-between border-b border-border pb-1">
+                    <span>Subtotal</span>
+                    <span>
+                      ₹{" "}
+                      {editablePayload.totals.subTotal.toLocaleString("en-IN", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-border pb-1">
+                    <span>Discount</span>
+                    <span>
+                      ₹{" "}
+                      {editablePayload.totals.discount.toLocaleString("en-IN", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-border pb-1">
+                    <span>Cgst</span>
+                    <span>
+                      ₹{" "}
+                      {editablePayload.totals.cgst.toLocaleString("en-IN", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-border pb-1">
+                    <span>Sgst</span>
+                    <span>
+                      ₹{" "}
+                      {editablePayload.totals.sgst.toLocaleString("en-IN", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-border pb-1">
+                    <span>Igst</span>
+                    <span>
+                      ₹{" "}
+                      {editablePayload.totals.igst.toLocaleString("en-IN", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-border pb-1">
+                    <span>roundoff</span>
+                    <span>
+                      ₹{" "}
+                      {editablePayload.totals.roundOff.toLocaleString("en-IN", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between font-semibold text-base">
+                    <span>netAmt</span>
+                    <span>
+                      ₹{" "}
+                      {editablePayload.totals.grandTotal.toLocaleString("en-IN", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
           <div
             className="max-w-5xl mx-auto bg-white rounded-xl shadow-sm border"
             id="printable-invoice-preview"
           >
-            <PrintableInvoice payload={payload} />
+            <PrintableInvoice payload={editablePayload} />
           </div>
         </div>
 
@@ -1106,26 +3898,382 @@ function GenerateInvoiceDialog({
             </Button>
             <Button
               onClick={() => void handleGenerate()}
-              disabled={isGenerating}
+              disabled={isGenerating || !canGenerate}
               className="bg-emerald-600 hover:bg-emerald-700 text-white min-w-[160px]"
             >
               {isGenerating ? (
-                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...</>
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating...
+                </>
               ) : (
-                <><FileText className="mr-2 h-4 w-4" /> Generate Invoice</>
+                <>
+                  <FileText className="mr-2 h-4 w-4" /> Generate Invoice
+                </>
               )}
             </Button>
           </div>
         </div>
       </DialogContent>
     </Dialog>
+    <Dialog
+      open={isCreateCustomerOpen}
+      onOpenChange={(open) => {
+        if (!open && isCreatingCustomer) return;
+        setIsCreateCustomerOpen(open);
+        if (!open && !isCreatingCustomer) {
+          setCustomerDraft(null);
+        }
+      }}
+    >
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Create Missing Zoho Customer</DialogTitle>
+          <DialogDescription>
+            Customer not found in Zoho. Review details and create customer to continue invoice generation.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[65vh] overflow-y-auto pr-1">
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Contact Name *</p>
+            <Input
+              value={customerDraft?.contactName || ""}
+              onChange={(event) => updateCustomerDraft({ contactName: event.target.value })}
+              placeholder="Customer name"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Company Name</p>
+            <Input
+              value={customerDraft?.companyName || ""}
+              onChange={(event) => updateCustomerDraft({ companyName: event.target.value })}
+              placeholder="Company name"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Phone</p>
+            <Input
+              value={customerDraft?.phone || ""}
+              onChange={(event) => updateCustomerDraft({ phone: event.target.value })}
+              placeholder="Phone"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Email</p>
+            <Input
+              value={customerDraft?.email || ""}
+              onChange={(event) => updateCustomerDraft({ email: event.target.value })}
+              placeholder="Email"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">GST No</p>
+            <Input
+              value={customerDraft?.gstNo || ""}
+              onChange={(event) => updateCustomerDraft({ gstNo: event.target.value.toUpperCase() })}
+              placeholder="15-digit GSTIN"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Place Of Contact</p>
+            <Input
+              value={customerDraft?.placeOfContact || ""}
+              onChange={(event) =>
+                updateCustomerDraft({ placeOfContact: event.target.value.toUpperCase() })
+              }
+              placeholder="State code (e.g. HR, TN)"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">GST Treatment</p>
+            <Input
+              value={customerDraft?.gstTreatment || ""}
+              onChange={(event) =>
+                updateCustomerDraft({
+                  gstTreatment:
+                    (asTrimmedString(event.target.value) as
+                      | "business_gst"
+                      | "business_none"
+                      | "consumer"
+                      | "overseas") || "business_none",
+                })
+              }
+              placeholder="business_gst / business_none / consumer / overseas"
+              list="zoho-gst-treatment-options-generate"
+            />
+            <datalist id="zoho-gst-treatment-options-generate">
+              <option value="business_gst" />
+              <option value="business_none" />
+              <option value="consumer" />
+              <option value="overseas" />
+            </datalist>
+          </div>
+          <div className="space-y-1.5 md:col-span-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Billing Address</p>
+            <Textarea
+              value={customerDraft?.billingAddress?.address || ""}
+              onChange={(event) =>
+                updateCustomerAddressDraft("billingAddress", { address: event.target.value })
+              }
+              placeholder="Billing address"
+              className="min-h-[72px]"
+            />
+          </div>
+          <div className="space-y-1.5 md:col-span-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Shipping Address</p>
+            <Textarea
+              value={customerDraft?.shippingAddress?.address || ""}
+              onChange={(event) =>
+                updateCustomerAddressDraft("shippingAddress", { address: event.target.value })
+              }
+              placeholder="Shipping address"
+              className="min-h-[72px]"
+            />
+          </div>
+          <div className="space-y-1.5 md:col-span-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Notes</p>
+            <Textarea
+              value={customerDraft?.notes || ""}
+              onChange={(event) => updateCustomerDraft({ notes: event.target.value })}
+              placeholder="Notes for Zoho"
+              className="min-h-[72px]"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 mt-2">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setIsCreateCustomerOpen(false);
+              if (!isCreatingCustomer) setCustomerDraft(null);
+            }}
+            disabled={isCreatingCustomer}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => void handleCreateZohoCustomer()}
+            disabled={isCreatingCustomer || !asTrimmedString(customerDraft?.contactName)}
+          >
+            {isCreatingCustomer ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Creating...
+              </>
+            ) : (
+              "Create Customer"
+            )}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+    <Dialog
+      open={isCreateItemOpen}
+      onOpenChange={(open) => {
+        if (!open && isCreatingItem) return;
+        setIsCreateItemOpen(open);
+        if (!open && !isCreatingItem) {
+          setItemDraft(null);
+        }
+      }}
+    >
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Create Missing Zoho Item</DialogTitle>
+          <DialogDescription>
+            Item not found in Zoho. Review details and create item to continue invoice generation.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[65vh] overflow-y-auto pr-1">
+          <div className="space-y-1.5 md:col-span-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Item Name *</p>
+            <Input
+              value={itemDraft?.name || ""}
+              onChange={(event) => updateItemDraft({ name: event.target.value })}
+              placeholder="Item name"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">SKU</p>
+            <Input
+              value={itemDraft?.sku || ""}
+              onChange={(event) => updateItemDraft({ sku: event.target.value.toUpperCase() })}
+              placeholder="SKU"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Unit</p>
+            <Input
+              value={itemDraft?.unit || ""}
+              onChange={(event) => updateItemDraft({ unit: event.target.value.toUpperCase() })}
+              placeholder="MTR / PCS"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Rate *</p>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={num(itemDraft?.rate)}
+              onChange={(event) => updateItemDraft({ rate: Math.max(0, num(event.target.value)) })}
+              placeholder="0.00"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Purchase Rate</p>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={itemDraft?.purchaseRate ?? ""}
+              onChange={(event) => {
+                const raw = event.target.value;
+                if (raw === "") {
+                  updateItemDraft({ purchaseRate: undefined });
+                  return;
+                }
+                updateItemDraft({ purchaseRate: Math.max(0, num(raw)) });
+              }}
+              placeholder="0.00"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">GST %</p>
+            <Input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={num(itemDraft?.taxPercentage)}
+              onChange={(event) =>
+                updateItemDraft({
+                  taxPercentage: Math.min(100, Math.max(0, num(event.target.value))),
+                })
+              }
+              placeholder="0"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">HSN / SAC</p>
+            <Input
+              value={itemDraft?.hsnOrSac || ""}
+              onChange={(event) => updateItemDraft({ hsnOrSac: event.target.value })}
+              placeholder="HSN code"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Product Type</p>
+            <Input
+              value={itemDraft?.productType || "goods"}
+              onChange={(event) =>
+                updateItemDraft({
+                  productType:
+                    (asTrimmedString(event.target.value) as
+                      | "goods"
+                      | "service"
+                      | "digital_service") || "goods",
+                })
+              }
+              placeholder="goods / service / digital_service"
+              list="zoho-item-product-type-options-generate"
+            />
+            <datalist id="zoho-item-product-type-options-generate">
+              <option value="goods" />
+              <option value="service" />
+              <option value="digital_service" />
+            </datalist>
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Item Type</p>
+            <Input
+              value={itemDraft?.itemType || "sales"}
+              onChange={(event) =>
+                updateItemDraft({
+                  itemType:
+                    (asTrimmedString(event.target.value) as
+                      | "sales"
+                      | "purchases"
+                      | "sales_and_purchases"
+                      | "inventory") || "sales",
+                })
+              }
+              placeholder="sales / purchases / sales_and_purchases / inventory"
+              list="zoho-item-type-options-generate"
+            />
+            <datalist id="zoho-item-type-options-generate">
+              <option value="sales" />
+              <option value="purchases" />
+              <option value="sales_and_purchases" />
+              <option value="inventory" />
+            </datalist>
+          </div>
+          <div className="space-y-1.5 md:col-span-2">
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={itemDraft?.isTaxable ?? true}
+                onChange={(event) => updateItemDraft({ isTaxable: event.target.checked })}
+              />
+              Taxable item
+            </label>
+          </div>
+          <div className="space-y-1.5 md:col-span-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Description</p>
+            <Textarea
+              value={itemDraft?.description || ""}
+              onChange={(event) => updateItemDraft({ description: event.target.value })}
+              placeholder="Item description"
+              className="min-h-[72px]"
+            />
+          </div>
+          <div className="space-y-1.5 md:col-span-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Purchase Description</p>
+            <Textarea
+              value={itemDraft?.purchaseDescription || ""}
+              onChange={(event) => updateItemDraft({ purchaseDescription: event.target.value })}
+              placeholder="Purchase description"
+              className="min-h-[72px]"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 mt-2">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setIsCreateItemOpen(false);
+              if (!isCreatingItem) setItemDraft(null);
+            }}
+            disabled={isCreatingItem}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => void handleCreateZohoItem()}
+            disabled={
+              isCreatingItem ||
+              !asTrimmedString(itemDraft?.name) ||
+              num(itemDraft?.rate) < 0
+            }
+          >
+            {isCreatingItem ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Creating...
+              </>
+            ) : (
+              "Create Item"
+            )}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CANDIDATE TABLE
-// ─────────────────────────────────────────────────────────────────────────────
-
 function CandidateTable({
   candidates,
   loading,
@@ -1228,11 +4376,14 @@ function CandidateTable({
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
-              {["Order No", "Customer", "Mobile", "Deal ID", "Amount", "Created By", "Type", ""].map(
+              {["Order No", "Customer", "Mobile", "Deal ID", "Amount", "Created By", "Type", "Action"].map(
                 (h) => (
                   <TableHead
                     key={h}
-                    className="text-xs font-semibold uppercase tracking-wider text-muted-foreground h-10 whitespace-nowrap"
+                    className={cn(
+                      "h-10 whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-muted-foreground",
+                      h === "Action" && "w-[150px] text-center"
+                    )}
                   >
                     {h}
                   </TableHead>
@@ -1307,7 +4458,7 @@ function CandidateTable({
                       {badgeType === "goods" ? "Goods" : "VAS"}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="w-[150px] text-center">
                     <Button
                       size="sm"
                       disabled={verifyingOrderId === candidate.order.id}
@@ -1351,26 +4502,26 @@ function CandidateTable({
     </div>
   );
 }
-
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN PAGE
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function InvoicePage() {
+  const searchParams = useSearchParams();
   const [orders, setOrders] = React.useState<Order[]>([]);
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [activeTab, setActiveTab] = React.useState("goods-invoices");
   const [selectedCandidate, setSelectedCandidate] =
     React.useState<InvoiceCandidate | null>(null);
-  const [quickOrderNo, setQuickOrderNo] = React.useState("");
+  const [instantQuickRef, setInstantQuickRef] = React.useState("");
+  const [isResolvingQuickCandidate, setIsResolvingQuickCandidate] = React.useState(false);
   const [verifyingOrderId, setVerifyingOrderId] = React.useState<string | null>(null);
-  const [verificationBypassOrderId, setVerificationBypassOrderId] = React.useState<
-    string | null
-  >(null);
   const [verificationPrompt, setVerificationPrompt] = React.useState<{
     candidate: InvoiceCandidate;
-    issues: string[];
+    verification: InvoiceVerificationResult;
   } | null>(null);
+  const [zohoBotEnabled, setZohoBotEnabled] = React.useState(false);
 
   const { toast } = useToast();
 
@@ -1381,42 +4532,57 @@ export default function InvoicePage() {
   );
 
   // ─── FIX 6: Server-side filtered queries ──────────────────────────────────
-  // Only stream orders that are pending invoicing.
-  // Firestore index required: invoicing.status ASC + createdAt DESC
+  // Stream all orders and keep queue filtering in buildInvoiceCandidates.
+  // Prevents regenerated or migrated orders from disappearing due query filters.
   React.useEffect(() => {
+    const toMillis = (value: any): number => {
+      if (!value) return 0;
+      if (typeof value?.toMillis === "function") return value.toMillis();
+      if (value instanceof Date) return value.getTime();
+      if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+      if (typeof value === "string") {
+        const parsed = Date.parse(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+      }
+      return 0;
+    };
+
+    const sortOrdersForInvoiceQueue = (items: Order[]): Order[] =>
+      [...items].sort((left, right) => {
+        const leftRecord = left as Record<string, any>;
+        const rightRecord = right as Record<string, any>;
+        const leftTime = Math.max(
+          toMillis(leftRecord?.updatedAt),
+          toMillis(leftRecord?.createdAt)
+        );
+        const rightTime = Math.max(
+          toMillis(rightRecord?.updatedAt),
+          toMillis(rightRecord?.createdAt)
+        );
+        if (rightTime !== leftTime) return rightTime - leftTime;
+        return String(right.id || "").localeCompare(String(left.id || ""));
+      });
+
     const unsubOrders = onSnapshot(
-      query(
-        collection(db, "orders"),
-        where("invoicing.status", "in", ["NOT_INVOICED", "PARTIALLY_INVOICED"]),
-        where("invoicing.invoiceRequired", "!=", false),
-        orderBy("createdAt", "desc"),
-        limit(200) // hard cap — prevents full-collection scan
-      ),
+      query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(1000)),
       (snap) => {
-        setOrders(snap.docs.map((d) => ({ ...d.data(), id: d.id } as Order)));
+        const nextOrders = snap.docs.map((d) => ({ ...d.data(), id: d.id } as Order));
+        setOrders(sortOrdersForInvoiceQueue(nextOrders));
         setLoading(false);
       },
-      (err) => {
-        // Fallback: if index not yet created, load all and filter client-side
-        console.warn("Filtered query failed, falling back:", err.message);
-        const unsubFallback = onSnapshot(
-          query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(500)),
-          (snap) => {
-            setOrders(snap.docs.map((d) => ({ ...d.data(), id: d.id } as Order)));
-            setLoading(false);
-          },
-          () => {
-            toast({ variant: "destructive", title: "Error", description: "Could not load orders." });
-            setLoading(false);
-          }
-        );
-        return () => unsubFallback();
+      () => {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Could not load orders.",
+        });
+        setLoading(false);
       }
     );
 
-    // Invoices: only recent ones needed for cross-referencing
+    // Keep invoice history bounded so this page does not open an unlimited realtime stream.
     const unsubInvoices = onSnapshot(
-      query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(500)),
+      query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(1000)),
       (snap) =>
         setInvoices(snap.docs.map((d) => ({ ...d.data(), id: d.id } as Invoice))),
       () =>
@@ -1442,16 +4608,22 @@ export default function InvoicePage() {
     () =>
       candidates
         .map((c) => createSectionCandidate(c, "NORMAL"))
-        .filter(Boolean) as InvoiceCandidate[],
-    [candidates]
+        .filter((candidate): candidate is InvoiceCandidate =>
+          candidate !== null &&
+          !hasGeneratedInvoiceForSection(candidate.order, invoices, "NORMAL")
+        ),
+    [candidates, invoices]
   );
 
   const vasCandidates = React.useMemo(
     () =>
       candidates
         .map((c) => createSectionCandidate(c, "VAS"))
-        .filter(Boolean) as InvoiceCandidate[],
-    [candidates]
+        .filter((candidate): candidate is InvoiceCandidate =>
+          candidate !== null &&
+          !hasGeneratedInvoiceForSection(candidate.order, invoices, "VAS")
+        ),
+    [candidates, invoices]
   );
 
   // FIX 7: Cached quotation fetch
@@ -1460,6 +4632,33 @@ export default function InvoicePage() {
       // Return from cache if available
       if (quotationCache.current.has(order.id)) {
         return quotationCache.current.get(order.id) ?? null;
+      }
+
+      const customerId = String(order.customerId || "").trim();
+      const dealId = String(order.dealId || "").trim();
+      const quotationId = String(order.quotationId || "").trim();
+      if (customerId && dealId && quotationId) {
+        const exactQuotation = await getDoc(
+          doc(
+            db,
+            "customers",
+            customerId,
+            "deals",
+            dealId,
+            "quotations",
+            quotationId
+          )
+        );
+        if (exactQuotation.exists()) {
+          const result = {
+            id: exactQuotation.id,
+            ...exactQuotation.data(),
+          } as Quotation;
+          quotationCache.current.set(order.id, result);
+          return result;
+        }
+        quotationCache.current.set(order.id, null);
+        return null;
       }
 
       const snapshots: any[] = [];
@@ -1527,43 +4726,81 @@ export default function InvoicePage() {
     [fetchPreferredBillingForOrder]
   );
 
+  const hydrateCandidateForGeneration = React.useCallback(
+    async (candidate: InvoiceCandidate): Promise<InvoiceCandidate> => {
+      const hydratedCandidate = await hydrateCandidateWithLatestBilling(candidate);
+      if (!isVasOnlyCandidate(hydratedCandidate)) return hydratedCandidate;
+
+      const quotation = await fetchQuotationForOrder(hydratedCandidate.order);
+      return quotation
+        ? normalizeVasCandidateFromQuotation(hydratedCandidate, quotation)
+        : hydratedCandidate;
+    },
+    [fetchQuotationForOrder, hydrateCandidateWithLatestBilling]
+  );
+
   const verifyCandidateBeforeGenerate = React.useCallback(
     async (candidate: InvoiceCandidate): Promise<InvoiceVerificationResult> => {
       const quotation = await fetchQuotationForOrder(candidate.order);
       if (!quotation)
-        return { ok: false, issues: ["Quotation not found for this order."] };
+        return {
+          ok: false,
+          issues: ["Quotation not found for this order."],
+          details: [],
+          quotationNo: String(candidate.order.quotationNo || "-"),
+          orderNo: String(candidate.order.orderNo || candidate.order.id || "-"),
+          scope: "ALL",
+          orderAmount: candidate.overallSummary.grandTotal,
+          quotationAmount: 0,
+          difference: candidate.overallSummary.grandTotal,
+        };
 
-      const issues: string[] = [];
-      const orderAmount = num(
-        candidate.order.totalAmount ?? (candidate.order as any)?.overallSummary?.grandTotal
-      );
+      const scope: PricingReconciliationScope =
+        candidate.normalItems.length === 0 && candidate.vasItems.length > 0
+          ? "VAS"
+          : candidate.vasItems.length === 0 && candidate.normalItems.length > 0
+            ? "NORMAL"
+            : "ALL";
+      const expected = buildOrderPricingFromQuotation(quotation);
+      const orderAmount =
+        scope === "VAS"
+          ? candidate.vasSummary.grandTotal
+          : scope === "NORMAL"
+            ? candidate.normalSummary.grandTotal
+            : candidate.overallSummary.grandTotal;
       const quotationAmount = num(
-        (quotation as any)?.totalAmount ?? (quotation as any)?.overallSummary?.grandTotal
+        scope === "VAS"
+          ? expected.vasSummary.grandTotal
+          : scope === "NORMAL"
+            ? expected.normalSummary.grandTotal
+            : expected.overallSummary.grandTotal
       );
-      if (orderAmount > 0 && quotationAmount > 0 && Math.abs(orderAmount - quotationAmount) > 1)
-        issues.push(
-          `Amount mismatch: Order ₹${orderAmount.toFixed(2)} vs Quotation ₹${quotationAmount.toFixed(2)}.`
-        );
-
-      const orderNormalItems = candidate.order.sections?.NORMAL?.items || [];
-      const quotationNormalItems = extractQuotationNormalItems(quotation);
-      const orderFabricQty = sumFabricQty(orderNormalItems);
-      const quotationFabricQty = sumFabricQty(quotationNormalItems);
-      if (Math.abs(orderFabricQty - quotationFabricQty) > 0.01)
-        issues.push(
-          `Fabric qty mismatch: Order ${orderFabricQty.toFixed(2)} vs Quotation ${quotationFabricQty.toFixed(2)}.`
-        );
-
-      const { missingInOrder, extraInOrder } = getItemMismatches(
-        orderNormalItems,
-        quotationNormalItems
+      const verification = reconcileOrderPricingWithQuotation(
+        candidate.order,
+        quotation,
+        scope
       );
-      if (missingInOrder.length > 0 || extraInOrder.length > 0)
-        issues.push(
-          `Item mismatch — Missing: [${formatMismatchValues(missingInOrder)}] | Extra: [${formatMismatchValues(extraInOrder)}].`
-        );
-
-      return { ok: issues.length === 0, issues };
+      return {
+        ok: verification.ok,
+        issues: verification.issues.slice(0, 12),
+        details: verification.details.filter((detail) => detail.section !== "ORDER").slice(0, 30),
+        quotationNo: String(
+          quotation.quotationNo ||
+            candidate.order.quotationNo ||
+            quotation.id ||
+            "-"
+        ),
+        orderNo: String(
+          candidate.order.orderNo ||
+            candidate.order.crmOrderNo ||
+            candidate.order.id ||
+            "-"
+        ),
+        scope,
+        orderAmount,
+        quotationAmount,
+        difference: orderAmount - quotationAmount,
+      };
     },
     [fetchQuotationForOrder]
   );
@@ -1572,13 +4809,12 @@ export default function InvoicePage() {
     async (candidate: InvoiceCandidate) => {
       setVerifyingOrderId(candidate.order.id);
       try {
-        const hydratedCandidate = await hydrateCandidateWithLatestBilling(candidate);
+        const hydratedCandidate = await hydrateCandidateForGeneration(candidate);
         const verification = await verifyCandidateBeforeGenerate(hydratedCandidate);
         if (!verification.ok) {
-          setVerificationPrompt({ candidate: hydratedCandidate, issues: verification.issues });
+          setVerificationPrompt({ candidate: hydratedCandidate, verification });
           return false;
         }
-        setVerificationBypassOrderId(null);
         setSelectedCandidate(hydratedCandidate);
         return true;
       } catch (error: any) {
@@ -1592,89 +4828,196 @@ export default function InvoicePage() {
         setVerifyingOrderId(null);
       }
     },
-    [hydrateCandidateWithLatestBilling, toast, verifyCandidateBeforeGenerate]
+    [hydrateCandidateForGeneration, toast, verifyCandidateBeforeGenerate]
   );
 
-  const handleQuickGenerate = React.useCallback(async () => {
-    const value = quickOrderNo.trim();
-    if (!value) {
-      toast({ variant: "destructive", title: "Enter an order number" });
-      return;
-    }
-    const normalized = value.toUpperCase();
+  const buildQuickLookupMeta = React.useCallback((value: string) => {
+    const raw = String(value || "").trim();
+    const normalized = raw.toUpperCase();
     const withPrefix = normalized.startsWith("MOTRACK-")
       ? normalized
       : `MOTRACK-${normalized}`;
     const compact = withPrefix.replace(/^MOTRACK-/, "");
+    const variants = Array.from(
+      new Set([raw, normalized, withPrefix, compact].map((entry) => String(entry || "").trim()).filter(Boolean))
+    );
+    return { raw, normalized, withPrefix, compact, variants };
+  }, []);
 
-    const matchCandidate = (c: InvoiceCandidate) => {
-      const id = String(c.order.id || "").toUpperCase();
-      const no = String(c.order.orderNo || "").toUpperCase();
-      return (
-        id === withPrefix ||
-        no === withPrefix ||
-        id.replace(/^MOTRACK-/, "") === compact ||
-        no.replace(/^MOTRACK-/, "") === compact
+  const matchesQuickVariant = React.useCallback((value: unknown, variants: Set<string>) => {
+    const normalizedValue = String(value || "").trim().toUpperCase();
+    if (!normalizedValue) return false;
+    if (variants.has(normalizedValue)) return true;
+    const compactValue = normalizedValue.replace(/^MOTRACK-/, "");
+    return variants.has(compactValue);
+  }, []);
+
+  const findExistingCandidateByReference = React.useCallback(
+    (value: string): InvoiceCandidate | null => {
+      const quickMeta = buildQuickLookupMeta(value);
+      const variants = new Set(quickMeta.variants.map((entry) => entry.toUpperCase()));
+      const matchCandidate = (candidate: InvoiceCandidate) =>
+        matchesQuickVariant(candidate.order.id, variants) ||
+        matchesQuickVariant(candidate.order.orderNo, variants) ||
+        matchesQuickVariant(candidate.order.crmOrderNo, variants) ||
+        matchesQuickVariant(candidate.order.quotationNo, variants);
+
+      const goods = goodsCandidates.find(matchCandidate) || null;
+      if (goods) return goods;
+      return vasCandidates.find(matchCandidate) || null;
+    },
+    [buildQuickLookupMeta, goodsCandidates, matchesQuickVariant, vasCandidates]
+  );
+
+  const fetchOrderByReference = React.useCallback(
+    async (value: string): Promise<Order | null> => {
+      const quickMeta = buildQuickLookupMeta(value);
+      if (!quickMeta.raw) return null;
+
+      const docIdCandidates = Array.from(
+        new Set([quickMeta.withPrefix, quickMeta.normalized, quickMeta.raw].filter(Boolean))
       );
-    };
+      for (const docIdValue of docIdCandidates) {
+        const orderSnap = await getDoc(doc(db, "orders", docIdValue));
+        if (orderSnap.exists()) {
+          return { ...(orderSnap.data() as Order), id: orderSnap.id } as Order;
+        }
+      }
 
-    const goods = goodsCandidates.find(matchCandidate) || null;
-    const vas = vasCandidates.find(matchCandidate) || null;
-
-    if (!goods && !vas) {
-      toast({
-        variant: "destructive",
-        title: "Order not ready",
-        description: "No pending invoice found for this order.",
+      const queryCandidates: Array<{ field: "orderNo" | "crmOrderNo" | "quotationNo"; value: string }> = [];
+      quickMeta.variants.forEach((entry) => {
+        queryCandidates.push({ field: "orderNo", value: entry });
       });
-      return;
-    }
-    if (goods) {
-      await openCandidateWithVerification(goods);
-      return;
-    }
-    if (vas) await openCandidateWithVerification(vas);
-  }, [goodsCandidates, vasCandidates, openCandidateWithVerification, quickOrderNo, toast]);
+      quickMeta.variants.forEach((entry) => {
+        queryCandidates.push({ field: "crmOrderNo", value: entry });
+      });
+      quickMeta.variants.forEach((entry) => {
+        queryCandidates.push({ field: "quotationNo", value: entry });
+      });
+
+      const seen = new Set<string>();
+      for (const candidate of queryCandidates) {
+        const marker = `${candidate.field}:${candidate.value}`;
+        if (seen.has(marker)) continue;
+        seen.add(marker);
+        const snapshot = await getDocs(
+          query(collection(db, "orders"), where(candidate.field, "==", candidate.value), limit(1))
+        );
+        if (!snapshot.empty) {
+          const first = snapshot.docs[0];
+          return { ...(first.data() as Order), id: first.id } as Order;
+        }
+      }
+
+      return null;
+    },
+    [buildQuickLookupMeta]
+  );
+
+  const findDirectCandidateFromOrder = React.useCallback(
+    (order: Order): InvoiceCandidate | null => {
+      const existingOrderInvoices = getInvoicesForOrder(
+        invoices.filter(isInvoiceCountableForInvoicing),
+        order
+      );
+      if (
+        existingOrderInvoices.length > 0 &&
+        computeInvoicingStatus(order, existingOrderInvoices) === "INVOICED"
+      ) {
+        return null;
+      }
+
+      const built = buildInvoiceCandidates([order], invoices, {
+        includeInvoiceBypassOrders: true,
+        allowUnallocatedForBypassOrders: true,
+      });
+      if (built.length > 0) {
+        const base = built[0];
+        const hasGoodsInvoice = hasGeneratedInvoiceForSection(order, invoices, "NORMAL");
+        const hasVasInvoice = hasGeneratedInvoiceForSection(order, invoices, "VAS");
+        return (
+          (!hasGoodsInvoice ? createSectionCandidate(base, "NORMAL") : null) ||
+          (!hasVasInvoice ? createSectionCandidate(base, "VAS") : null) ||
+          (!hasGoodsInvoice && !hasVasInvoice ? base : null)
+        );
+      }
+
+      return buildManualCandidateFromOrder(order);
+    },
+    [invoices]
+  );
+
+  const triggerQuickGenerateFromInput = React.useCallback(
+    async (input: string) => {
+      const value = String(input || "").trim();
+      if (!value) {
+        toast({
+          variant: "destructive",
+          title: "Enter order or quotation number",
+        });
+        return;
+      }
+
+      setIsResolvingQuickCandidate(true);
+      try {
+        const fromLoadedCandidates = findExistingCandidateByReference(value);
+        if (fromLoadedCandidates) {
+          await openCandidateWithVerification(fromLoadedCandidates);
+          return;
+        }
+
+        const order = await fetchOrderByReference(value);
+        if (!order) {
+          toast({
+            variant: "destructive",
+            title: "Order not found",
+            description: "No order matched this order/quotation number.",
+          });
+          return;
+        }
+
+        const instantCandidate = findDirectCandidateFromOrder(order);
+        if (!instantCandidate) {
+          toast({
+            variant: "destructive",
+            title: "Invoice already generated",
+            description: "This order is already present in invoice history or has no remaining invoiceable lines.",
+          });
+          return;
+        }
+
+        await openCandidateWithVerification(instantCandidate);
+      } finally {
+        setIsResolvingQuickCandidate(false);
+      }
+    },
+    [
+      fetchOrderByReference,
+      findDirectCandidateFromOrder,
+      findExistingCandidateByReference,
+      openCandidateWithVerification,
+      toast,
+    ]
+  );
+
+  const handleInstantQuickGenerate = React.useCallback(async () => {
+    await triggerQuickGenerateFromInput(instantQuickRef);
+  }, [instantQuickRef, triggerQuickGenerateFromInput]);
+
+  const handledQuickRef = React.useRef<string>("");
+  const urlQuickRef = String(searchParams.get("quickRef") || "").trim();
+  React.useEffect(() => {
+    if (!urlQuickRef) return;
+    if (handledQuickRef.current === urlQuickRef) return;
+    handledQuickRef.current = urlQuickRef;
+    void triggerQuickGenerateFromInput(urlQuickRef);
+  }, [triggerQuickGenerateFromInput, urlQuickRef]);
 
   return (
     <div className="w-full space-y-6 p-4 md:p-6 lg:p-8">
-      {/* Page header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Invoice Generation</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Only allocated items are available for invoicing.
-          </p>
-        </div>
-
-        {/* Quick generate */}
-        <div className="flex items-center gap-2 bg-muted/40 border rounded-xl px-4 py-2.5">
-          <Zap className="h-4 w-4 text-amber-500 shrink-0" />
-          <span className="text-sm font-medium whitespace-nowrap">Quick Generate:</span>
-          <Input
-            className="w-40 h-8 text-sm border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 p-0"
-            placeholder="Order No..."
-            value={quickOrderNo}
-            onChange={(e) => setQuickOrderNo(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && void handleQuickGenerate()}
-          />
-          <Button
-            size="sm"
-            onClick={() => void handleQuickGenerate()}
-            disabled={!!verifyingOrderId}
-            className="h-8 shrink-0"
-          >
-            {verifyingOrderId ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5" />
-            )}
-          </Button>
-        </div>
-      </div>
-
+      <ZohoInvoiceBotCard onEnabledChange={setZohoBotEnabled} />
       {/* Tabs */}
-      <Tabs defaultValue="goods-invoices">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="h-10">
           <TabsTrigger value="goods-invoices" className="text-sm gap-2">
             <Package className="h-4 w-4" />
@@ -1698,7 +5041,38 @@ export default function InvoicePage() {
             <History className="h-4 w-4" />
             Invoice History
           </TabsTrigger>
+          <TabsTrigger value="vas-history" className="text-sm gap-2">
+            <Wrench className="h-4 w-4" />
+            VAS Invoice History
+          </TabsTrigger>
         </TabsList>
+
+        <div className="mt-4 rounded-xl border bg-muted/20 px-4 py-3 flex flex-col gap-2 md:flex-row md:items-center">
+          <div className="flex items-center gap-2 text-sm font-medium shrink-0">
+            <Zap className="h-4 w-4 text-amber-500" />
+            Instant / Cashsale Quick Generate
+          </div>
+          <Input
+            className="h-9 text-sm md:max-w-sm"
+            placeholder="Enter Order No or Quotation No..."
+            value={instantQuickRef}
+            onChange={(event) => setInstantQuickRef(event.target.value)}
+            onKeyDown={(event) => event.key === "Enter" && void handleInstantQuickGenerate()}
+          />
+          <Button
+            size="sm"
+            onClick={() => void handleInstantQuickGenerate()}
+            disabled={!!verifyingOrderId || isResolvingQuickCandidate}
+            className="gap-1.5 md:ml-auto"
+          >
+            {verifyingOrderId || isResolvingQuickCandidate ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+            Generate
+          </Button>
+        </div>
 
         <TabsContent value="goods-invoices" className="mt-4">
           <CandidateTable
@@ -1723,21 +5097,44 @@ export default function InvoicePage() {
         </TabsContent>
 
         <TabsContent value="tally-log" className="mt-4">
-          <InvoiceLogTable />
+          <InvoiceLogTable
+            zohoBotEnabled={zohoBotEnabled}
+            historyType="goods"
+          />
+        </TabsContent>
+
+        <TabsContent value="vas-history" className="mt-4">
+          <InvoiceLogTable
+            zohoBotEnabled={zohoBotEnabled}
+            historyType="vas"
+          />
         </TabsContent>
       </Tabs>
 
       {/* Generate Dialog */}
       <GenerateInvoiceDialog
+        isOpen={!!selectedCandidate}
         candidate={selectedCandidate}
         invoices={invoices}
+        zohoBotEnabled={zohoBotEnabled}
         onValidateBeforeGenerate={verifyCandidateBeforeGenerate}
-        allowVerificationBypass={
-          verificationBypassOrderId === selectedCandidate?.order.id
-        }
+        onSuccess={(hasRemainingVas, createdInvoice) => {
+          if (createdInvoice?.id) {
+            setInvoices((prev) => [
+              createdInvoice,
+              ...prev.filter((invoice) => invoice.id !== createdInvoice.id),
+            ]);
+          }
+          setActiveTab(
+            createdInvoice && isVasInvoice(createdInvoice)
+              ? "vas-history"
+              : hasRemainingVas
+                ? "vas-invoices"
+                : "tally-log"
+          );
+        }}
         onClose={() => {
           setSelectedCandidate(null);
-          setVerificationBypassOrderId(null);
         }}
       />
 
@@ -1746,7 +5143,7 @@ export default function InvoicePage() {
         open={!!verificationPrompt}
         onOpenChange={(open) => { if (!open) setVerificationPrompt(null); }}
       >
-        <AlertDialogContent className="max-w-md">
+        <AlertDialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <AlertDialogHeader>
             <div className="flex items-center gap-3 mb-1">
               <div className="rounded-full bg-amber-100 p-2.5">
@@ -1757,35 +5154,96 @@ export default function InvoicePage() {
             <AlertDialogDescription asChild>
               <div className="space-y-3 mt-2">
                 <p className="text-sm text-muted-foreground">
-                  Differences found between quotation and order:
+                  The {verificationPrompt?.verification.scope === "VAS" ? "VAS" : "invoice"} value
+                  differs from its converted quotation.
                 </p>
-                <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-2">
-                  {(verificationPrompt?.issues || []).map((issue, i) => (
-                    <div key={i} className="flex items-start gap-2 text-sm text-amber-800">
-                      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                      <span>{issue}</span>
-                    </div>
-                  ))}
+                <div className="grid gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 sm:grid-cols-5">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Quotation No</p>
+                    <p className="font-semibold">{verificationPrompt?.verification.quotationNo}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Order No</p>
+                    <p className="font-semibold">{verificationPrompt?.verification.orderNo}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Quotation Value</p>
+                    <p className="font-semibold">
+                      INR {num(verificationPrompt?.verification.quotationAmount).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Order / Invoice Value</p>
+                    <p className="font-semibold">
+                      INR {num(verificationPrompt?.verification.orderAmount).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Difference</p>
+                    <p className="font-bold text-red-700">
+                      INR {num(verificationPrompt?.verification.difference).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
                 </div>
+                {(verificationPrompt?.verification.details.length || 0) > 0 ? (
+                  <div className="overflow-x-auto rounded-lg border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Product Causing Difference</TableHead>
+                          <TableHead>Field</TableHead>
+                          <TableHead>Why</TableHead>
+                          <TableHead className="text-right">Order</TableHead>
+                          <TableHead className="text-right">Quotation</TableHead>
+                          <TableHead className="text-right">Difference</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(verificationPrompt?.verification.details || []).map((detail, index) => (
+                          <TableRow key={`${detail.product}-${detail.field}-${index}`}>
+                            <TableCell className="font-medium">{detail.product}</TableCell>
+                            <TableCell>{detail.field}</TableCell>
+                            <TableCell className="min-w-64 text-xs text-muted-foreground">
+                              {detail.reason}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {typeof detail.orderValue === "number"
+                                ? detail.orderValue.toLocaleString("en-IN", { maximumFractionDigits: 2 })
+                                : detail.orderValue}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {typeof detail.quotationValue === "number"
+                                ? detail.quotationValue.toLocaleString("en-IN", { maximumFractionDigits: 2 })
+                                : detail.quotationValue}
+                            </TableCell>
+                            <TableCell className="text-right font-semibold text-red-700">
+                              {typeof detail.difference === "number"
+                                ? detail.difference.toLocaleString("en-IN", { maximumFractionDigits: 2 })
+                                : "-"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-2">
+                    {(verificationPrompt?.verification.issues || []).map((issue, i) => (
+                      <div key={i} className="flex items-start gap-2 text-sm text-amber-800">
+                        <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                        <span>{issue}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground">
-                  You can still generate by choosing "Generate Anyway".
+                  Invoice generation is blocked until the order is corrected from its linked quotation.
                 </p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-amber-600 hover:bg-amber-700"
-              onClick={() => {
-                if (!verificationPrompt) return;
-                setVerificationBypassOrderId(verificationPrompt.candidate.order.id);
-                setSelectedCandidate(verificationPrompt.candidate);
-                setVerificationPrompt(null);
-              }}
-            >
-              Generate Anyway
-            </AlertDialogAction>
+            <AlertDialogCancel>Close</AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

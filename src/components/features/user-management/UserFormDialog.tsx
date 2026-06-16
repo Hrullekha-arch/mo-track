@@ -31,15 +31,28 @@ const parseTimeToMinutes = (value?: string) => {
   return hour * 60 + minute;
 };
 
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
+
+const normalizeDayOff = (value?: string | null): User["dayOff"] => {
+  const normalized = value?.trim().toLowerCase();
+  return WEEKDAYS.find((day) => day === normalized);
+};
+
+const formatWeekOff = (value?: User["dayOff"] | null) => {
+  if (!value) return null;
+  return value.charAt(0).toUpperCase() + value.slice(1);
+};
+
 const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Invalid email address"),
   password: z.string().optional(),
-  role: z.enum(['admin', 'employee', 'installer', 'salesman', 'Accounts', 'Hr', 'Purchase'], { required_error: "Role is required" }),
+  role: z.enum(['admin', 'employee', 'installer', 'salesman', 'Accounts', 'Hr', 'Purchase', 'PC', 'IT', 'Data Analytics'], { required_error: "Role is required" }),
+  isActive: z.boolean().optional(),
   store: z.string().optional(),
-  designation: z.enum(['CRM', 'Allocators', 'PC', 'salesmanager']).optional(),
+  designation: z.enum(['CRM', 'Allocators', 'PC', 'EA', 'salesmanager', 'Recruiter', 'MIS & Data Analytics', 'Software Developer']).optional(),
   salesmanCode: z.string().optional(),
-  dayOff: z.enum(['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']).optional(),
+  dayOff: z.enum(WEEKDAYS).optional(),
   permissions: z.array(z.string()).optional(),
   timesheetEnabled: z.boolean().optional(),
   timesheetDutyStart: z.string().optional(),
@@ -110,6 +123,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
       email: '',
       password: '',
       role: 'employee',
+      isActive: true,
       store: '',
       designation: undefined,
       salesmanCode: '',
@@ -133,11 +147,12 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
         name: user.name,
         email: user.email,
         role: user.role,
+        isActive: user.isActive !== false,
         store: user.store || '',
         designation: user.designation,
         password: '',
         salesmanCode: user.salesmanCode || '',
-        dayOff: user.dayOff,
+        dayOff: normalizeDayOff(user.dayOff || user.weekOff),
         permissions: user.permissions || [],
         timesheetEnabled: Boolean(user.timesheetEnabled),
         timesheetDutyStart: user.timesheetDutyStart || '',
@@ -149,6 +164,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
         email: '',
         password: '',
         role: 'employee',
+        isActive: true,
         store: '',
         designation: undefined,
         salesmanCode: '',
@@ -168,9 +184,6 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
       }
       if (role !== 'salesman') {
           form.setValue('salesmanCode', '');
-      }
-      if (role !== 'installer') {
-          form.setValue('dayOff', undefined);
       }
       if (role === 'admin' || role === 'installer') {
           form.setValue("timesheetEnabled", false);
@@ -238,7 +251,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
     try {
       const normalizedDesignation = values.role === "employee" ? (values.designation || null) : null;
       const normalizedSalesmanCode = values.role === "salesman" ? (values.salesmanCode || null) : null;
-      const normalizedDayOff = values.role === "installer" ? (values.dayOff || null) : null;
+      const normalizedDayOff = values.dayOff || null;
       const isTimesheetApplicable = values.role !== "admin" && values.role !== "installer";
       const normalizedTimesheetEnabled = isTimesheetApplicable && Boolean(values.timesheetEnabled);
       const normalizedTimesheetStart = normalizedTimesheetEnabled ? (values.timesheetDutyStart || null) : null;
@@ -249,11 +262,14 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
         const userRef = doc(db, "users", user.id);
         await updateDoc(userRef, {
             name: values.name,
+            email: values.email,
             role: values.role,
+            isActive: values.isActive !== false,
             store: values.store || null,
             designation: normalizedDesignation,
             salesmanCode: normalizedSalesmanCode,
             dayOff: normalizedDayOff,
+            weekOff: formatWeekOff(normalizedDayOff),
             permissions: values.permissions || [],
             timesheetEnabled: normalizedTimesheetEnabled,
             timesheetDutyStart: normalizedTimesheetStart,
@@ -276,6 +292,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                 name: values.name,
                 email: values.email,
                 role: values.role,
+                isActive: values.isActive !== false,
                 store: values.store,
                 permissions: values.permissions || [],
                 timesheetEnabled: normalizedTimesheetEnabled,
@@ -288,6 +305,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
             }
             if (normalizedDayOff) {
                 newUser.dayOff = normalizedDayOff;
+                newUser.weekOff = formatWeekOff(normalizedDayOff) || undefined;
             }
             if (normalizedTimesheetEnabled && normalizedTimesheetStart && normalizedTimesheetEnd) {
                 newUser.timesheetDutyStart = normalizedTimesheetStart;
@@ -361,7 +379,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Email</FormLabel>
-                  <FormControl><Input type="email" placeholder="name@example.com" {...field} disabled={isEditing} /></FormControl>
+                  <FormControl><Input type="email" placeholder="name@example.com" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -397,9 +415,37 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                             <SelectItem value="Accounts">Accounts</SelectItem>
                             <SelectItem value="Hr">HR</SelectItem>
                             <SelectItem value="Purchase">Purchase</SelectItem>
+                            <SelectItem value="PC">PC</SelectItem>
+                            <SelectItem value="IT">IT</SelectItem>
+                            <SelectItem value="Data Analytics">Data Analytics</SelectItem>
                         </SelectContent>
                     </Select>
                     <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="isActive"
+              render={({ field }) => (
+                <FormItem className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
+                  <div>
+                    <FormLabel className="text-sm font-medium">Account Status</FormLabel>
+                    <FormDescription className="text-xs">
+                      Active users can access assigned modules. Inactive users see no dashboard modules.
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        {field.value !== false ? "Active" : "Inactive"}
+                      </span>
+                      <Switch
+                        checked={field.value !== false}
+                        onCheckedChange={field.onChange}
+                      />
+                    </div>
+                  </FormControl>
                 </FormItem>
               )}
             />
@@ -438,7 +484,11 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                                     <SelectItem value="CRM">CRM</SelectItem>
                                     <SelectItem value="Allocators">Allocators</SelectItem>
                                     <SelectItem value="PC">PC</SelectItem>
+                                    <SelectItem value="EA">EA</SelectItem>
                                     <SelectItem value="salesmanager">Sales Manager</SelectItem>
+                                    <SelectItem value="Recruiter">Recruiter</SelectItem>
+                                    <SelectItem value="MIS & Data Analytics">MIS &amp; Data Analytics</SelectItem>
+                                    <SelectItem value="Software Developer">Software Developer</SelectItem>
                                 </SelectContent>
                             </Select>
                             <FormMessage />
@@ -464,7 +514,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                   name="dayOff"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Day Off</FormLabel>
+                      <FormLabel>Day Off / Week Off</FormLabel>
                       <Select
                         onValueChange={(value) => field.onChange(value === "__none__" ? undefined : value)}
                         value={field.value || "__none__"}

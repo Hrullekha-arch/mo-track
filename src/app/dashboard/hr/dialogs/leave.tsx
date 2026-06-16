@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Loader2, Save, Search, UserCheck, X } from "lucide-react";
+import { Check, FileSignature, FileText, Loader2, Save, Search, UserCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -35,6 +35,10 @@ import {
   getMonthKeyFromDate,
   LEAVE_TYPE_LABELS,
 } from "../utils";
+import {
+  openExitExperienceLetterPrintWindow,
+  openExitRelievingLetterPrintWindow,
+} from "../print";
 
 // ─── Leave Request Dialog ────────────────────────────────────────────────────
 
@@ -273,6 +277,9 @@ export function ExitRecordDialog({
 const set = <K extends keyof HrExitFormState>(key: K, val: HrExitFormState[K]) =>
   setForm({ ...form, [key]: val });
 
+  const letterEffectiveDate = form.lastWorkingDay || form.exitDate;
+  const canGenerateExitLetters = Boolean(letterEffectiveDate);
+
   const assetItems = useMemo(
     () =>
       String(employee.issuedAssets || "")
@@ -326,6 +333,24 @@ const set = <K extends keyof HrExitFormState>(key: K, val: HrExitFormState[K]) =
       }
     );
   }, [attendanceSummary, employee, fnfMonth]);
+
+  const handlePrintExperienceLetter = () => {
+    openExitExperienceLetterPrintWindow(employee, {
+      issueDate: form.exitDate || new Date().toISOString().slice(0, 10),
+      lastWorkingDay: letterEffectiveDate,
+      exitType: form.exitType,
+      fnfStatus: form.fnfStatus,
+    });
+  };
+
+  const handlePrintRelievingLetter = () => {
+    openExitRelievingLetterPrintWindow(employee, {
+      issueDate: form.exitDate || new Date().toISOString().slice(0, 10),
+      lastWorkingDay: letterEffectiveDate,
+      exitType: form.exitType,
+      fnfStatus: form.fnfStatus,
+    });
+  };
 
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
@@ -408,6 +433,44 @@ const set = <K extends keyof HrExitFormState>(key: K, val: HrExitFormState[K]) =
 
           <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 text-sm text-slate-700">
             Final settlement can be marked complete only after all company assets are returned, backup email handover is completed, and clearance is marked complete.
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Exit Letters</p>
+                <p className="text-xs text-slate-500">
+                  Generate professional MNC-style Experience and Relieving letters for this employee.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-slate-300 bg-white"
+                  disabled={!canGenerateExitLetters}
+                  onClick={handlePrintExperienceLetter}
+                >
+                  <FileSignature className="mr-2 h-4 w-4" />
+                  Experience Letter
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-slate-300 bg-white"
+                  disabled={!canGenerateExitLetters}
+                  onClick={handlePrintRelievingLetter}
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  Relieving Letter
+                </Button>
+              </div>
+            </div>
+            {!canGenerateExitLetters ? (
+              <p className="mt-2 text-xs text-amber-700">
+                Set Exit Date or Last Working Day to enable letter generation.
+              </p>
+            ) : null}
           </div>
 
           <div className="grid grid-cols-2 gap-4">

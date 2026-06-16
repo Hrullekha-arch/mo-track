@@ -6,7 +6,7 @@ import { User, UserRole } from '@/lib/types';
 import { useRouter } from 'next/navigation';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, User as FirebaseUser } from "firebase/auth";
 import { useAuth as useFirebaseAuth } from '@/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 
@@ -21,6 +21,28 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const getLoginFailureMessage = (error: unknown) => {
+  const code =
+    typeof (error as { code?: unknown })?.code === "string"
+      ? (error as { code: string }).code
+      : undefined;
+
+  if (code === "auth/network-request-failed") {
+    return "Could not reach Firebase Auth. Check your internet connection and refresh the page once.";
+  }
+
+  if (
+    code === "auth/invalid-credential" ||
+    code === "auth/user-not-found" ||
+    code === "auth/wrong-password" ||
+    code === "auth/invalid-email"
+  ) {
+    return "Invalid email or password. Please try again.";
+  }
+
+  return "Unable to sign in right now. Please try again.";
+};
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -30,25 +52,35 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const auth = useFirebaseAuth();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+    let unsubscribeUserDoc: (() => void) | undefined;
+    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
+        unsubscribeUserDoc?.();
+        unsubscribeUserDoc = undefined;
         if (fbUser) {
             setFirebaseUser(fbUser);
             const userDocRef = doc(db, "users", fbUser.uid);
-            const docSnap = await getDoc(userDocRef);
-            if (docSnap.exists()) {
-                setUser({ id: docSnap.id, ...docSnap.data() } as User);
-            } else {
-                // Handle case where user exists in Auth but not Firestore
+            unsubscribeUserDoc = onSnapshot(
+              userDocRef,
+              (docSnap) => {
+                setUser(docSnap.exists() ? ({ id: docSnap.id, ...docSnap.data() } as User) : null);
+                setLoading(false);
+              },
+              () => {
                 setUser(null);
-            }
+                setLoading(false);
+              }
+            );
         } else {
             setUser(null);
             setFirebaseUser(null);
+            setLoading(false);
         }
-        setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      unsubscribeUserDoc?.();
+    };
   }, [auth]);
 
 
@@ -62,12 +94,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         // The onAuthStateChanged listener will handle routing
         setLoading(false);
         return true;
-    } catch (error: any) {
-        console.error("Login Error:", error);
+    } catch (error) {
         toast({
             variant: "destructive",
             title: "Login Failed",
-            description: "Invalid email or password. Please try again.",
+            description: getLoginFailureMessage(error),
         });
         setLoading(false);
         return false;

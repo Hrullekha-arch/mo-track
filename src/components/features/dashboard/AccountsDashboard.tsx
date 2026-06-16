@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -41,6 +41,7 @@ import { PrintableOrder } from "../order-management/PrintableOrder";
 import { buildPrintablePayloadFromInvoice } from "@/lib/invoice-utils";
 import { Badge } from "@/components/ui/badge";
 import { useRouter } from "next/navigation";
+import { TimesheetPanel } from "@/components/features/dashboard/TimesheetPanel";
 
 type CountsState = {
   pendingQuotations: number;
@@ -156,8 +157,8 @@ export function AccountsDashboard() {
     const processData = async () => {
       setLoading(true);
       try {
-        const quotationsQuery = query(collectionGroup(db, "quotations"));
-        const ordersQuery = query(collection(db, "orders"));
+        const quotationsQuery = query(collectionGroup(db, "quotations"), limit(500));
+        const ordersQuery = query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(1000));
         const invoicesQuery = query(collection(db, "invoices"), orderBy("createdAt", "desc"), limit(15));
 
         const [quotationsSnapshot, ordersSnapshot, invoicesSnapshot] = await Promise.all([
@@ -441,6 +442,8 @@ export function AccountsDashboard() {
             />
           ))}
         </div>
+
+        <TimesheetPanel />
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
           <Card className="border-slate-200 xl:col-span-2">

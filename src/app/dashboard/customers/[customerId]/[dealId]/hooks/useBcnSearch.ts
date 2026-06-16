@@ -29,7 +29,7 @@ export function useBcnSearch(form: UseFormReturn<any>) {
         const results = await searchStockByBcn(query);
         const options: BCNOption[] = results.map((stock: any) => ({
           value: stock.bcn || stock.id,
-          label: `${stock.bcn} - ${stock.itemName || ""}`,
+          label: `${stock.bcn || stock.id} - ${stock.itemName || stock.name || ""}`,
           stockItem: stock,
         }));
         setBcnOptions(options);
@@ -50,8 +50,8 @@ export function useBcnSearch(form: UseFormReturn<any>) {
     
     form.setValue("newProduct.fabricCategoryGroup", stock.categoryGroup || "");
     form.setValue("newProduct.collectionBrand", stock.bcn || stock.id || "");
-    form.setValue("newProduct.salesDescription", stock.itemName || "");
-    form.setValue("newProduct.mrp", stock.rrpWithGstRs ? String(stock.rrpWithGstRs) : "");
+    form.setValue("newProduct.salesDescription", stock.itemName || stock.name || "");
+    form.setValue("newProduct.mrp", stock.rrpWithGstRs || stock.mrp ? String(stock.rrpWithGstRs || stock.mrp) : "");
     form.setValue("newProduct.verticalRepeat", stock.verticalRepeatCms || "");
     form.setValue("newProduct.horizontalRepeat", stock.horizontalRepeatCms || "");
     fetchIMSQty(stock.bcn || stock.id);

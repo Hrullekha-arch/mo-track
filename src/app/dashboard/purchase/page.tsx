@@ -11,6 +11,7 @@ import {
   Clock3,
   Loader2,
   PackageCheck,
+  ReceiptText,
   ShoppingCart,
   Truck,
   Workflow,
@@ -239,6 +240,12 @@ export default function PurchasePage() {
       href: "/dashboard/stock-verification",
       icon: ClipboardCheck,
     },
+    {
+      title: "Debit Notes",
+      description: "Create purchase debit notes and transfer them to Zoho.",
+      href: "/dashboard/purchase/debit-notes",
+      icon: ReceiptText,
+    },
   ];
 
   return (
@@ -268,7 +275,7 @@ export default function PurchasePage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         {quickActions.map((action) => (
           <Link key={action.href} href={action.href} className="group block">
             <Card className="h-full border-slate-200 transition-all hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-md">

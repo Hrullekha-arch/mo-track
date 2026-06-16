@@ -238,6 +238,7 @@ export function PrintableQuotationProfessional({ type, values, creatorName, sale
         gst: "06CDOPP2805B1ZR",
         pan: "CDOPP2805B",
       }
+    const logoSrc = type === "GOODS" ? "/name-logo.png" : "/vatLOGO.png";
 
     return (
         <div style={{ width: '210mm', minHeight: '297mm', margin: 'auto', padding: '2rem 1.5rem', backgroundColor: 'white', color: 'black', fontFamily: 'Arial, sans-serif', fontSize: '12px' }}>
@@ -260,7 +261,7 @@ export function PrintableQuotationProfessional({ type, values, creatorName, sale
                     </p>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                    <Image src="/logo.png" alt="Mo Logo" width={120} height={60} style={{ marginBottom: '1rem' }} />
+                    <Image src={logoSrc} alt="Mo Logo" width={120} height={60} style={{ marginBottom: '1rem' }} />
                     <p style={{ margin: 0 }}><strong>Quotation #</strong>{values.quotationNo}</p>
                     <p style={{ margin: '0.25rem 0' }}><strong>Date:</strong> {format(validDate, "dd/MM/yyyy")}</p>
                     <p style={{ margin: 0 }}><strong>Salesman:</strong> {salesmanName || 'N/A'}</p>

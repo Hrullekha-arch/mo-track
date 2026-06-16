@@ -44,7 +44,7 @@ export function useEmployeeHandlers({ user, toast, setActiveTab }: Params) {
     setSavingEmployee(true);
     try {
       const trimmedName = employeeForm.name.trim() || "Unnamed Employee";
-      const resolvedRole = employeeDialogUser.hasLoginAccount ? employeeDialogUser.role : employeeForm.role;
+      const resolvedRole = employeeForm.role;
       const trimmedStore = employeeForm.store.trim() || null;
       const trimmedEmployeeCode = employeeForm.employeeCode.trim() || null;
       const trimmedBiometricId = trimmedEmployeeCode;

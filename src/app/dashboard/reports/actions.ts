@@ -1,13 +1,17 @@
-
-
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
-import { Order, PurchaseRequest, Stock, StockTransaction } from "@/lib/types";
+import { Order, PurchaseRequest, StockTransaction } from "@/lib/types";
+import { differenceInDays, subDays } from "date-fns";
 import { DateRange } from "react-day-picker";
-import { subDays, differenceInDays } from "date-fns";
 
-type ReportType = 'order-summary' | 'sales-performance' | 'purchase-report' | 'stock-ledger' | 'profit-loss' | 'stock-analysis';
+type ReportType =
+    | 'order-summary'
+    | 'sales-performance'
+    | 'purchase-report'
+    | 'stock-ledger'
+    | 'profit-loss'
+    | 'stock-analysis';
 
 interface ReportParams {
     reportType: ReportType;
@@ -32,10 +36,9 @@ export interface ProfitLossData {
 }
 
 export interface StockAnalysisData {
-    topSellingProducts: { name: string; volume: number; }[];
-    deadStock: { name: string; age: string; }[];
+    topSellingProducts: { name: string; volume: number }[];
+    deadStock: { name: string; age: string }[];
 }
-
 
 export interface ReportData {
     orders?: Order[];
@@ -46,223 +49,289 @@ export interface ReportData {
     stockAnalysis?: StockAnalysisData;
 }
 
+interface StockSummary {
+    id: string;
+    bcn?: string;
+    itemName?: string;
+    name?: string;
+    rlPrice?: number;
+    costPriceRs?: number;
+    lastUpdatedAt?: string;
+    updatedAt?: string;
+    createdAt?: string;
+}
+
+const serialize = <T>(value: T): T => JSON.parse(JSON.stringify(value));
+
+function getDateTime(value: unknown): number {
+    if (typeof value !== 'string' || !value) return Number.NaN;
+    return new Date(value).getTime();
+}
+
+function isWithinDateRange(value: string, dateRange?: DateRange): boolean {
+    const time = getDateTime(value);
+    if (!Number.isFinite(time)) return false;
+    if (dateRange?.from && time < dateRange.from.getTime()) return false;
+    if (dateRange?.to && time > dateRange.to.getTime()) return false;
+    return true;
+}
+
+async function getOrderSummary(dateRange?: DateRange, userId?: string): Promise<Order[]> {
+    let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = adminDb
+        .collection('orders')
+        .select(
+            'crmOrderNo',
+            'createdAt',
+            'customerName',
+            'customerPhone',
+            'salesPerson',
+            'storeName',
+            'totalAmount',
+            'fabricDetails',
+        );
+
+    if (dateRange?.from) {
+        query = query.where('createdAt', '>=', dateRange.from.toISOString());
+    }
+    if (dateRange?.to) {
+        query = query.where('createdAt', '<=', dateRange.to.toISOString());
+    }
+    if (userId && userId !== 'all') {
+        query = query.where('salesPerson', '==', userId);
+    }
+
+    const snapshot = await query.orderBy('createdAt', 'desc').get();
+    return serialize(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order)));
+}
+
+async function getStockSummaries(): Promise<StockSummary[]> {
+    const snapshot = await adminDb
+        .collection('stocks')
+        .select(
+            'bcn',
+            'itemName',
+            'name',
+            'rlPrice',
+            'costPriceRs',
+            'lastUpdatedAt',
+            'updatedAt',
+            'createdAt',
+        )
+        .get();
+
+    return snapshot.docs.map((doc: FirebaseFirestore.QueryDocumentSnapshot) => ({
+        id: doc.id,
+        ...doc.data(),
+    } as StockSummary));
+}
+
+async function getCurrentStockLedger(): Promise<StockTransaction[]> {
+    const cuttingSnapshot = await adminDb.collection('Cutting').get();
+    const transactions: StockTransaction[] = [];
+
+    cuttingSnapshot.docs.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
+        const task = doc.data() as {
+            orderId?: string;
+            createdAt?: string;
+            salesPerson?: string;
+            items?: Array<{
+                bcn?: string;
+                quantityAllocated?: number | string;
+                stockAddedId?: string;
+                status?: StockTransaction['status'];
+                cutBy?: string;
+            }>;
+        };
+
+        if (!task.createdAt || !Array.isArray(task.items)) return;
+
+        task.items.forEach((item, index) => {
+            const bcn = String(item.bcn || '').trim();
+            const quantity = Math.abs(Number(item.quantityAllocated) || 0);
+            if (!bcn || quantity <= 0) return;
+
+            transactions.push({
+                id: `${doc.id}-${item.stockAddedId || bcn}-${index}`,
+                stockId: bcn,
+                bcn,
+                type: 'deduction',
+                quantityChange: -quantity,
+                orderId: task.orderId,
+                createdAt: task.createdAt!,
+                createdBy: item.cutBy || 'Cutting Module',
+                status: item.status,
+                lengthId: item.stockAddedId,
+                salesman: task.salesPerson,
+            });
+        });
+    });
+
+    return transactions.sort((a, b) => getDateTime(b.createdAt) - getDateTime(a.createdAt));
+}
+
+function buildSalesPerformance(orders: Order[]): SalesPerformanceData[] {
+    const performance = new Map<string, SalesPerformanceData>();
+
+    orders.forEach(order => {
+        const salesman = order.salesPerson || 'Unknown';
+        const current = performance.get(salesman) || {
+            salesman,
+            totalOrders: 0,
+            totalValue: 0,
+        };
+        current.totalOrders += 1;
+        current.totalValue += Number(order.totalAmount) || 0;
+        performance.set(salesman, current);
+    });
+
+    return [...performance.values()].sort((a, b) => b.totalValue - a.totalValue);
+}
+
+function buildProfitLoss(orders: Order[], stocks: StockSummary[]): ProfitLossData[] {
+    const stockById = new Map<string, StockSummary>();
+    stocks.forEach(stock => {
+        stockById.set(stock.id, stock);
+        if (stock.bcn) stockById.set(stock.bcn, stock);
+    });
+
+    return orders.map(order => {
+        const costOfGoods = (order.fabricDetails || []).reduce((total, item) => {
+            const stockId = String(item.fabricName || '').replace(/\//g, '-');
+            const stock = stockById.get(stockId);
+            const unitCost = Number(stock?.rlPrice ?? stock?.costPriceRs) || 0;
+            const quantity = Number.parseFloat(String(item.quantity || 0)) || 0;
+            return total + unitCost * quantity;
+        }, 0);
+        const totalAmount = Number(order.totalAmount) || 0;
+
+        return {
+            orderId: order.id,
+            customerName: order.customerName,
+            orderDate: order.createdAt,
+            salesPerson: order.salesPerson,
+            totalAmount,
+            costOfGoods,
+            profit: totalAmount - costOfGoods,
+        };
+    });
+}
+
+function buildStockAnalysis(
+    stocks: StockSummary[],
+    stockLedger: StockTransaction[],
+    dateRange?: DateRange,
+): StockAnalysisData {
+    const salesVolume = new Map<string, number>();
+    const lastSaleByBcn = new Map<string, number>();
+
+    stockLedger.forEach(transaction => {
+        const saleTime = getDateTime(transaction.createdAt);
+        const previousSale = lastSaleByBcn.get(transaction.bcn) || 0;
+        if (Number.isFinite(saleTime) && saleTime > previousSale) {
+            lastSaleByBcn.set(transaction.bcn, saleTime);
+        }
+        if (isWithinDateRange(transaction.createdAt, dateRange)) {
+            salesVolume.set(
+                transaction.bcn,
+                (salesVolume.get(transaction.bcn) || 0) + Math.abs(transaction.quantityChange),
+            );
+        }
+    });
+
+    const topSellingProducts = [...salesVolume.entries()]
+        .map(([name, volume]) => ({ name, volume }))
+        .sort((a, b) => b.volume - a.volume)
+        .slice(0, 5);
+
+    const now = new Date();
+    const ninetyDaysAgo = subDays(now, 90).getTime();
+    const deadStock = stocks
+        .map(stock => {
+            const name = stock.bcn || stock.itemName || stock.name || stock.id;
+            const lastSaleTime = lastSaleByBcn.get(name);
+            if (lastSaleTime && lastSaleTime >= ninetyDaysAgo) return null;
+
+            const referenceTime = lastSaleTime || getDateTime(
+                stock.lastUpdatedAt || stock.updatedAt || stock.createdAt,
+            );
+            if (!Number.isFinite(referenceTime)) return null;
+
+            const age = differenceInDays(now, new Date(referenceTime));
+            return {
+                name,
+                age: lastSaleTime ? `${age} days` : `${age}+ days`,
+                ageInDays: age,
+            };
+        })
+        .filter((item): item is { name: string; age: string; ageInDays: number } => item !== null)
+        .sort((a, b) => b.ageInDays - a.ageInDays)
+        .slice(0, 5)
+        .map(({ name, age }) => ({ name, age }));
+
+    return { topSellingProducts, deadStock };
+}
+
+export async function getReportsDashboard(dateRange?: DateRange): Promise<Required<
+    Pick<ReportData, 'orders' | 'salesPerformance' | 'stockLedger' | 'profitLoss' | 'stockAnalysis'>
+>> {
+    const [orders, stocks, stockLedger] = await Promise.all([
+        getOrderSummary(dateRange),
+        getStockSummaries(),
+        getCurrentStockLedger(),
+    ]);
+
+    return serialize({
+        orders,
+        salesPerformance: buildSalesPerformance(orders),
+        stockLedger,
+        profitLoss: buildProfitLoss(orders, stocks),
+        stockAnalysis: buildStockAnalysis(stocks, stockLedger, dateRange),
+    });
+}
+
+async function getPurchaseReport(dateRange?: DateRange): Promise<PurchaseRequest[]> {
+    let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = adminDb.collection('purchaseRequests');
+
+    if (dateRange?.from) {
+        query = query.where('createdAt', '>=', dateRange.from.toISOString());
+    }
+    if (dateRange?.to) {
+        query = query.where('createdAt', '<=', dateRange.to.toISOString());
+    }
+
+    const snapshot = await query.orderBy('createdAt', 'desc').get();
+    return serialize(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest)));
+}
+
 export async function getReportData(params: ReportParams): Promise<ReportData> {
     switch (params.reportType) {
         case 'order-summary':
             return { orders: await getOrderSummary(params.dateRange, params.userId) };
-        case 'sales-performance':
-            return { salesPerformance: await getSalesPerformance(params.dateRange) };
+        case 'sales-performance': {
+            const orders = await getOrderSummary(params.dateRange);
+            return { salesPerformance: buildSalesPerformance(orders) };
+        }
         case 'purchase-report':
             return { purchaseReport: await getPurchaseReport(params.dateRange) };
         case 'stock-ledger':
-            return { stockLedger: await getStockLedger() }; // Removed dateRange from here
-        case 'profit-loss':
-            return { profitLoss: await getProfitLossReport(params.dateRange) };
-        case 'stock-analysis':
-            return { stockAnalysis: await getStockAnalysis(params.dateRange) };
+            return { stockLedger: serialize(await getCurrentStockLedger()) };
+        case 'profit-loss': {
+            const [orders, stocks] = await Promise.all([
+                getOrderSummary(params.dateRange),
+                getStockSummaries(),
+            ]);
+            return { profitLoss: serialize(buildProfitLoss(orders, stocks)) };
+        }
+        case 'stock-analysis': {
+            const [stocks, stockLedger] = await Promise.all([
+                getStockSummaries(),
+                getCurrentStockLedger(),
+            ]);
+            return {
+                stockAnalysis: serialize(buildStockAnalysis(stocks, stockLedger, params.dateRange)),
+            };
+        }
         default:
             throw new Error('Invalid report type');
-    }
-}
-
-async function getOrderSummary(dateRange?: DateRange, userId?: string): Promise<Order[]> {
-    try {
-        let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = adminDb.collection('orders');
-
-        if (dateRange?.from) {
-            query = query.where('createdAt', '>=', dateRange.from.toISOString());
-        }
-        if (dateRange?.to) {
-            query = query.where('createdAt', '<=', dateRange.to.toISOString());
-        }
-
-        if (userId && userId !== 'all') {
-            query = query.where('salesPerson', '==', userId);
-        }
-
-        const snapshot = await query.orderBy('createdAt', 'desc').get();
-        const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-        
-        return JSON.parse(JSON.stringify(orders));
-
-    } catch (error) {
-        console.error("Error fetching order summary:", error);
-        return [];
-    }
-}
-
-async function getSalesPerformance(dateRange?: DateRange): Promise<SalesPerformanceData[]> {
-    try {
-        const orders = await getOrderSummary(dateRange);
-
-        const performanceMap = orders.reduce((acc, order) => {
-            const salesman = order.salesPerson || 'Unknown';
-            if (!acc[salesman]) {
-                acc[salesman] = { salesman: salesman, totalOrders: 0, totalValue: 0 };
-            }
-            acc[salesman].totalOrders += 1;
-            acc[salesman].totalValue += order.totalAmount || 0;
-            return acc;
-        }, {} as Record<string, SalesPerformanceData>);
-
-        return Object.values(performanceMap).sort((a,b) => b.totalValue - a.totalValue);
-
-    } catch (error) {
-        console.error("Error fetching sales performance:", error);
-        return [];
-    }
-}
-
-async function getPurchaseReport(dateRange?: DateRange): Promise<PurchaseRequest[]> {
-    try {
-        let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = adminDb.collection('purchaseRequests');
-
-        if (dateRange?.from) {
-            query = query.where('createdAt', '>=', dateRange.from.toISOString());
-        }
-        if (dateRange?.to) {
-            query = query.where('createdAt', '<=', dateRange.to.toISOString());
-        }
-
-        const snapshot = await query.orderBy('createdAt', 'desc').get();
-        const requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
-        
-        return JSON.parse(JSON.stringify(requests));
-    } catch (error) {
-        console.error("Error fetching purchase report:", error);
-        return [];
-    }
-}
-
-async function getStockLedger(): Promise<StockTransaction[]> {
-    try {
-        const stockAddedSnapshot = await adminDb.collectionGroup('stockAdded').get();
-        const stockSoldSnapshot = await adminDb.collectionGroup('stockSold').get();
-        
-        const addedTransactions = stockAddedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockTransaction));
-        const soldTransactions = stockSoldSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockTransaction));
-        
-        const allTransactions = [...addedTransactions, ...soldTransactions];
-        allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-        return JSON.parse(JSON.stringify(allTransactions));
-    } catch (error) {
-        console.error("Error fetching stock ledger:", error);
-        return [];
-    }
-}
-
-async function getProfitLossReport(dateRange?: DateRange): Promise<ProfitLossData[]> {
-    try {
-        const orders = await getOrderSummary(dateRange);
-        const stockCache = new Map<string, Stock>();
-
-        const profitLossData: ProfitLossData[] = [];
-
-        for (const order of orders) {
-            let costOfGoods = 0;
-            if (order.fabricDetails) {
-                for (const item of order.fabricDetails) {
-                    const stockId = item.fabricName.replace(/\//g, '-');
-                    let stockItem: Stock | undefined = stockCache.get(stockId);
-                    
-                    if (!stockItem) {
-                        const stockDoc = await adminDb.collection('stocks').doc(stockId).get();
-                        if (stockDoc.exists) {
-                            stockItem = stockDoc.data() as Stock;
-                            stockCache.set(stockId, stockItem);
-                        }
-                    }
-
-                    if (stockItem) {
-                        const itemCost = (stockItem.rlPrice || 0) * parseFloat(item.quantity);
-                        costOfGoods += itemCost;
-                    }
-                }
-            }
-            
-            const totalAmount = order.totalAmount || 0;
-            const profit = totalAmount - costOfGoods;
-
-            profitLossData.push({
-                orderId: order.id,
-                customerName: order.customerName,
-                orderDate: order.createdAt,
-                salesPerson: order.salesPerson,
-                totalAmount: totalAmount,
-                costOfGoods: costOfGoods,
-                profit: profit,
-            });
-        }
-        
-        return JSON.parse(JSON.stringify(profitLossData.sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime())));
-
-    } catch (error) {
-        console.error("Error fetching profit and loss report:", error);
-        return [];
-    }
-}
-
-async function getStockAnalysis(dateRange?: DateRange): Promise<StockAnalysisData> {
-    try {
-        const stockSoldQuery = adminDb.collectionGroup('stockSold');
-        let filteredSoldQuery: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = stockSoldQuery;
-
-        if (dateRange?.from) {
-            filteredSoldQuery = filteredSoldQuery.where('createdAt', '>=', dateRange.from.toISOString());
-        }
-        if (dateRange?.to) {
-            filteredSoldQuery = filteredSoldQuery.where('createdAt', '<=', dateRange.to.toISOString());
-        }
-        
-        const stockSoldSnapshot = await filteredSoldQuery.get();
-        const soldTransactions = stockSoldSnapshot.docs.map(doc => doc.data() as StockTransaction);
-
-        // Top Selling Products
-        const salesVolume = soldTransactions.reduce((acc, tx) => {
-            const itemName = tx.bcn || 'Unknown';
-            acc[itemName] = (acc[itemName] || 0) + Math.abs(tx.quantityChange);
-            return acc;
-        }, {} as Record<string, number>);
-
-        const topSellingProducts = Object.entries(salesVolume)
-            .map(([name, volume]) => ({ name, volume }))
-            .sort((a, b) => b.volume - a.volume)
-            .slice(0, 5); // Top 5
-
-        // Dead Stock
-        const allStockSnapshot = await adminDb.collection('stocks').get();
-        const allStock = allStockSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Stock));
-        
-        // We need all sold transactions for this logic, regardless of date range.
-        const allSoldTransactions = (await adminDb.collectionGroup('stockSold').get()).docs.map(doc => doc.data() as StockTransaction);
-
-        const deadStockItems: { name: string; age: string; }[] = [];
-        const ninetyDaysAgo = subDays(new Date(), 90);
-
-        allStock.forEach(stock => {
-            const lastSale = allSoldTransactions
-                .filter(tx => tx.bcn === stock.bcn)
-                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-
-            if (!lastSale) {
-                // Never sold
-                const age = differenceInDays(new Date(), new Date(stock.lastUpdatedAt));
-                deadStockItems.push({ name: stock.bcn || stock.itemName, age: `${age}+ days` });
-            } else if (new Date(lastSale.createdAt) < ninetyDaysAgo) {
-                // Not sold in the last 90 days
-                const age = differenceInDays(new Date(), new Date(lastSale.createdAt));
-                deadStockItems.push({ name: stock.bcn || stock.itemName, age: `${age} days` });
-            }
-        });
-
-        return {
-            topSellingProducts,
-            deadStock: deadStockItems.sort((a, b) => parseInt(b.age) - parseInt(a.age)).slice(0, 5), // Top 5 oldest
-        };
-
-    } catch (error) {
-        console.error("Error fetching stock analysis:", error);
-        return { topSellingProducts: [], deadStock: [] };
     }
 }

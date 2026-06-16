@@ -18,6 +18,9 @@ export const HR_ROLE_OPTIONS = [
   { value: "Accounts", label: "Accounts" },
   { value: "Purchase", label: "Purchase" },
   { value: "Hr", label: "HR" },
+  { value: "PC", label: "PC" },
+  { value: "IT", label: "IT" },
+  { value: "Data Analytics", label: "Data Analytics" },
   { value: "installer", label: "Installer" },
 ] as const;
 

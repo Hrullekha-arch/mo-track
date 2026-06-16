@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/syncSheets",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/zoho-invoices",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

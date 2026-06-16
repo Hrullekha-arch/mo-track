@@ -27,7 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, doc, where, collectionGroup, getDocs, getDoc, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, where, collectionGroup, getDocs, getDoc, updateDoc, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, User, Deal, DealVisit, Quotation, PurchaseRequest, Customer, O2DStep, O2DProcess, O2DStatus } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -159,13 +159,13 @@ export function O2DTable() {
 
   React.useEffect(() => {
     setLoading(true);
-    const o2dQuery = query(collection(db, 'o2d'));
+    const o2dQuery = query(collection(db, 'o2d'), limit(1000));
 
     const unsubscribe = onSnapshot(o2dQuery, async (snapshot) => {
         const o2dProcesses = snapshot.docs.map(doc => ({id: doc.id, ...doc.data()} as O2DProcess));
 
         // Fetch all orders to link them to O2D processes
-        const ordersSnapshot = await getDocs(collection(db, "orders"));
+        const ordersSnapshot = await getDocs(query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(1500)));
         const allOrders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
 
         const enrichedDataPromises = o2dProcesses.map(async (o2d) => {

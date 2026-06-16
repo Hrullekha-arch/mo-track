@@ -62,7 +62,11 @@ export default function AccountPage() {
     if (!user) return;
     setName(user.name || "");
     setEmail(user.email || "");
-    setWeekOff(((user as any).weekOff as WeekDay) || "Sunday");
+    const savedWeekOff = user.weekOff || user.dayOff;
+    const normalizedWeekOff = savedWeekOff
+      ? `${savedWeekOff.charAt(0).toUpperCase()}${savedWeekOff.slice(1).toLowerCase()}`
+      : "Sunday";
+    setWeekOff((weekOptions.includes(normalizedWeekOff as WeekDay) ? normalizedWeekOff : "Sunday") as WeekDay);
     setAssignedSalesman(((user as any).assignedSalesmanName as string) || "");
     setAssignedSalesmanId(((user as any).assignedSalesmanId as string) || "");
     setBackupOwnerId(((user as any).backupOwnerId as string) || "");

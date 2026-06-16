@@ -5,11 +5,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { DollarSign, ShoppingCart, Users, TrendingUp, Package, Star, BarChart, AlertTriangle, ArrowRight, TrendingDown, Sparkles, LineChart } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { BarChart as RechartsBarChart, LineChart as RechartsLineChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { useState, useEffect, useMemo } from "react";
 import { DateRange } from "react-day-picker";
-import { getReportData, SalesPerformanceData, ProfitLossData, StockAnalysisData, Order, StockTransaction } from "./actions";
+import { getReportsDashboard, SalesPerformanceData, ProfitLossData, StockAnalysisData } from "./actions";
+import { Order, StockTransaction } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -33,21 +35,16 @@ export default function ReportsPage() {
         const fetchAllReports = async () => {
             setLoading(true);
             try {
-                const [salesData, profitData, stockData, orderData, ledgerData] = await Promise.all([
-                    getReportData({ reportType: 'sales-performance', dateRange }),
-                    getReportData({ reportType: 'profit-loss', dateRange }),
-                    getReportData({ reportType: 'stock-analysis', dateRange }),
-                    getReportData({ reportType: 'order-summary', dateRange }),
-                    getReportData({ reportType: 'stock-ledger', dateRange }),
-                ]);
-                
-                setSalesPerformance(salesData.salesPerformance || []);
-                setProfitLoss(profitData.profitLoss || []);
-                setStockAnalysis(stockData.stockAnalysis || { topSellingProducts: [], deadStock: [] });
-                setOrders(orderData.orders || []);
-                setStockLedger(ledgerData.stockLedger || []);
+                const reportData = await getReportsDashboard(dateRange);
+
+                setSalesPerformance(reportData.salesPerformance);
+                setProfitLoss(reportData.profitLoss);
+                setStockAnalysis(reportData.stockAnalysis);
+                setOrders(reportData.orders);
+                setStockLedger(reportData.stockLedger);
 
             } catch (error) {
+                console.error("Error loading reports:", error);
                 toast({
                     variant: "destructive",
                     title: "Error loading reports",
@@ -447,5 +444,3 @@ export default function ReportsPage() {
         </>
     );
 }
-
-    

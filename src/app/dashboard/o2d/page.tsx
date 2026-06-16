@@ -5,7 +5,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, MessageCircle, Undo2, Calendar as CalendarIcon, X, Eye, EyeOff, Sparkles, UserCheck, PackageSearch, FileText, BadgePercent, PhoneCall } from 'lucide-react';
-import { collection, onSnapshot, query, doc, updateDoc, getDoc, where } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, getDoc, where, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, O2DStep, O2DStatus, OrderType, O2DProcess } from "@/lib/types";
 import { Skeleton } from '@/components/ui/skeleton';
@@ -319,12 +319,16 @@ export default function O2DPage() {
         };
 
         setLoading(true);
-        const ordersQuery = query(collection(db, "orders"));
-        const o2dQuery = query(collection(db, "o2d"));
+        const ordersQuery = query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(1500));
+        const o2dQuery = query(collection(db, "o2d"), limit(1500));
 
         const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
             const ordersData = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Order));
             setAllOrders(ordersData);
+            ordersLoaded = true;
+            markLoaded();
+        }, (error) => {
+            console.error("O2D orders listener failed:", error);
             ordersLoaded = true;
             markLoaded();
         });
@@ -343,6 +347,10 @@ export default function O2DPage() {
                 };
             });
             setO2dByDealId(nextMap);
+            o2dLoaded = true;
+            markLoaded();
+        }, (error) => {
+            console.error("O2D process listener failed:", error);
             o2dLoaded = true;
             markLoaded();
         });

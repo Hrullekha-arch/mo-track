@@ -102,23 +102,6 @@ const normalizeAttendanceBaseUrl = (rawValue: unknown) => {
   return `${value}/api`;
 };
 
-const normalizeAttendancePlace = (rawValue: unknown) => {
-  const raw = String(rawValue || "").trim();
-  if (!raw) return "";
-
-  const upper = raw.toUpperCase().replace(/\s+/g, " ");
-  const compact = upper.replace(/[^A-Z0-9]/g, "");
-
-  if (upper === "MO1" || compact === "MO1") return "MO1";
-  if (upper === "MO2" || compact === "MO2") return "MO2";
-
-  if (upper.includes("MG")) return "MO1";
-  if (upper.includes("GCR")) return "MO2";
-
-  if (/^MO\d+$/.test(compact)) return compact;
-  return upper;
-};
-
 const buildAttendanceApiUrl = (
   baseApiUrl: string,
   payload: Pick<AttendanceApiSyncInput, "employeeApiId" | "place" | "from" | "to">
@@ -348,256 +331,16 @@ export function useAttendanceHandlers({
   const [savingHoliday, setSavingHoliday] = useState(false);
   const [manageAttendanceEmployee, setManageAttendanceEmployee] = useState<HrEmployee | null>(null);
 
-  const API_TOKEN = (process.env.NEXT_PUBLIC_ATTENDANCE_API_TOKEN || "MOERP_2026_SECURE").trim();
-
-  const getAttendanceApiBaseUrl = async () => {
-    const configSnap = await getDoc(doc(db, "moAttendanceConfig", "config"));
-    const configData = configSnap.data() as Record<string, unknown> | undefined;
-    return normalizeAttendanceBaseUrl(
-      configData?.baseUrl
-        ?? configData?.baseURL
-        ?? configData?.baseUr1
-        ?? configData?.baseURl
-    );
-  };
-
-  const syncSingleEmployeeAttendance = async ({
-    employee,
-    employeeApiId,
-    place,
-    from,
-    to,
-    baseApiUrl,
-  }: {
-    employee: HrEmployee;
-    employeeApiId: string;
-    place: string;
-    from: string;
-    to: string;
-    baseApiUrl: string;
-  }) => {
-    const syncRoot = resolveSyncRoot(employee);
-    const syncRootRef = syncRoot ? doc(db, syncRoot.collectionName, syncRoot.docId) : null;
-    const nowIso = new Date().toISOString();
-    let effectiveFrom = from;
-
-    if (syncRootRef) {
-      const syncSnap = await getDoc(syncRootRef);
-      const syncData = syncSnap.exists() ? (syncSnap.data() as Record<string, any>) : null;
-      const latestSyncedDate = extractLatestAttendanceDate(syncData);
-      if (latestSyncedDate && latestSyncedDate > effectiveFrom) {
-        effectiveFrom = latestSyncedDate;
-      }
-    }
-
-    if (effectiveFrom > to) {
-      return {
-        status: "up_to_date" as const,
-        effectiveFrom,
-        importedMonths: [] as string[],
-        punchCount: 0,
-        dayCount: 0,
-      };
-    }
-
-    const requestUrl = buildAttendanceApiUrl(baseApiUrl, {
-      employeeApiId,
-      place,
-      from: effectiveFrom,
-      to,
-    });
-
-    const headers: Record<string, string> = {
-      "x-api-token": API_TOKEN,
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store",
-    };
-    if (isNgrokUrl(requestUrl)) {
-      headers["ngrok-skip-browser-warning"] = "true";
-    }
-
-    const response = await fetch(requestUrl, {
-      method: "GET",
-      headers,
-    });
-
-    let payload: AttendanceApiResponse | null = null;
-    try {
-      payload = (await response.json()) as AttendanceApiResponse;
-    } catch {
-      payload = null;
-    }
-
-    if (!response.ok) {
-      throw new Error(payload?.message || `Attendance API request failed with ${response.status}.`);
-    }
-    if (!payload?.success) {
-      throw new Error(payload?.message || "Attendance API returned an unsuccessful response.");
-    }
-
-    const normalizedPunches = dedupeNormalizedPunches(
-      (Array.isArray(payload.data) ? payload.data : [])
-        .map((entry) => normalizeApiPunch(entry))
-        .filter((entry): entry is NormalizedApiPunch => Boolean(entry))
-    );
-
-    if (!normalizedPunches.length) {
-      if (syncRootRef) {
-        await setDoc(
-          syncRootRef,
-          {
-            attendanceSync: {
-              lastFetchedAt: nowIso,
-              lastFetchRange: { from: effectiveFrom, to },
-              lastFetchCount: 0,
-              place,
-              baseApiUrl,
-            },
-          },
-          { merge: true }
-        );
-      }
-      return {
-        status: "no_data" as const,
-        effectiveFrom,
-        importedMonths: [] as string[],
-        punchCount: 0,
-        dayCount: 0,
-      };
-    }
-
-    const punchesByDate = new Map<string, NormalizedApiPunch[]>();
-    for (const entry of normalizedPunches) {
-      const rows = punchesByDate.get(entry.date) || [];
-      rows.push(entry);
-      punchesByDate.set(entry.date, rows);
-    }
-    punchesByDate.forEach((rows) =>
-      rows.sort(
-        (left, right) =>
-          left.punchAt.localeCompare(right.punchAt) || (left.userSn ?? 0) - (right.userSn ?? 0)
-      )
-    );
-
-    const uploadBatch = `api_${Date.now()}`;
-    const dailyRecords: Omit<AttendanceRecord, "id">[] = [];
-    for (const [date, rows] of punchesByDate.entries()) {
-      const first = rows[0];
-      const last = rows[rows.length - 1];
-      const inTime = first?.time;
-      const outTime = rows.length > 1 ? last?.time : undefined;
-      const baseStatus: AttendanceRecord["status"] = rows.length > 1 ? "present" : "missed_punch";
-      const resolvedStatus = resolveAttendanceStatusWithPolicy(
-        { status: baseStatus, inTime, outTime },
-        employee
-      );
-
-      dailyRecords.push({
-        employeeId: employee.id,
-        employeeName: employee.name,
-        biometricId: employee.biometricId || employeeApiId,
-        employeeCode: employee.employeeCode || employeeApiId,
-        department: employee.department || undefined,
-        date,
-        inTime,
-        outTime,
-        status: resolvedStatus,
-        source: "biometric",
-        uploadBatch,
-        uploadedAt: nowIso,
-      });
-    }
-
-    const attendanceBatch = writeBatch(db);
-    for (const record of dailyRecords) {
-      const docId = `${record.employeeId}_${record.date}`;
-      attendanceBatch.set(
-        doc(db, "hrAttendance", docId),
-        sanitizeAttendancePayload(record),
-        { merge: true }
-      );
-    }
-    await attendanceBatch.commit();
-
-    if (syncRoot) {
-      const monthDateMap = new Map<string, Map<string, StoredAttendancePunch[]>>();
-      for (const punch of normalizedPunches) {
-        const monthKey = toMonthKey(punch.date);
-        if (!monthDateMap.has(monthKey)) monthDateMap.set(monthKey, new Map<string, StoredAttendancePunch[]>());
-        const dateMap = monthDateMap.get(monthKey)!;
-        const punches = dateMap.get(punch.date) || [];
-        punches.push(toStoredPunch(punch));
-        dateMap.set(punch.date, punches);
-      }
-
-      for (const [monthKey, dateMap] of monthDateMap.entries()) {
-        const monthRef = doc(db, syncRoot.collectionName, syncRoot.docId, "attendance", monthKey);
-        const monthSnap = await getDoc(monthRef);
-        const monthData = monthSnap.exists() ? (monthSnap.data() as Record<string, unknown>) : {};
-        const existingDays =
-          monthData && typeof monthData.days === "object" && monthData.days !== null
-            ? (monthData.days as Record<string, unknown>)
-            : {};
-        const mergedDays: Record<string, unknown> = { ...existingDays };
-
-        for (const [date, newPunches] of dateMap.entries()) {
-          mergedDays[date] = mergeStoredPunches(existingDays[date], newPunches);
-        }
-
-        await setDoc(
-          monthRef,
-          {
-            month: monthKey,
-            employeeId: employee.id,
-            employeeName: employee.name,
-            employeeCode: employee.employeeCode || null,
-            biometricId: employee.biometricId || employeeApiId,
-            place,
-            days: mergedDays,
-            updatedAt: nowIso,
-          },
-          { merge: true }
-        );
-      }
-
-      const latestPunch = normalizedPunches[normalizedPunches.length - 1];
-      await setDoc(
-        doc(db, syncRoot.collectionName, syncRoot.docId),
-        {
-          attendanceSync: {
-            latestPunchAt: latestPunch.punchAt,
-            latestPunchDate: latestPunch.date,
-            latestPunchTime: latestPunch.timeWithSeconds,
-            lastFetchedAt: nowIso,
-            lastFetchRange: { from: effectiveFrom, to },
-            lastFetchCount: normalizedPunches.length,
-            place,
-            baseApiUrl,
-          },
-          latestAttendanceAt: latestPunch.punchAt,
-          latestAttendanceDate: latestPunch.date,
-          latestAttendanceTime: latestPunch.timeWithSeconds,
-        },
-        { merge: true }
-      );
-    }
-
-    const importedMonths = [...new Set(dailyRecords.map((record) => toMonthKey(record.date)).filter(Boolean))];
-    return {
-      status: "success" as const,
-      effectiveFrom,
-      importedMonths,
-      punchCount: normalizedPunches.length,
-      dayCount: dailyRecords.length,
-    };
-  };
-
   const syncAttendanceFromApi = async (input: AttendanceApiSyncInput) => {
     const employee = activeEmployees.find((entry) => entry.id === input.employeeId);
     const employeeApiId = String(input.employeeApiId || "").trim();
-    const place = normalizeAttendancePlace(input.place);
+    const place = String(input.place || "").trim();
     const from = String(input.from || "").trim();
     const to = String(input.to || "").trim();
+    const API_TOKEN =
+      process.env.NEXT_PUBLIC_ATTENDANCE_API_TOKEN?.trim() ||
+      process.env.ATTENDANCE_API_TOKEN?.trim() ||
+      "";
 
     if (!employee) {
       toast({ variant: "destructive", title: "Sync failed", description: "Employee is required for attendance sync." });
@@ -614,7 +357,39 @@ export function useAttendanceHandlers({
 
     setSavingAttendance(true);
     try {
-      const baseApiUrl = await getAttendanceApiBaseUrl();
+      const syncRoot = resolveSyncRoot(employee);
+      const syncRootRef = syncRoot ? doc(db, syncRoot.collectionName, syncRoot.docId) : null;
+      const nowIso = new Date().toISOString();
+      let effectiveFrom = from;
+
+      if (syncRootRef) {
+        const syncSnap = await getDoc(syncRootRef);
+        const syncData = syncSnap.exists() ? (syncSnap.data() as Record<string, any>) : null;
+        const latestSyncedDate = extractLatestAttendanceDate(syncData);
+        if (latestSyncedDate && latestSyncedDate > effectiveFrom) {
+          effectiveFrom = latestSyncedDate;
+        }
+      }
+
+      if (effectiveFrom > to) {
+        toast({
+          title: "Already up to date",
+          description: `${employee.name} is already synced up to ${effectiveFrom}.`,
+        });
+        setShowAttendanceUpload(false);
+        return;
+      }
+
+      const configSnap = await getDoc(doc(db, "moAttendanceConfig", "config"));
+      
+      const configData = configSnap.data() as Record<string, unknown> | undefined;
+      const baseApiUrl = normalizeAttendanceBaseUrl(
+        configData?.baseUrl
+          ?? configData?.baseURL
+          ?? configData?.baseUr1
+          ?? configData?.baseURl
+      );
+      console.log("Attendance API config:", baseApiUrl);
       if (!baseApiUrl) {
         throw new Error("Attendance API base URL is missing in moAttendanceConfig/config.");
       }
@@ -622,178 +397,215 @@ export function useAttendanceHandlers({
         throw new Error("Attendance API token is missing. Set NEXT_PUBLIC_ATTENDANCE_API_TOKEN in frontend env.");
       }
 
-      const result = await syncSingleEmployeeAttendance({
-        employee,
+      const requestUrl = buildAttendanceApiUrl(baseApiUrl, {
         employeeApiId,
         place,
-        from,
+        from: effectiveFrom,
         to,
-        baseApiUrl,
       });
 
-      if (result.status === "up_to_date") {
-        toast({
-          title: "Already up to date",
-          description: `${employee.name} is already synced up to ${result.effectiveFrom}.`,
-        });
-        setShowAttendanceUpload(false);
-        return;
+      const headers: Record<string, string> = {
+        "x-api-token": API_TOKEN,
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+      };
+      if (isNgrokUrl(requestUrl)) {
+        headers["ngrok-skip-browser-warning"] = "true";
       }
 
-      if (result.status === "no_data") {
+      const response = await fetch(requestUrl, {
+        method: "GET",
+        headers,
+      });
+      let payload: AttendanceApiResponse | null = null;
+      try {
+        payload = (await response.json()) as AttendanceApiResponse;
+      } catch {
+        payload = null;
+      }
+
+      if (!response.ok) {
+        throw new Error(payload?.message || `Attendance API request failed with ${response.status}.`);
+      }
+      if (!payload?.success) {
+        throw new Error(payload?.message || "Attendance API returned an unsuccessful response.");
+      }
+
+      const normalizedPunches = dedupeNormalizedPunches(
+        (Array.isArray(payload.data) ? payload.data : [])
+          .map((entry) => normalizeApiPunch(entry))
+          .filter((entry): entry is NormalizedApiPunch => Boolean(entry))
+      );
+
+      if (!normalizedPunches.length) {
+        if (syncRootRef) {
+          await setDoc(
+            syncRootRef,
+            {
+              attendanceSync: {
+                lastFetchedAt: nowIso,
+                lastFetchRange: { from: effectiveFrom, to },
+                lastFetchCount: 0,
+                place,
+                baseApiUrl,
+              },
+            },
+            { merge: true }
+          );
+        }
         toast({
           title: "No attendance found",
-          description: `${employee.name} has no punches between ${result.effectiveFrom} and ${to}.`,
+          description: `${employee.name} has no punches between ${effectiveFrom} and ${to}.`,
         });
         setShowAttendanceUpload(false);
         return;
       }
 
+      const punchesByDate = new Map<string, NormalizedApiPunch[]>();
+      for (const entry of normalizedPunches) {
+        const rows = punchesByDate.get(entry.date) || [];
+        rows.push(entry);
+        punchesByDate.set(entry.date, rows);
+      }
+      punchesByDate.forEach((rows) =>
+        rows.sort(
+          (left, right) =>
+            left.punchAt.localeCompare(right.punchAt) || (left.userSn ?? 0) - (right.userSn ?? 0)
+        )
+      );
+
+      const uploadBatch = `api_${Date.now()}`;
+      const dailyRecords: Omit<AttendanceRecord, "id">[] = [];
+      for (const [date, rows] of punchesByDate.entries()) {
+        const first = rows[0];
+        const last = rows[rows.length - 1];
+        const inTime = first?.time;
+        const outTime = rows.length > 1 ? last?.time : undefined;
+        const baseStatus: AttendanceRecord["status"] = rows.length > 1 ? "present" : "missed_punch";
+        const resolvedStatus = resolveAttendanceStatusWithPolicy(
+          { status: baseStatus, inTime, outTime },
+          employee
+        );
+
+        dailyRecords.push({
+          employeeId: employee.id,
+          employeeName: employee.name,
+          biometricId: employee.biometricId || employeeApiId,
+          employeeCode: employee.employeeCode || employeeApiId,
+          department: employee.department || undefined,
+          date,
+          inTime,
+          outTime,
+          status: resolvedStatus,
+          source: "biometric",
+          uploadBatch,
+          uploadedAt: nowIso,
+        });
+      }
+
+      const attendanceBatch = writeBatch(db);
+      for (const record of dailyRecords) {
+        const docId = `${record.employeeId}_${record.date}`;
+        attendanceBatch.set(
+          doc(db, "hrAttendance", docId),
+          sanitizeAttendancePayload(record),
+          { merge: true }
+        );
+      }
+      await attendanceBatch.commit();
+
+      if (syncRoot) {
+        const monthDateMap = new Map<string, Map<string, StoredAttendancePunch[]>>();
+        for (const punch of normalizedPunches) {
+          const monthKey = toMonthKey(punch.date);
+          if (!monthDateMap.has(monthKey)) monthDateMap.set(monthKey, new Map<string, StoredAttendancePunch[]>());
+          const dateMap = monthDateMap.get(monthKey)!;
+          const punches = dateMap.get(punch.date) || [];
+          punches.push(toStoredPunch(punch));
+          dateMap.set(punch.date, punches);
+        }
+
+        for (const [monthKey, dateMap] of monthDateMap.entries()) {
+          const monthRef = doc(db, syncRoot.collectionName, syncRoot.docId, "attendance", monthKey);
+          const monthSnap = await getDoc(monthRef);
+          const monthData = monthSnap.exists() ? (monthSnap.data() as Record<string, unknown>) : {};
+          const existingDays =
+            monthData && typeof monthData.days === "object" && monthData.days !== null
+              ? (monthData.days as Record<string, unknown>)
+              : {};
+          const mergedDays: Record<string, unknown> = { ...existingDays };
+
+          for (const [date, newPunches] of dateMap.entries()) {
+            mergedDays[date] = mergeStoredPunches(existingDays[date], newPunches);
+          }
+
+          await setDoc(
+            monthRef,
+            {
+              month: monthKey,
+              employeeId: employee.id,
+              employeeName: employee.name,
+              employeeCode: employee.employeeCode || null,
+              biometricId: employee.biometricId || employeeApiId,
+              place,
+              days: mergedDays,
+              updatedAt: nowIso,
+            },
+            { merge: true }
+          );
+        }
+
+        const latestPunch = normalizedPunches[normalizedPunches.length - 1];
+        await setDoc(
+          doc(db, syncRoot.collectionName, syncRoot.docId),
+          {
+            attendanceSync: {
+              latestPunchAt: latestPunch.punchAt,
+              latestPunchDate: latestPunch.date,
+              latestPunchTime: latestPunch.timeWithSeconds,
+              lastFetchedAt: nowIso,
+              lastFetchRange: { from: effectiveFrom, to },
+              lastFetchCount: normalizedPunches.length,
+              place,
+              baseApiUrl,
+            },
+            latestAttendanceAt: latestPunch.punchAt,
+            latestAttendanceDate: latestPunch.date,
+            latestAttendanceTime: latestPunch.timeWithSeconds,
+          },
+          { merge: true }
+        );
+      }
+
+      const importedMonths = [...new Set(dailyRecords.map((record) => toMonthKey(record.date)).filter(Boolean))];
       const primaryImportedMonth =
-        result.importedMonths.length === 1 && result.importedMonths[0]
-          ? result.importedMonths[0]
+        importedMonths.length === 1 && importedMonths[0]
+          ? importedMonths[0]
           : selectedMonth;
 
       toast({
         title: "Attendance synced",
-        description: `${result.punchCount} punch(es) saved as ${result.dayCount} day record(s) for ${employee.name} in ${formatMonthLabel(primaryImportedMonth)}.`,
+        description: `${normalizedPunches.length} punch(es) saved as ${dailyRecords.length} day record(s) for ${employee.name} in ${formatMonthLabel(primaryImportedMonth)}.`,
       });
 
-      if (result.effectiveFrom !== from) {
+      if (effectiveFrom !== from) {
         toast({
           title: "From date adjusted",
-          description: `Sync started from ${result.effectiveFrom} to avoid duplicate pulls.`,
+          description: `Sync started from ${effectiveFrom} to avoid duplicate pulls.`,
         });
       }
 
-      if (
-        result.importedMonths.length === 1 &&
-        result.importedMonths[0] &&
-        result.importedMonths[0] !== selectedMonth
-      ) {
-        setSelectedMonth?.(result.importedMonths[0]);
+      if (importedMonths.length === 1 && importedMonths[0] && importedMonths[0] !== selectedMonth) {
+        setSelectedMonth?.(importedMonths[0]);
         toast({
           title: "Month switched",
-          description: `Synced attendance belongs to ${formatMonthLabel(result.importedMonths[0])}, so the view was updated automatically.`,
+          description: `Synced attendance belongs to ${formatMonthLabel(importedMonths[0])}, so the view was updated automatically.`,
         });
       }
 
       setShowAttendanceUpload(false);
     } catch (error: any) {
       toast({ variant: "destructive", title: "Attendance sync failed", description: error?.message });
-    } finally {
-      setSavingAttendance(false);
-    }
-  };
-
-  const syncAttendanceForStoreFromApi = async (input: AttendanceApiBulkSyncInput) => {
-    const from = String(input.from || "").trim();
-    const to = String(input.to || "").trim();
-    const fallbackPlace = normalizeAttendancePlace(input.place);
-
-    if (!DATE_KEY_PATTERN.test(from) || !DATE_KEY_PATTERN.test(to) || from > to) {
-      toast({
-        variant: "destructive",
-        title: "Invalid sync range",
-        description: "Provide a valid date range.",
-      });
-      return;
-    }
-
-    setSavingAttendance(true);
-    try {
-      const baseApiUrl = await getAttendanceApiBaseUrl();
-      if (!baseApiUrl) {
-        throw new Error("Attendance API base URL is missing in moAttendanceConfig/config.");
-      }
-      if (!API_TOKEN) {
-        throw new Error("Attendance API token is missing. Set NEXT_PUBLIC_ATTENDANCE_API_TOKEN in frontend env.");
-      }
-
-      const userStore = String(user?.store || "").trim();
-      const inScopeEmployees = activeEmployees.filter((employee) => {
-        if (!userStore) return true;
-        return String(employee.store || "").trim().toLowerCase() === userStore.toLowerCase();
-      });
-
-      if (!inScopeEmployees.length) {
-        throw new Error(
-          userStore
-            ? `No active employees found for store ${userStore}.`
-            : "No active employees available for attendance sync."
-        );
-      }
-
-      const skippedNoApiId: string[] = [];
-      const skippedNoPlace: string[] = [];
-      const failed: string[] = [];
-      let successCount = 0;
-      let noDataCount = 0;
-      let upToDateCount = 0;
-      let totalPunches = 0;
-      let totalDays = 0;
-
-      for (const employee of inScopeEmployees) {
-        const employeeApiId = String(employee.biometricId || employee.employeeCode || "").trim();
-        const employeePlace = normalizeAttendancePlace(employee.store || fallbackPlace || userStore);
-
-        if (!employeeApiId) {
-          skippedNoApiId.push(employee.name);
-          continue;
-        }
-        if (!employeePlace) {
-          skippedNoPlace.push(employee.name);
-          continue;
-        }
-
-        try {
-          const result = await syncSingleEmployeeAttendance({
-            employee,
-            employeeApiId,
-            place: employeePlace,
-            from,
-            to,
-            baseApiUrl,
-          });
-
-          if (result.status === "success") {
-            successCount += 1;
-            totalPunches += result.punchCount;
-            totalDays += result.dayCount;
-          } else if (result.status === "no_data") {
-            noDataCount += 1;
-          } else {
-            upToDateCount += 1;
-          }
-        } catch (error: any) {
-          failed.push(`${employee.name}: ${error?.message || "Sync failed"}`);
-        }
-      }
-
-      const attempted = inScopeEmployees.length - skippedNoApiId.length - skippedNoPlace.length;
-      toast({
-        title: "Bulk attendance sync completed",
-        description:
-          `${successCount} synced, ${noDataCount} with no data, ${upToDateCount} already up to date` +
-          `, ${failed.length} failed. Attempted ${attempted}/${inScopeEmployees.length} employees` +
-          ` in ${userStore || "all stores"}. Saved ${totalPunches} punch(es) as ${totalDays} day record(s).`,
-      });
-
-      if (skippedNoApiId.length || skippedNoPlace.length || failed.length) {
-        const notes: string[] = [];
-        if (skippedNoApiId.length) notes.push(`${skippedNoApiId.length} missing biometric/employee code`);
-        if (skippedNoPlace.length) notes.push(`${skippedNoPlace.length} missing store/place`);
-        if (failed.length) notes.push(`${failed.length} API/write failures`);
-        toast({
-          variant: "destructive",
-          title: "Some employees were skipped or failed",
-          description: `${notes.join(", ")}.${failed[0] ? ` First error: ${failed[0]}` : ""}`,
-        });
-      }
-
-      setShowAttendanceUpload(false);
-    } catch (error: any) {
-      toast({ variant: "destructive", title: "Bulk attendance sync failed", description: error?.message });
     } finally {
       setSavingAttendance(false);
     }
@@ -915,6 +727,61 @@ export function useAttendanceHandlers({
 
   const openHolidayDialog = (employeeId?: string) => {
     setHolidayForm(createHolidayFormState(employeeId));
+  };
+
+  const syncAttendanceForStoreFromApi = async (input: AttendanceApiBulkSyncInput) => {
+    const from = String(input.from || "").trim();
+    const to = String(input.to || "").trim();
+    const fallbackPlace = String(input.place || user?.store || "").trim();
+
+    if (!DATE_KEY_PATTERN.test(from) || !DATE_KEY_PATTERN.test(to) || from > to) {
+      toast({
+        variant: "destructive",
+        title: "Invalid sync range",
+        description: "Provide a valid date range.",
+      });
+      return;
+    }
+
+    const userStore = String(user?.store || "").trim().toLowerCase();
+    const employees = activeEmployees.filter((employee) => {
+      if (!userStore) return true;
+      return String(employee.store || "").trim().toLowerCase() === userStore;
+    });
+
+    if (!employees.length) {
+      toast({
+        variant: "destructive",
+        title: "Sync failed",
+        description: userStore ? `No active employees found for ${user?.store}.` : "No active employees found.",
+      });
+      return;
+    }
+
+    let attempted = 0;
+    let skipped = 0;
+    for (const employee of employees) {
+      const employeeApiId = String(employee.biometricId || employee.employeeCode || "").trim();
+      const place = String(employee.store || fallbackPlace).trim();
+      if (!employeeApiId || !place) {
+        skipped += 1;
+        continue;
+      }
+
+      attempted += 1;
+      await syncAttendanceFromApi({
+        employeeId: employee.id,
+        employeeApiId,
+        place,
+        from,
+        to,
+      });
+    }
+
+    toast({
+      title: "Bulk sync finished",
+      description: `Attempted ${attempted} employee(s). Skipped ${skipped} missing API ID/place.`,
+    });
   };
 
   return {

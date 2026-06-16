@@ -60,6 +60,10 @@ export type TimesheetSummary = {
   updatedAt?: string;
   filledSlots: number;
   totalSlots: number;
+  lockedSlots?: number;
+  status?: string;
+  submissionMode?: string;
+  perHour?: HrTimesheetHourEntry[];
 };
 
 export type SalaryTemplate = {
@@ -128,8 +132,29 @@ export type HrTimesheetRow = {
   dutyLabel: string;
   filledSlots: number;
   totalSlots: number;
+  lockedSlots?: number;
   remark: string;
   updatedAt?: string;
+  perHour?: HrTimesheetHourEntry[];
+};
+
+export type HrTimesheetHourEntry = {
+  slotStart: string;
+  slotEnd: string;
+  slotLabel: string;
+  workDetail: string;
+  updatedAt?: string;
+  lockedAt?: string;
+  autoSubmittedAt?: string;
+  updatedBy?: {
+    id?: string;
+    name?: string;
+  };
+  submittedBy?: {
+    id?: string;
+    name?: string;
+    mode?: string;
+  };
 };
 
 export type EmployeeFormState = {

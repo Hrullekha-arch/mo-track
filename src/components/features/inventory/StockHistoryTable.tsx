@@ -47,6 +47,16 @@ const HISTORY_PAGE_SIZE = 60;
 type StockHistoryCursor = {
   additionLastPath?: string | null;
   deductionLastId?: string | null;
+  reservationLastPath?: string | null;
+};
+
+type StockHistoryTypeFilter = "all" | "addition" | "deduction" | "reservation" | "release";
+
+const getInclusiveDateEnd = (date?: Date) => {
+  if (!date) return undefined;
+  const end = new Date(date);
+  end.setHours(23, 59, 59, 999);
+  return end;
 };
 
 export function StockHistoryTable() {
@@ -62,7 +72,7 @@ export function StockHistoryTable() {
   const [rowSelection, setRowSelection] = React.useState({});
   const [globalFilter, setGlobalFilter] = React.useState('');
   const [dateRangeFilter, setDateRangeFilter] = React.useState<DateRange | undefined>();
-  const [typeFilter, setTypeFilter] = React.useState("all");
+  const [typeFilter, setTypeFilter] = React.useState<StockHistoryTypeFilter>("all");
   const [deletingTransaction, setDeletingTransaction] = React.useState<StockTransaction | null>(null);
   const [isBulkDeleting, setIsBulkDeleting] = React.useState(false);
 
@@ -83,9 +93,9 @@ export function StockHistoryTable() {
         const result = await getStockTransactionHistoryPage({
           pageSize: HISTORY_PAGE_SIZE,
           cursor: reset ? null : options?.cursor ?? null,
-          typeFilter: typeFilter as "all" | "addition" | "deduction",
+          typeFilter,
           fromDate: dateRangeFilter?.from ? dateRangeFilter.from.toISOString() : null,
-          toDate: dateRangeFilter?.to ? dateRangeFilter.to.toISOString() : null,
+          toDate: getInclusiveDateEnd(dateRangeFilter?.to)?.toISOString() ?? null,
         });
 
         setHistoryCursor(result.cursor || null);
@@ -192,7 +202,19 @@ export function StockHistoryTable() {
       header: "Type",
       cell: ({ row }) => {
         const type = row.getValue("type") as string;
-        return <Badge variant={type === 'addition' ? 'default' : 'secondary'} className={cn(type === 'addition' ? 'bg-green-600' : 'bg-red-600')}>{type}</Badge>
+        return (
+          <Badge
+            variant={type === "addition" ? "default" : "secondary"}
+            className={cn(
+              type === "addition" && "bg-green-600",
+              type === "deduction" && "bg-red-600",
+              type === "reservation" && "bg-amber-600 text-white",
+              type === "release" && "bg-blue-600 text-white"
+            )}
+          >
+            {type}
+          </Badge>
+        );
       },
       filterFn: (row, id, value) => {
         return value === 'all' ? true : value.includes(row.getValue(id));
@@ -203,7 +225,7 @@ export function StockHistoryTable() {
       header: "Status",
       cell: ({ row }) => {
         const tx = row.original;
-        if (tx.type !== 'deduction') return 'N/A';
+        if (tx.type !== 'deduction') return tx.status || 'N/A';
         const status = tx.status || 'pending for cutting';
         return <Badge variant={status === 'cut' ? 'default' : 'outline'} className="capitalize">{status}</Badge>;
       },
@@ -218,7 +240,19 @@ export function StockHistoryTable() {
       header: ({ column }) => ( <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>Quantity <ArrowUpDown className="ml-2 h-4 w-4" /></Button> ),
       cell: ({ row }) => {
         const quantity = row.getValue("quantityChange") as number;
-        return <span className={cn(quantity > 0 ? 'text-green-600' : 'text-red-600')}>{quantity.toFixed(2)}</span>
+        const type = row.original.type;
+        return (
+          <span
+            className={cn(
+              type === "addition" && "text-green-600",
+              type === "deduction" && "text-red-600",
+              type === "reservation" && "text-amber-700",
+              type === "release" && "text-blue-700"
+            )}
+          >
+            {quantity.toFixed(2)}
+          </span>
+        );
       }
     },
     {
@@ -259,7 +293,7 @@ export function StockHistoryTable() {
     if (dateRangeFilter?.from) {
       data = data.filter(t => isWithinInterval(new Date(t.createdAt), {
         start: dateRangeFilter.from!,
-        end: dateRangeFilter.to || new Date(8640000000000000),
+        end: getInclusiveDateEnd(dateRangeFilter.to) || new Date(8640000000000000),
       }));
     }
 
@@ -295,7 +329,24 @@ export function StockHistoryTable() {
   });
 
   const handleExport = () => {
-    // Export logic similar to other tables
+    const exportRows = filteredData.map((tx) => ({
+      Date: format(new Date(tx.createdAt), "dd/MM/yyyy HH:mm"),
+      Type: tx.type,
+      Status: tx.status || "",
+      BCN: tx.bcn,
+      Quantity: tx.quantityChange,
+      Unit: tx.unit || "",
+      "Reference ID": tx.poNumber || tx.orderId || "",
+      User: tx.createdBy || "",
+      Salesman: tx.salesman || "",
+      "Length ID": tx.lengthId || "",
+      Customer: tx.customerName || "",
+      Notes: tx.notes || "",
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Inventory History");
+    XLSX.writeFile(workbook, `inventory-history-${format(new Date(), "yyyyMMdd-HHmm")}.xlsx`);
   }
 
   const clearFilters = () => {
@@ -332,7 +383,7 @@ export function StockHistoryTable() {
               onChange={(e) => setGlobalFilter(e.target.value)}
               className="max-w-sm"
             />
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <Select value={typeFilter} onValueChange={(value) => setTypeFilter(value as StockHistoryTypeFilter)}>
                 <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="Filter by Type" />
                 </SelectTrigger>
@@ -340,6 +391,8 @@ export function StockHistoryTable() {
                     <SelectItem value="all">All Types</SelectItem>
                     <SelectItem value="addition">Addition</SelectItem>
                     <SelectItem value="deduction">Deduction</SelectItem>
+                    <SelectItem value="reservation">Reservation</SelectItem>
+                    <SelectItem value="release">Release</SelectItem>
                 </SelectContent>
             </Select>
             <Popover>

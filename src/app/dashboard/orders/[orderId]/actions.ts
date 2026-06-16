@@ -121,6 +121,112 @@ const getOrderLineKey = (line: {
   return token ? `name:${token}` : '';
 };
 
+const toFiniteNumber = (value: unknown, fallback = 0): number => {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeBcnStrict = (value: unknown): string =>
+  String(value || '')
+    .split(' - ')[0]
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    .replace(/[^A-Z0-9]/g, '');
+
+const normalizeBcnLoose = (value: unknown): string =>
+  normalizeBcnStrict(value).replace(/\d+/g, (digits) => String(Number(digits)));
+
+const resolveOrderItemQty = (item: any): number =>
+  toFiniteNumber(item?.qty ?? item?.quantity, 0);
+
+const resolveOrderItemCandidates = (item: any): string[] =>
+  [
+    item?.bcn,
+    item?.description,
+    item?.itemName,
+    item?.fabricName,
+    item?.collectionBrand,
+  ]
+    .map((candidate) => String(candidate || '').trim())
+    .filter(Boolean);
+
+const mapLegacyFabricDetailToNormalItem = (detail: any) => {
+  const qty = resolveOrderItemQty(detail);
+  const bcn = String(
+    detail?.bcn ||
+      detail?.fabricName ||
+      detail?.itemName ||
+      detail?.collectionBrand ||
+      ''
+  )
+    .split(' - ')[0]
+    .trim();
+  const description = String(
+    detail?.itemName || detail?.fabricName || detail?.bcn || ''
+  ).trim();
+  const exclusiveRate = toFiniteNumber(
+    detail?.exclusiveRate ?? detail?.rate,
+    0
+  );
+  const rate = toFiniteNumber(detail?.rate ?? detail?.exclusiveRate, exclusiveRate);
+  const discountPercent = toFiniteNumber(
+    detail?.discountPercent ?? detail?.discount,
+    0
+  );
+  const gst = toFiniteNumber(detail?.gst ?? detail?.gstPercent, 0);
+  const baseAmount = qty * exclusiveRate;
+  const discountAmount = baseAmount * (discountPercent / 100);
+  const taxableAmount = Math.max(0, baseAmount - discountAmount);
+  const gstAmount = taxableAmount * (gst / 100);
+
+  return {
+    lineId: String(detail?.lineId || '').trim() || undefined,
+    type: 'Fabric',
+    bcn,
+    description: description || bcn,
+    unit: String(detail?.unit || 'MTR').trim() || 'MTR',
+    qty,
+    exclusiveRate,
+    rate,
+    gst,
+    discountPercent,
+    discountAmount,
+    hsn: String(detail?.hsn || detail?.hsnCode || '').trim() || undefined,
+    group: String(detail?.group || '').trim() || undefined,
+    taxableAmount,
+    gstAmount,
+    totalAmount: taxableAmount + gstAmount,
+    allocation: detail?.allocation,
+  };
+};
+
+const buildNormalSectionItems = (
+  orderData: (Order & Record<string, unknown>) | null
+): any[] => {
+  if (!orderData) return [];
+  const sectionItems = orderData.sections?.NORMAL?.items;
+  if (Array.isArray(sectionItems) && sectionItems.length > 0) {
+    return sectionItems.map((item: any) => ({ ...item }));
+  }
+
+  const legacyItems = Array.isArray((orderData as any)?.items)
+    ? (orderData as any).items
+    : [];
+  const normalLegacyItems = legacyItems.filter((item: any) => {
+    const type = String(item?.type || item?.productType || '').trim().toLowerCase();
+    return type !== 'vas';
+  });
+  if (normalLegacyItems.length > 0) {
+    return normalLegacyItems.map((item: any) => ({ ...item }));
+  }
+
+  const fabricDetails = Array.isArray((orderData as any)?.fabricDetails)
+    ? (orderData as any).fabricDetails
+    : [];
+  return fabricDetails.map((detail: any) => mapLegacyFabricDetailToNormalItem(detail));
+};
+
 
 export async function getAvailableStockLengths(stockId: string): Promise<{ success: boolean; message: string; lengths?: { length: number; transactionId: string }[] }> {
     try {
@@ -544,10 +650,20 @@ export async function allocateStockToAction(
             lastUpdatedAt: updateTimestamp
         });
 
+        // Ensure invoicing fields are initialised so the invoice page can pick
+        // this order up even when it was created without an invoicing object.
+        const existingInvoicing = (orderData as any).invoicing || {};
+        const invoicingPatch = {
+          "invoicing.status": existingInvoicing.status || "NOT_INVOICED",
+          "invoicing.invoiceRequired": existingInvoicing.invoiceRequired !== false,
+          "invoicing.canCreateGoodsInvoice": updatedNormalItems.length > 0,
+        };
+
         transaction.update(orderRef, {
             milestones: updatedMilestones,
             sections: updatedSections,
             workflow: updatedWorkflow,
+            ...invoicingPatch,
         });
       });
   
@@ -843,3 +959,364 @@ export async function getStockByBcns(bcns:string[]) {
 
   return result;
 }
+
+type RegenerateInvoiceAllocationPayload = {
+  orderId: string;
+  lineId?: string;
+  bcn?: string;
+  itemName?: string;
+  requiredQty?: number;
+  allocatedQty?: number;
+  actor: {
+    id: string;
+    name?: string;
+  };
+};
+
+export async function regenerateInvoiceAllocationAction(
+  payload: RegenerateInvoiceAllocationPayload
+): Promise<{ success: boolean; message: string; updatedLines?: number }> {
+  try {
+    const orderId = String(payload?.orderId || '').trim();
+    const actorId = String(payload?.actor?.id || '').trim();
+    const actorName = String(payload?.actor?.name || '').trim();
+    const lineId = String(payload?.lineId || '').trim();
+    const targetBcn = String(payload?.bcn || '').trim();
+    const targetItemName = String(payload?.itemName || '').trim();
+
+    if (!orderId) {
+      return { success: false, message: 'Order ID is required.' };
+    }
+    if (!actorId) {
+      return { success: false, message: 'Missing user context.' };
+    }
+    if (!lineId && !targetBcn && !targetItemName) {
+      return {
+        success: false,
+        message: 'Line ID or BCN is required to regenerate allocation.',
+      };
+    }
+
+    const actorSnap = await adminDb.collection('users').doc(actorId).get();
+    const actorRole = String(actorSnap.data()?.role || '')
+      .trim()
+      .toLowerCase();
+    if (actorRole !== 'admin') {
+      return {
+        success: false,
+        message: 'Only admin can regenerate invoice allocation.',
+      };
+    }
+
+    const orderRef = adminDb.collection('orders').doc(orderId);
+    const orderSnap = await orderRef.get();
+    if (!orderSnap.exists) {
+      return { success: false, message: 'Order not found.' };
+    }
+
+    const orderData = {
+      id: orderSnap.id,
+      ...(orderSnap.data() as Omit<Order, 'id'>),
+    } as Order & Record<string, unknown>;
+
+    const normalItems = buildNormalSectionItems(orderData);
+    if (!normalItems.length) {
+      return { success: false, message: 'No order items found for allocation.' };
+    }
+
+    const strictTargets = new Set(
+      [targetBcn, targetItemName].map((value) => normalizeBcnStrict(value)).filter(Boolean)
+    );
+    const looseTargets = new Set(
+      [targetBcn, targetItemName].map((value) => normalizeBcnLoose(value)).filter(Boolean)
+    );
+
+    const matchedByLine = lineId
+      ? normalItems
+          .map((item: any, index: number) => ({
+            index,
+            lineId: String(item?.lineId || '').trim(),
+          }))
+          .filter((entry) => entry.lineId && entry.lineId === lineId)
+          .map((entry) => entry.index)
+      : [];
+
+    const findMatchesBy = (
+      normalizer: (value: unknown) => string,
+      targets: Set<string>
+    ) =>
+      normalItems
+        .map((item: any, index: number) => ({ item, index }))
+        .filter(({ item }) =>
+          resolveOrderItemCandidates(item).some((candidate) => {
+            const normalizedCandidate = normalizer(candidate);
+            if (!normalizedCandidate) return false;
+            if (targets.has(normalizedCandidate)) return true;
+            for (const target of targets) {
+              if (!target) continue;
+              if (
+                normalizedCandidate.includes(target) ||
+                target.includes(normalizedCandidate)
+              ) {
+                return true;
+              }
+            }
+            return false;
+          })
+        )
+        .map(({ index }) => index);
+
+    const matchedByStrict =
+      matchedByLine.length > 0 ? matchedByLine : findMatchesBy(normalizeBcnStrict, strictTargets);
+    const matchedIndexes =
+      matchedByStrict.length > 0
+        ? matchedByStrict
+        : findMatchesBy(normalizeBcnLoose, looseTargets);
+
+    if (!matchedIndexes.length) {
+      return {
+        success: false,
+        message: 'Unable to match order line for regeneration.',
+      };
+    }
+
+    const requiredFromOrder = matchedIndexes.reduce(
+      (sum, index) => sum + resolveOrderItemQty(normalItems[index]),
+      0
+    );
+    const requiredFromPayload = toFiniteNumber(payload?.requiredQty, 0);
+    const allocatedFromPayload = toFiniteNumber(payload?.allocatedQty, 0);
+    const requiredQty = requiredFromOrder > 0 ? requiredFromOrder : requiredFromPayload;
+    if (requiredQty <= 0) {
+      return {
+        success: false,
+        message: 'Could not resolve line quantity for regeneration.',
+      };
+    }
+
+    const allocationQtyRaw =
+      allocatedFromPayload > 0 ? allocatedFromPayload : requiredQty;
+    const allocationQty = Math.max(0, Math.min(allocationQtyRaw, requiredQty));
+    if (allocationQty <= 0) {
+      return {
+        success: false,
+        message: 'No allocated quantity found to regenerate.',
+      };
+    }
+
+    const updateTimestamp = new Date().toISOString();
+    const updatedByName =
+      actorName || String(actorSnap.data()?.name || '').trim() || 'Admin';
+    let poolRemaining = allocationQty;
+    const matchSet = new Set(matchedIndexes);
+    const EPSILON = 0.0001;
+
+    const updatedNormalItems = normalItems.map((item: any, index: number) => {
+      if (!matchSet.has(index)) return item;
+
+      const requiredQtyForLine = resolveOrderItemQty(item);
+      if (requiredQtyForLine <= 0) return item;
+
+      const existingAllocation = item?.allocation || {};
+      const existingLengths = Array.isArray(existingAllocation.lengths)
+        ? [...existingAllocation.lengths]
+        : [];
+      const existingLots = Array.isArray(existingAllocation.lots)
+        ? [...existingAllocation.lots]
+        : [];
+      const existingAllocated = [...existingLengths, ...existingLots].reduce(
+        (sum: number, entry: any) =>
+          sum + toFiniteNumber(entry?.allocatedQty, 0),
+        0
+      );
+
+      const targetForLine = Math.min(requiredQtyForLine, poolRemaining);
+      if (targetForLine > EPSILON) {
+        poolRemaining = Math.max(0, poolRemaining - targetForLine);
+      }
+
+      let nextLengths = existingLengths;
+      let nextLots = existingLots;
+      let allocatedForLine = existingAllocated;
+
+      if (existingAllocated <= EPSILON && targetForLine > EPSILON) {
+        nextLengths = [];
+        nextLots = [
+          {
+            allocatedQty: targetForLine,
+            unit: String(item?.unit || 'MTR').trim() || 'MTR',
+            reservedAt: updateTimestamp,
+            reservedBy: { id: actorId, name: updatedByName },
+          },
+        ];
+        allocatedForLine = targetForLine;
+      } else if (
+        existingAllocated + EPSILON < targetForLine &&
+        targetForLine > EPSILON
+      ) {
+        const topUp = targetForLine - existingAllocated;
+        nextLots = [
+          ...existingLots,
+          {
+            allocatedQty: topUp,
+            unit: String(item?.unit || 'MTR').trim() || 'MTR',
+            reservedAt: updateTimestamp,
+            reservedBy: { id: actorId, name: updatedByName },
+          },
+        ];
+        allocatedForLine = targetForLine;
+      }
+
+      const allocationStatus =
+        allocatedForLine <= EPSILON
+          ? 'PENDING'
+          : allocatedForLine + EPSILON >= requiredQtyForLine
+          ? 'ALLOCATED'
+          : 'PARTIAL';
+
+      return {
+        ...item,
+        allocation: {
+          ...existingAllocation,
+          status: allocationStatus,
+          lengths: nextLengths,
+          lots: nextLots,
+          forceReinvoice: true,
+          forceReinvoiceAt: updateTimestamp,
+          forceReinvoiceBy: { id: actorId, name: updatedByName },
+        },
+      };
+    });
+
+    const existingSections = orderData.sections || {};
+    const existingNormalSection = existingSections.NORMAL || {};
+    const updatedSections = {
+      ...existingSections,
+      NORMAL: {
+        ...existingNormalSection,
+        items: updatedNormalItems,
+      },
+    };
+
+    const baseMilestones = getNormalizedOrderMilestones(orderData);
+    const updatedMilestones = baseMilestones.map((milestone) =>
+      milestone.id === 2
+        ? {
+            ...milestone,
+            completed: true,
+            completedAt: updateTimestamp,
+            completedBy: updatedByName,
+          }
+        : milestone
+    );
+
+    const allocationStatuses = updatedNormalItems.map((item: any) =>
+      String(item?.allocation?.status || '')
+        .trim()
+        .toUpperCase()
+    );
+    const anyAllocated = allocationStatuses.some(
+      (status) => status === 'ALLOCATED' || status === 'PARTIAL'
+    );
+    const allAllocated =
+      allocationStatuses.length > 0 &&
+      allocationStatuses.every((status) => status === 'ALLOCATED');
+
+    const nextWorkflowStatus = allAllocated
+      ? 'ALLOCATED'
+      : anyAllocated
+      ? 'ALLOCATING'
+      : orderData.workflow?.status || 'CREATED';
+
+    const updatedWorkflow = buildWorkflowFromLegacyMilestones(
+      orderData.orderType || 'delivery',
+      updatedMilestones,
+      orderData.workflow,
+      nextWorkflowStatus as OrderWorkflowStatus
+    );
+
+    const updatedFabricDetails = Array.isArray(orderData.fabricDetails)
+      ? orderData.fabricDetails.map((detail: any) => {
+          const detailLineId = String(detail?.lineId || '').trim();
+          const detailTokenStrict = normalizeBcnStrict(
+            detail?.bcn || detail?.fabricName || detail?.itemName
+          );
+          const detailTokenLoose = normalizeBcnLoose(
+            detail?.bcn || detail?.fabricName || detail?.itemName
+          );
+          const isTargetByLine = lineId && detailLineId === lineId;
+          const isTargetByStrict = strictTargets.has(detailTokenStrict);
+          const isTargetByLoose = looseTargets.has(detailTokenLoose);
+          if (!isTargetByLine && !isTargetByStrict && !isTargetByLoose) {
+            return detail;
+          }
+          return {
+            ...detail,
+            status: 'allocated',
+            isInStock: true,
+          };
+        })
+      : undefined;
+
+    const hasAnyInvoiceDocs = !(
+      await adminDb
+        .collection('invoices')
+        .where('orderId', '==', orderId)
+        .limit(1)
+        .get()
+    ).empty;
+
+    const existingInvoicing =
+      typeof (orderData as any).invoicing === 'object' &&
+      (orderData as any).invoicing !== null
+        ? ((orderData as any).invoicing as Record<string, any>)
+        : {};
+
+    const vasSectionItems = Array.isArray(orderData.sections?.VAS?.items)
+      ? orderData.sections?.VAS?.items
+      : [];
+    const vasLegacyItems = Array.isArray((orderData as any)?.vasDetails)
+      ? (orderData as any).vasDetails
+      : [];
+
+    const updatePayload: Record<string, any> = {
+      sections: updatedSections,
+      milestones: updatedMilestones,
+      workflow: updatedWorkflow,
+      updatedAt: updateTimestamp,
+      invoicing: {
+        ...existingInvoicing,
+        status: hasAnyInvoiceDocs ? 'PARTIALLY_INVOICED' : 'NOT_INVOICED',
+        invoiceRequired: existingInvoicing.invoiceRequired !== false,
+        canCreateGoodsInvoice: updatedNormalItems.length > 0,
+        canCreateVasInvoice:
+          vasSectionItems.length > 0 || vasLegacyItems.length > 0,
+      },
+      updates: FieldValue.arrayUnion({
+        updatedAt: updateTimestamp,
+        updatedBy: { id: actorId, name: updatedByName },
+        action: 'allocation_regenerated_for_invoice',
+        message: `Regenerated allocation for ${matchedIndexes.length} line(s).`,
+      }),
+    };
+
+    if (updatedFabricDetails) {
+      updatePayload.fabricDetails = updatedFabricDetails;
+    }
+
+    await orderRef.update(updatePayload);
+
+    return {
+      success: true,
+      message: 'Allocation regenerated. Item is re-queued for invoice generation.',
+      updatedLines: matchedIndexes.length,
+    };
+  } catch (error: any) {
+    console.error('Error regenerating invoice allocation:', error);
+    return {
+      success: false,
+      message: error?.message || 'Failed to regenerate allocation.',
+    };
+  }
+}
+

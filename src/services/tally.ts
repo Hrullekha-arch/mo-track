@@ -6,6 +6,7 @@ import { adminDb } from '@/lib/firebase-admin';
 import xml2js from 'xml2js';
 import { format } from 'date-fns';
 import { buildMoSpaceSalesVoucherXML } from './mo-space-tally';
+import { getMoDesignsCompanyName } from '@/lib/financial-year';
 
 // ---------------- Helpers ----------------
 
@@ -46,6 +47,9 @@ function tallyCreateOk(xml: string): boolean {
   return /<CREATED>1<\/CREATED>/.test(xml) || /<ALTERED>1<\/ALTERED>/.test(xml);
 }
 
+const getTallyCompanyName = (isVas: boolean, invoiceDate?: string) =>
+  isVas ? "SP SERVICES" : getMoDesignsCompanyName(invoiceDate);
+
 async function extractVoucherNumber(xml: string): Promise<string | undefined> {
   try {
     const parsed = await xml2js.parseStringPromise(xml, { explicitArray: false, trim: true });
@@ -63,7 +67,12 @@ async function extractVoucherNumber(xml: string): Promise<string | undefined> {
 
 // ---------------- XML Builders ----------------
 
-async function buildLedgerCreateXML(customerName: string, customerPhone: string, state: string = 'Haryana'): Promise<string> {
+async function buildLedgerCreateXML(
+  customerName: string,
+  customerPhone: string,
+  companyName: string,
+  state: string = 'Haryana'
+): Promise<string> {
   const ledgerName = escapeXml(`${customerName}-${customerPhone}`);
   const escapedState = escapeXml(state);
   const escapedPhone = escapeXml(customerPhone);
@@ -78,7 +87,7 @@ async function buildLedgerCreateXML(customerName: string, customerPhone: string,
    <REQUESTDESC>
     <REPORTNAME>All Masters</REPORTNAME>
     <STATICVARIABLES>
-     <SVCURRENTCOMPANY>MO Designs Private Limited - (2024-2025)</SVCURRENTCOMPANY>
+     <SVCURRENTCOMPANY>${companyName}</SVCURRENTCOMPANY>
     </STATICVARIABLES>
    </REQUESTDESC>
    <REQUESTDATA>
@@ -109,9 +118,9 @@ async function buildLedgerCreateXML(customerName: string, customerPhone: string,
 </ENVELOPE>`.trim();
 }
 
-async function buildStockItemCreateXML(bcn: string, isVas: boolean): Promise<string> {
+async function buildStockItemCreateXML(bcn: string, isVas: boolean, invoiceDate?: string): Promise<string> {
     const escapedItemName = escapeXml(bcn);
-    const companyName = isVas ? "SP SERVICES" : "MO Designs Private Limited - (2024-2025)";
+    const companyName = getTallyCompanyName(isVas, invoiceDate);
     const unit = isVas ? 'Pcs' : 'mtr';
 
     return `
@@ -141,9 +150,10 @@ export async function buildSalesVoucherXML(invoice: PrintableInvoicePayload, isV
     const money = (n: number) => (Math.round(n * 100) / 100);
     const fmt = (n: number) => money(n).toFixed(2);
     
-    const date = format(new Date(), 'yyyyMMdd');
+    const invoiceDate = invoice.meta.invoiceDate || new Date().toISOString();
+    const date = format(new Date(invoiceDate), 'yyyyMMdd');
     const partyLedgerName = escapeXml(`${invoice.customer.name}-${invoice.customer.phone}`);
-    const companyName = "MO Designs Private Limited - (2024-2025)";
+    const companyName = getTallyCompanyName(false, invoiceDate);
     const voucherType = "Sales";
     
     let salesmanRefText = invoice.meta.salesPerson || '';
@@ -156,7 +166,7 @@ export async function buildSalesVoucherXML(invoice: PrintableInvoicePayload, isV
     let inventoryEntries = '';
 
     for (const item of invoice.items) {
-        await createIfNeeded(await buildStockItemCreateXML(item.bcn, isVas));
+        await createIfNeeded(await buildStockItemCreateXML(item.bcn, isVas, invoiceDate));
         
         const totalGstPercent = (item.cgst + item.sgst) / item.taxableAmount * 100;
         const gstRate = Number.isFinite(totalGstPercent) ? totalGstPercent.toFixed(0) : 5;
@@ -319,7 +329,7 @@ async function createIfNeeded(xml: string): Promise<{ success: boolean; message:
 }
 
 async function fetchAndSaveVoucherNumber(invoice: PrintableInvoicePayload, ledgerName: string, amount: number, date: string, isVas: boolean): Promise<string | undefined> {
-  const companyName = isVas ? "SP SERVICES" : "MO Designs Private Limited - (2024-2025)";
+  const companyName = getTallyCompanyName(isVas, invoice.meta.invoiceDate);
   const filterXml = await buildVoucherFilterXML(ledgerName, amount, date, companyName);
 
   let voucherNo: string | undefined;
@@ -339,7 +349,11 @@ export async function sendInvoiceToTally(
 ): Promise<{ success: boolean; message: string; voucherNumber?: string }> {
   // 1) Ensure Ledger exists for the customer
   await createIfNeeded(
-    await buildLedgerCreateXML(invoice.customer.name, invoice.customer.phone)
+    await buildLedgerCreateXML(
+      invoice.customer.name,
+      invoice.customer.phone,
+      getTallyCompanyName(isVas, invoice.meta.invoiceDate)
+    )
   );
   
   // 2) Create the Sales Voucher

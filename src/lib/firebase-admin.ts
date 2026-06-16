@@ -1,7 +1,7 @@
 
 
 import { initializeApp, getApps, cert, App } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, initializeFirestore } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import { getMessaging } from "firebase-admin/messaging";
 import { getStorage } from "firebase-admin/storage";
@@ -44,7 +44,17 @@ if (getApps().length) {
   });
 }
 
-export const adminDb = adminApp ? getFirestore(adminApp) : (null as any);
+function getAdminFirestore(app: App | null) {
+  if (!app) return null as any;
+
+  try {
+    return initializeFirestore(app, { preferRest: true });
+  } catch {
+    return getFirestore(app);
+  }
+}
+
+export const adminDb = getAdminFirestore(adminApp);
 export const adminAuth = adminApp ? getAuth(adminApp) : (null as any);
 export const adminMessaging = adminApp ? getMessaging(adminApp) : (null as any);
 export const adminStorage = adminApp ? getStorage(adminApp) : (null as any);

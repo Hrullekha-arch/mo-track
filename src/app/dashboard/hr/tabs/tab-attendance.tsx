@@ -200,6 +200,7 @@ export function AttendanceTab({
               <TableHeader>
                 <TableRow>
                   <TableHead>Employee</TableHead>
+                  <TableHead>Employee ID</TableHead>
                   <TableHead className="text-center">Present</TableHead>
                   <TableHead className="text-center">Absent</TableHead>
                   <TableHead className="text-center">Late</TableHead>
@@ -215,12 +216,18 @@ export function AttendanceTab({
               <TableBody>
                 {visibleEmployeeSummaries.map(({ employee: emp, summary }) => {
                   const hasData = summary.totalDays > 0 || summary.holiday > 0;
+                  console.log(emp);
                   return (
                     <TableRow key={emp.id}>
                       <TableCell>
                         <div>
                           <p className="font-medium">{emp.name}</p>
                           <p className="text-xs text-muted-foreground">{emp.department || roleLabel(emp)}</p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div>
+                          <p className="font-medium">{emp.employeeCode}</p>
                         </div>
                       </TableCell>
                       <TableCell className="text-center">

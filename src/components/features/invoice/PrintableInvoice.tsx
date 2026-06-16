@@ -3,6 +3,11 @@
 import * as React from "react";
 import { format } from "date-fns";
 import Image from "next/image";
+import { normalizeCompanyFinancialYear } from "@/lib/financial-year";
+import {
+  formatInvoiceState,
+  sanitizeLegacySelectText,
+} from "@/lib/gst-jurisdiction";
 
 // #region Helper Functions (Pure)
 
@@ -64,6 +69,10 @@ interface PrintableInvoicePayload {
     phone: string;
     address: string;
     gstin?: string;
+    state?: string;
+    pincode?: string;
+    placeOfSupply?: string;
+    taxMode?: "INTRASTATE" | "INTERSTATE" | "UNKNOWN";
   };
   seller: {
     companyName: string;
@@ -117,6 +126,15 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
   }
   
   const { meta, customer, seller, items, totals, gstBreakdown } = payload;
+  const customerAddress = sanitizeLegacySelectText(customer.address);
+  const customerState = formatInvoiceState(customer.state);
+  const placeOfSupply = formatInvoiceState(
+    customer.placeOfSupply || customer.state
+  );
+  const invoiceCompanyName = meta.isVas
+    ? seller.companyName
+    : normalizeCompanyFinancialYear(seller.companyName, meta.invoiceDate);
+  const logoSrc = meta.isVas ? "/vatLOGO.png" : "/name-logo.png";
   const roundedTotal = totals.grandTotal;
   const getGstPercentFromItem = (item: {
   taxableAmount: number;
@@ -124,7 +142,6 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
   sgst: number;
   igst: number;
 }) => {
-  console.log("Payload ", payload);
   const taxable = Number(item.taxableAmount || 0);
   if (!taxable) return 0;
 
@@ -157,7 +174,7 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
         }}
       >
         <div style={{ flex: "0 0 120px" }}>
-            <Image src="/logo.png" alt="MoTrack Logo" width={100} height={50} style={{ width: "100px", height: "auto" }} />
+            <Image src={logoSrc} alt="MoTrack Logo" width={100} height={50} style={{ width: "100px", height: "auto" }} />
         </div>
 
         <div style={{ flex: "1", textAlign: "center" }}>
@@ -165,7 +182,7 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
             TAX INVOICE
           </h1>
           <h2 style={{ fontSize: "16px", fontWeight: "bold", margin: "0.5rem 0 0.25rem" }}>
-            {seller.companyName}
+            {invoiceCompanyName}
           </h2>
           <p style={{ margin: 0, fontSize: "10px" }}>
             {seller.address}
@@ -182,7 +199,19 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
             <strong>Billing Address</strong>
           </p>
           <p style={{ margin: "2px 0", fontWeight: "bold" }}>{customer.name}</p>
-          <p style={{ margin: "2px 0" }}>{customer.address}</p>
+          <p style={{ margin: "2px 0" }}>{customerAddress}</p>
+          {(customerState || customer.pincode) && (
+            <p style={{ margin: "2px 0" }}>
+              State: {customerState || "-"}
+              {customer.pincode ? ` | PIN: ${customer.pincode}` : ""}
+            </p>
+          )}
+          {placeOfSupply && (
+            <p style={{ margin: "2px 0" }}>
+              Place of Supply: {placeOfSupply}
+              {customer.taxMode === "INTERSTATE" ? " (IGST)" : ""}
+            </p>
+          )}
           <p style={{ margin: "2px 0" }}>Phone No: {customer.phone}</p>
           <p style={{ margin: "2px 0" }}>GSTIN: {customer.gstin || "Unregistered"}</p>
         </div>
@@ -256,7 +285,7 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
                   ? item.discountAmount
                   : baseAmount * (discountPercent / 100);
               const amount = baseAmount - discountAmount + item.cgst + item.sgst + item.igst;
-              const gstRate = item.cgst > 0 ? (item.cgst / item.taxableAmount) * 100 * 2 : 0;
+              const gstRate = gstPercent;
               return (
                 <tr key={`${item.bcn || item.name || "line"}-${index}`}>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "center" }}>{index + 1}</td>
@@ -398,6 +427,7 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
             <p style={{ margin: "2px 0", textAlign: "right" }}>Taxable Value</p>
             <p style={{ margin: "2px 0", textAlign: "right" }}>CGST</p>
             <p style={{ margin: "2px 0", textAlign: "right" }}>SGST</p>
+            <p style={{ margin: "2px 0", textAlign: "right" }}>IGST</p>
             <p style={{ margin: "2px 0", textAlign: "right" }}>Round Off</p>
             <p style={{ margin: "2px 0", textAlign: "right", fontWeight: "bold" }}>Net Amount</p>
           </div>
@@ -407,6 +437,7 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
             <p style={{ margin: "2px 0", borderBottom: "1px solid black", paddingBottom: "1px" }}>₹{formatToINR(totals.taxableValue)}</p>
             <p style={{ margin: "2px 0", borderBottom: "1px solid black", paddingBottom: "1px" }}>₹{formatToINR(totals.cgst)}</p>
             <p style={{ margin: "2px 0", borderBottom: "1px solid black", paddingBottom: "1px" }}>₹{formatToINR(totals.sgst)}</p>
+            <p style={{ margin: "2px 0", borderBottom: "1px solid black", paddingBottom: "1px" }}>₹{formatToINR(totals.igst)}</p>
             <p style={{ margin: "2px 0", borderBottom: "1px solid black", paddingBottom: "1px" }}>₹{formatToINR(totals.roundOff)}</p>
             <p style={{ margin: "2px 0", fontWeight: "bold", fontSize: "12px" }}>₹ {formatToINR(totals.grandTotal)}</p>
           </div>
@@ -422,7 +453,7 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
         </div>
         <div style={{ width: "35%", textAlign: "right" }}>
           <p style={{ margin: "2px 0", fontWeight: "bold" }}>
-            For {seller.companyName}
+            For {invoiceCompanyName}
           </p>
           <div style={{ marginTop: "3rem", borderTop: "1px solid black", paddingTop: "4px" }}>
             <p style={{ margin: 0, fontSize: "9px" }}>Authorised Signatory</p>

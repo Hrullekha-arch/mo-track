@@ -8,11 +8,12 @@ import {
   getSortedRowModel,
   getFilteredRowModel,
   useReactTable,
+  type RowSelectionState,
 } from "@tanstack/react-table";
 import {
   MoreHorizontal, Loader2, Package, CheckCircle2, Clock,
   Search, Printer, ArrowRight, Box, AlertCircle, X,
-  ScanLine, Truck, Ban, Navigation, RefreshCw, ArrowDownToLine,
+  ScanLine, Truck, Ban, Navigation, RefreshCw, ArrowDownToLine, ShoppingCart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,7 +25,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Link from "next/link";
-import { collection, doc, getDoc, getDocs, query, where, writeBatch, arrayUnion, limit, orderBy, startAfter, runTransaction } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, where, writeBatch, arrayUnion, limit, orderBy, startAfter, runTransaction, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { format } from "date-fns";
 import { updateStockQuantityAction } from "@/app/dashboard/inventory/actions";
@@ -35,12 +36,30 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { dedupeO2DMilestones, upsertO2DMilestone } from "@/lib/o2d-milestones";
 import { DocketTrackingDialog } from "./InboundTrackingDialog";
+import {
+  CreatePoDialog,
+  VendorVerificationDialog,
+  type CreatePoSubmitAction,
+} from "@/app/dashboard/purchase/pending-po/dialogs";
+import type { PendingPoItem } from "@/app/dashboard/purchase/pending-po/actions";
+import {
+  markInboundExcessApprovalUsedAction,
+  recreateInboundZohoPurchaseOrderAction,
+  requestInboundExcessApprovalAction,
+} from "@/app/dashboard/inbound/actions";
 
 // â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 interface FlattenedInboundItem {
   id: string;
+  inboundDocId: string;
+  inboundItemIndex: number;
   dealId: string;
   poNumber?: string;
+  zohoPurchaseOrderNumber?: string;
+  zohoPurchaseOrderId?: string;
+  zohoVendorId?: string;
+  zohoSyncStatus?: "pending" | "synced" | "failed";
+  zohoSyncError?: string;
   customerName: string;
   salesman: string;
   status: string;
@@ -49,10 +68,12 @@ interface FlattenedInboundItem {
   supplierCollectionName?: string;
   supplierCollectionCode?: string;
   quantity: string;
+  unit?: "Mtr" | "Pcs" | "mtr" | "pcs";
   vendorName?: string;
   type: "fabric" | "furniture";
   purchaseRequestId?: string;
   docketNo?: string;
+  stockDetail?: any;
 }
 
 type ReceiveItem = {
@@ -66,11 +87,19 @@ type ReceiveItem = {
   vendorName?: string;
   supplierCollectionName?: string;
   supplierCollectionCode?: string;
+  excessApproval?: {
+    id?: string;
+    status?: "pending" | "approved" | "rejected" | "used";
+    requestedQty?: number;
+    excessQty?: number;
+    reviewedBy?: { id?: string; name?: string };
+  };
   checked: boolean;
 };
 
 // â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const parseQty = (value: string) => { const p = Number(String(value).trim()); return Number.isFinite(p) ? p : NaN; };
+const asTrimmedString = (value: unknown) => String(value ?? "").trim();
 const QTY_EPSILON = 0.0001;
 const formatQtyString = (v: number) => !Number.isFinite(v) ? "0" : v.toFixed(2).replace(/\.?0+$/, "");
 const isFullyReceivedQty = (r: number, e: number) => e > QTY_EPSILON && r + QTY_EPSILON >= e;
@@ -126,32 +155,51 @@ function ReceiveDialog({ open, poNumber, onClose, user, toast }: { open:boolean;
 
   React.useEffect(() => {
     if (!open || !poNumber) return;
-    const load = async () => {
-      setIsLoadingInbound(true);
-      try {
-        const snap = await getDoc(doc(db, "inbounds", poNumber));
-        if (!snap.exists()) { setInboundRequest(null); return; }
+    setIsLoadingInbound(true);
+    const unsubscribe = onSnapshot(
+      doc(db, "inbounds", poNumber),
+      (snap) => {
+        if (!snap.exists()) {
+          setInboundRequest(null);
+          setIsLoadingInbound(false);
+          return;
+        }
         const data = { id: snap.id, ...snap.data() } as InboundRequest;
         setInboundRequest(data);
-        setReceiveItems((data.items || []).map((item, index) => ({
-          rowId: `${data.id}-${index}-${item.itemName}`,
-          sourceIndex: index,
-          itemName: item.itemName,
-          expectedQty: item.quantity,
-          receivedQty: String((item as any).receivedQty || "0"),
-          actualQty: "",
-          unit: item.unit || "Mtr",
-          vendorName: (item as any).vendorName || data.vendor,
-          supplierCollectionName: (item as any).stockDetail?.supplierCollectionName || (item as any).supplierCollectionName || "",
-          supplierCollectionCode: (item as any).stockDetail?.supplierCollectionCode || (item as any).supplierCollectionCode || "",
-          checked: false,
-        })));
-      } catch (e) {
-        console.error(e);
+        setReceiveItems((current) =>
+          (data.items || []).map((item, index) => {
+            const previous = current.find((entry) => entry.sourceIndex === index);
+            return {
+              rowId: `${data.id}-${index}-${item.itemName}`,
+              sourceIndex: index,
+              itemName: item.itemName,
+              expectedQty: item.quantity,
+              receivedQty: String((item as any).receivedQty || "0"),
+              actualQty: previous?.actualQty || "",
+              unit: item.unit || "Mtr",
+              vendorName: (item as any).vendorName || data.vendor,
+              supplierCollectionName:
+                (item as any).stockDetail?.supplierCollectionName ||
+                (item as any).supplierCollectionName ||
+                "",
+              supplierCollectionCode:
+                (item as any).stockDetail?.supplierCollectionCode ||
+                (item as any).supplierCollectionCode ||
+                "",
+              excessApproval: (item as any).excessApproval,
+              checked: previous?.checked || false,
+            };
+          })
+        );
+        setIsLoadingInbound(false);
+      },
+      (error) => {
+        console.error(error);
+        setIsLoadingInbound(false);
         toast({ variant:"destructive", title:"Error", description:"Failed to load inbound." });
-      } finally { setIsLoadingInbound(false); }
-    };
-    load();
+      }
+    );
+    return unsubscribe;
   }, [open, poNumber]);
 
   const getExpectedQty = (item: Pick<ReceiveItem,"expectedQty">) => { const e = parseQty(item.expectedQty); return Number.isFinite(e) && e > 0 ? e : 0; };
@@ -164,17 +212,77 @@ function ReceiveDialog({ open, poNumber, onClose, user, toast }: { open:boolean;
     if (!Number.isFinite(actual) || actual <= 0) return "Enter a valid quantity.";
     if (!Number.isFinite(expected) || expected <= 0) return "Expected qty is invalid.";
     if (remaining <= QTY_EPSILON) return "This line is already fully received.";
-    if (actual - remaining > QTY_EPSILON) return `Cannot exceed remaining qty (${formatQtyString(remaining)}).`;
     return "";
   };
 
-  const validateAndProceed = () => {
+  const validateAndProceed = async () => {
     if (!selectedItems.length) { toast({ variant:"destructive", title:"No items selected", description:"Select at least one item." }); return; }
     if (step === "select") { setStep("verify"); return; }
     if (step === "verify") {
       const errors: Record<string,string> = {};
       selectedItems.forEach((item) => { const err = validateItem(item); if (err) errors[item.rowId] = err; });
       if (Object.keys(errors).length) { setReceiveQtyErrors(errors); return; }
+
+      const excessItems = selectedItems.filter((item) => {
+        const actual = parseQty(item.actualQty);
+        return Number.isFinite(actual) && actual > getRemainingQty(item) + QTY_EPSILON;
+      });
+      const pendingItems = excessItems.filter((item) => {
+        const actual = parseQty(item.actualQty);
+        return (
+          item.excessApproval?.status === "pending" &&
+          Number(item.excessApproval.requestedQty || 0) + QTY_EPSILON >= actual
+        );
+      });
+      const requestsNeeded = excessItems.filter((item) => {
+        const actual = parseQty(item.actualQty);
+        const approval = item.excessApproval;
+        return !(
+          (approval?.status === "approved" || approval?.status === "pending") &&
+          Number(approval.requestedQty || 0) + QTY_EPSILON >= actual
+        );
+      });
+
+      if (requestsNeeded.length > 0 || pendingItems.length > 0) {
+        const requestResults = await Promise.all(
+          requestsNeeded.map((item) =>
+            requestInboundExcessApprovalAction(
+              {
+                inboundId: inboundRequest?.id || poNumber || "",
+                itemIndex: item.sourceIndex,
+                requestedQty: parseQty(item.actualQty),
+              },
+              { id: user?.id || "", name: user?.name || "User" }
+            )
+          )
+        );
+        const nextErrors = { ...errors };
+        pendingItems.forEach((item) => {
+          nextErrors[item.rowId] = "Waiting for MD Accept/OK.";
+        });
+        requestsNeeded.forEach((item, index) => {
+          const result = requestResults[index];
+          nextErrors[item.rowId] = result.success
+            ? "Approval will be taken from MD. Open the Approval Dashboard and wait for Accept / OK."
+            : result.message;
+        });
+        setReceiveQtyErrors(nextErrors);
+        toast({
+          title: requestResults.some((result) => result.success)
+            ? "MD approval requested"
+            : pendingItems.length > 0
+              ? "Waiting for MD approval"
+              : "Approval request failed",
+          description: requestResults.find((result) => result.success)?.message ||
+            requestResults[0]?.message ||
+            "The request is visible on the MD dashboard.",
+          variant:
+            requestResults.some((result) => result.success) || pendingItems.length > 0
+              ? "default"
+              : "destructive",
+        });
+        return;
+      }
       setStep("preview");
     }
   };
@@ -214,6 +322,7 @@ function ReceiveDialog({ open, poNumber, onClose, user, toast }: { open:boolean;
       let resolvedInbound: InboundRequest | null = null;
       let itemsAfterReceive: InboundItem[] = [];
       let effectiveReceipts: Array<(typeof parsedItems)[number] & { parsedQty: number }> = [];
+      const usedExcessApprovalIds: string[] = [];
       let allCompleteAfterReceive = false;
 
       await runTransaction(db, async (transaction) => {
@@ -229,8 +338,28 @@ function ReceiveDialog({ open, poNumber, onClose, user, toast }: { open:boolean;
           const receivedSoFar = (() => { const r = parseQty(String((ti as any).receivedQty||"0")); return Number.isFinite(r) && r > 0 ? r : 0; })();
           const remaining = Math.max(0, expected - receivedSoFar);
           if (remaining <= QTY_EPSILON) return;
-          const batchQty = Math.min(update.parsedQty, remaining);
+          const batchQty = update.parsedQty;
           if (batchQty <= QTY_EPSILON) return;
+          if (batchQty > remaining + QTY_EPSILON) {
+            const approval = (ti as any).excessApproval || {};
+            const approvedQty = Number(approval.requestedQty || 0);
+            if (
+              approval.status !== "approved" ||
+              !approval.id ||
+              approvedQty + QTY_EPSILON < batchQty
+            ) {
+              throw new Error(
+                `${ti.itemName}: quantity above PO balance requires MD approval.`
+              );
+            }
+            usedExcessApprovalIds.push(String(approval.id));
+            (ti as any).excessApproval = {
+              ...approval,
+              status: "used",
+              usedAt: nowIso,
+              usedBy: { id: user.id, name: user.name },
+            };
+          }
           const nextReceived = receivedSoFar + batchQty;
           (ti as any).receivedQty = formatQtyString(nextReceived);
           const rb = Array.isArray((ti as any).receiptBatches) ? [...(ti as any).receiptBatches] : [];
@@ -323,6 +452,14 @@ function ReceiveDialog({ open, poNumber, onClose, user, toast }: { open:boolean;
       }
 
       await batch.commit();
+      await Promise.all(
+        usedExcessApprovalIds.map((approvalId) =>
+          markInboundExcessApprovalUsedAction(approvalId, {
+            id: user.id,
+            name: user.name,
+          })
+        )
+      );
       toast({ title:"Items Received", description:`${effectiveReceipts.length} line item(s) received in this batch.` });
       onClose();
     } catch (error: any) {
@@ -449,7 +586,9 @@ function ReceiveDialog({ open, poNumber, onClose, user, toast }: { open:boolean;
               {/* Step 2 */}
               {step === "verify" && (
                 <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground">Enter received quantity. Partial receive is allowed up to remaining quantity.</p>
+                  <p className="text-sm text-muted-foreground">
+                    Receive up to the PO balance normally. For any excess quantity, approval will be taken from MD through the Approval Dashboard.
+                  </p>
                   <div className="rounded-xl border overflow-hidden">
                     <div className="grid grid-cols-[1fr_110px_110px_150px] gap-4 px-4 py-2.5 bg-muted/40 text-[11px] font-bold text-muted-foreground uppercase tracking-widest border-b">
                       <span>BCN / Item</span><span>Expected</span><span>Remaining</span><span>Receive Now</span>
@@ -457,7 +596,12 @@ function ReceiveDialog({ open, poNumber, onClose, user, toast }: { open:boolean;
                     <div className="divide-y max-h-72 overflow-y-auto">
                       {selectedItems.map((item) => {
                         const rem = getRemainingQty(item); const bq = parseQty(item.actualQty);
-                        const valid = Number.isFinite(bq) && bq > 0 && bq - rem <= QTY_EPSILON;
+                        const valid = Number.isFinite(bq) && bq > 0;
+                        const isExcess = valid && bq > rem + QTY_EPSILON;
+                        const excessApproved =
+                          isExcess &&
+                          item.excessApproval?.status === "approved" &&
+                          Number(item.excessApproval.requestedQty || 0) + QTY_EPSILON >= bq;
                         return (
                           <div key={item.rowId} className="grid grid-cols-[1fr_110px_110px_150px] items-center gap-4 px-4 py-3">
                             <div>
@@ -475,7 +619,16 @@ function ReceiveDialog({ open, poNumber, onClose, user, toast }: { open:boolean;
                                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">{item.unit}</span>
                               </div>
                               {receiveQtyErrors[item.rowId] && <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="h-3 w-3" />{receiveQtyErrors[item.rowId]}</p>}
-                              {item.actualQty && !receiveQtyErrors[item.rowId] && valid && <p className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Valid</p>}
+                              {item.actualQty && !receiveQtyErrors[item.rowId] && valid && (
+                                <p className={cn("text-xs flex items-center gap-1", excessApproved ? "text-blue-700" : isExcess ? "text-amber-700" : "text-emerald-600")}>
+                                  {excessApproved ? <CheckCircle2 className="h-3 w-3" /> : isExcess ? <AlertCircle className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
+                                  {excessApproved
+                                    ? "MD approved excess quantity"
+                                    : isExcess
+                                      ? `Excess ${formatQtyString(bq - rem)} ${item.unit} requires MD approval`
+                                      : "Valid"}
+                                </p>
+                              )}
                             </div>
                           </div>
                         );
@@ -564,6 +717,12 @@ function ReceiveDialog({ open, poNumber, onClose, user, toast }: { open:boolean;
 export function InboundTable({ mode }: { mode: "pending" | "completed" }) {
   const [requests, setRequests] = React.useState<FlattenedInboundItem[]>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
+  const [dateFrom, setDateFrom] = React.useState("");
+  const [dateTo, setDateTo] = React.useState("");
+  const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
+  const [isVerificationOpen, setIsVerificationOpen] = React.useState(false);
+  const [isCreateZohoPoOpen, setIsCreateZohoPoOpen] = React.useState(false);
+  const [isNewVendor, setIsNewVendor] = React.useState(false);
   const [receiveDialogOpen, setReceiveDialogOpen] = React.useState(false);
   const [activePoNumber, setActivePoNumber] = React.useState<string | null>(null);
   const [trackingOpen, setTrackingOpen] = React.useState(false);
@@ -599,12 +758,20 @@ export function InboundTable({ mode }: { mode: "pending" | "completed" }) {
       const items = Array.isArray(inbound?.items) ? inbound.items : [];
       const status = String(inbound?.status||"").toLowerCase();
       const salesman = inbound?.assignedSalesman?.name || "Unknown";
+      const docZohoPoNumber = String(inbound?.zohoPurchaseOrderNumber || "").trim();
+      const docZohoPoId = String(inbound?.zohoPurchaseOrderId || "").trim();
+      const docZohoVendorId = String(inbound?.zohoVendorId || "").trim();
+      const docZohoSyncStatus = String(inbound?.zohoSyncStatus || "").trim().toLowerCase();
+      const docZohoSyncError = String(inbound?.zohoSyncError || "").trim();
       return items.map((item: any, idx: number) => {
         const itemName = String(item?.itemName||"").trim();
         if (!itemName) return null;
         const supplierCollectionName = item?.stockDetail?.supplierCollectionName || item?.supplierCollectionName || "";
         const supplierCollectionCode = item?.stockDetail?.supplierCollectionCode || item?.supplierCollectionCode || "";
         const docketNo = item?.stockDetail?.docketNo || item?.docketNo || inbound?.docketNo || "";
+        const lineZohoPoNumber = String(item?.zohoPurchaseOrderNumber || docZohoPoNumber || "").trim();
+        const lineZohoPoId = String(item?.zohoPurchaseOrderId || docZohoPoId || "").trim();
+        const lineZohoVendorId = String(item?.zohoVendorId || docZohoVendorId || "").trim();
         const milestones = Array.isArray(item?.inboundMilestones) ? item.inboundMilestones : [];
         const expected = parseQty(String(item?.quantity??"0")); const received = parseQty(String(item?.receivedQty??"0"));
         const es = Number.isFinite(expected) && expected > 0 ? expected : 0;
@@ -614,21 +781,302 @@ export function InboundTable({ mode }: { mode: "pending" | "completed" }) {
         else if (rs > QTY_EPSILON || milestones.length > 0) statusText = "In Progress";
         if (mode === "completed" && statusText !== "Received") return null;
         if (mode === "pending" && statusText === "Received") return null;
-        return { id:`${poNumber}-${itemName}-${idx}`, dealId:String(inbound?.dealId||""), poNumber, customerName:String(inbound?.customerName||""), salesman, status:statusText, createdAt:String(inbound?.createdAt||""), itemName, supplierCollectionName, supplierCollectionCode, quantity:String(item?.quantity??""), vendorName:String(item?.vendorName||inbound?.vendor||""), type:"fabric" as const, purchaseRequestId:inbound?.purchaseRequestId, docketNo } as FlattenedInboundItem;
+        return {
+          id:`${poNumber}-${itemName}-${idx}`,
+          inboundDocId: poNumber,
+          inboundItemIndex: idx,
+          dealId:String(inbound?.dealId||""),
+          poNumber,
+          zohoPurchaseOrderNumber: lineZohoPoNumber || undefined,
+          zohoPurchaseOrderId: lineZohoPoId || undefined,
+          zohoVendorId: lineZohoVendorId || undefined,
+          zohoSyncStatus:
+            docZohoSyncStatus === "pending" ||
+            docZohoSyncStatus === "synced" ||
+            docZohoSyncStatus === "failed"
+              ? docZohoSyncStatus
+              : undefined,
+          zohoSyncError: docZohoSyncError || undefined,
+          customerName:String(inbound?.customerName||""),
+          salesman,
+          status:statusText,
+          createdAt:String(inbound?.createdAt||""),
+          itemName,
+          supplierCollectionName,
+          supplierCollectionCode,
+          quantity:String(item?.quantity??""),
+          unit: item?.unit,
+          vendorName:String(item?.vendorName||inbound?.vendor||""),
+          type:"fabric" as const,
+          purchaseRequestId:inbound?.purchaseRequestId,
+          docketNo,
+          stockDetail: item?.stockDetail,
+        } as FlattenedInboundItem;
       }).filter(Boolean);
     });
     setRequests((prev) => [...prev, ...flattened]);
   };
 
-  React.useEffect(() => { setRequests([]); setLastDoc(null); setHasMore(true); setLoading(false); fetchPage(true, true); }, [mode]);
+  React.useEffect(() => {
+    setRequests([]);
+    setLastDoc(null);
+    setHasMore(true);
+    setLoading(false);
+    setRowSelection({});
+    fetchPage(true, true);
+  }, [mode]);
+
+  const dateFilteredRequests = React.useMemo(() => {
+    const from = dateFrom ? new Date(`${dateFrom}T00:00:00`) : null;
+    const to = dateTo ? new Date(`${dateTo}T23:59:59.999`) : null;
+    const fromTime = from && Number.isFinite(from.getTime()) ? from.getTime() : null;
+    const toTime = to && Number.isFinite(to.getTime()) ? to.getTime() : null;
+
+    return requests.filter((row) => {
+      const createdAtTime = new Date(row.createdAt).getTime();
+      if (!Number.isFinite(createdAtTime)) return fromTime === null && toTime === null;
+      if (fromTime !== null && createdAtTime < fromTime) return false;
+      if (toTime !== null && createdAtTime > toTime) return false;
+      return true;
+    });
+  }, [requests, dateFrom, dateTo]);
+
+  // Keep PO rows ordered by newest inbound creation time first.
+  const tableData = React.useMemo(() => {
+    const sorted = [...dateFilteredRequests];
+    sorted.sort((left, right) => {
+      const leftCreatedAt = new Date(left.createdAt).getTime();
+      const rightCreatedAt = new Date(right.createdAt).getTime();
+      const leftTime = Number.isFinite(leftCreatedAt) ? leftCreatedAt : 0;
+      const rightTime = Number.isFinite(rightCreatedAt) ? rightCreatedAt : 0;
+
+      if (leftTime !== rightTime) return rightTime - leftTime;
+      return String(right.poNumber || "").localeCompare(String(left.poNumber || ""), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+    });
+    return sorted;
+  }, [dateFilteredRequests]);
+
+  const selectedRows = React.useMemo(
+    () => tableData.filter((row) => !!rowSelection[row.id]),
+    [tableData, rowSelection]
+  );
+
+  const selectedPoNumber = React.useMemo(
+    () => asTrimmedString(selectedRows[0]?.poNumber),
+    [selectedRows]
+  );
+
+  const isRowEligibleForZohoRecreate = React.useCallback(
+    (row: FlattenedInboundItem) => {
+      const rowPoNumber = asTrimmedString(row.poNumber);
+      if (!rowPoNumber) return false;
+      if (asTrimmedString(row.zohoPurchaseOrderNumber)) return false;
+      if (!selectedPoNumber) return true;
+      return rowPoNumber === selectedPoNumber;
+    },
+    [selectedPoNumber]
+  );
+
+  const toggleRowSelection = React.useCallback(
+    (row: FlattenedInboundItem, checked: boolean) => {
+      setRowSelection((prev) => {
+        const next = { ...prev };
+        if (!checked) {
+          delete next[row.id];
+          return next;
+        }
+
+        if (asTrimmedString(row.zohoPurchaseOrderNumber)) {
+          toast({
+            variant: "destructive",
+            title: "Already linked",
+            description: "This row already has a Zoho PO number.",
+          });
+          return prev;
+        }
+
+        const rowPoNumber = asTrimmedString(row.poNumber);
+        const previouslySelectedRow = Object.keys(prev)
+          .map((id) => tableData.find((entry) => entry.id === id))
+          .find(Boolean);
+        const activePo = selectedPoNumber || asTrimmedString(previouslySelectedRow?.poNumber);
+        if (!rowPoNumber) return prev;
+        if (activePo && rowPoNumber !== activePo) {
+          toast({
+            variant: "destructive",
+            title: "Same PO only",
+            description: "Select rows from the same PO number only.",
+          });
+          return prev;
+        }
+
+        next[row.id] = true;
+        return next;
+      });
+    },
+    [selectedPoNumber, tableData, toast]
+  );
+
+  const selectedPendingPoItems = React.useMemo<PendingPoItem[]>(() => {
+    return selectedRows.map((row) => {
+      const nowIso = new Date().toISOString();
+      const fallbackRequest: PurchaseRequest = {
+        id: row.purchaseRequestId || row.inboundDocId || row.poNumber || row.id,
+        dealId: row.dealId || "",
+        quotationNo: row.dealId || undefined,
+        customerName: row.customerName || "",
+        promiseDeliveryDate: nowIso,
+        salesman: row.salesman || "Unknown",
+        type: row.type || "fabric",
+        createdAt: row.createdAt || nowIso,
+        createdBy: {
+          id: user?.id || "system",
+          name: user?.name || "System",
+        },
+        milestones: [],
+        vendorType: "undecided",
+        status: "Approved",
+      };
+
+      const neededQty = parseQty(row.quantity);
+      const sanitizedQty = Number.isFinite(neededQty) && neededQty > 0 ? neededQty : 0;
+      const fallbackUnit =
+        String(row.unit || "").toLowerCase() === "pcs" ? "Pcs" : "Mtr";
+
+      return {
+        id: row.id,
+        inboundDocId: row.inboundDocId,
+        inboundItemIndex: row.inboundItemIndex,
+        currentZohoPoNumber: row.zohoPurchaseOrderNumber,
+        currentZohoPoId: row.zohoPurchaseOrderId,
+        purchaseRequestId: row.purchaseRequestId || row.inboundDocId || undefined,
+        fabricIndex: row.inboundItemIndex,
+        quotationNo: row.dealId || row.poNumber || row.id,
+        dealId: row.dealId || "",
+        customerName: row.customerName || "",
+        salesman: row.salesman || "Unknown",
+        collectionBrand: row.itemName || "",
+        itemName: row.itemName || "",
+        serialNo: row.supplierCollectionCode || "N/A",
+        hsnCode: "N/A",
+        mrp: 0,
+        vendorName: row.vendorName || "",
+        neededQty: sanitizedQty,
+        stock: 0,
+        category: row.type === "furniture" ? "Furniture" : "Fabric",
+        unit: fallbackUnit,
+        supplierCollectionCode: row.supplierCollectionCode || undefined,
+        supplierCollectionName: row.supplierCollectionName || undefined,
+        detailedStockItem: row.stockDetail || {},
+        stockDocId: undefined,
+        productId: undefined,
+        originalRequest: fallbackRequest,
+      };
+    });
+  }, [selectedRows, user?.id, user?.name]);
+
+  const handleVerificationConfirm = React.useCallback((nextIsNewVendor: boolean) => {
+    setIsNewVendor(nextIsNewVendor);
+    setIsVerificationOpen(false);
+    setIsCreateZohoPoOpen(true);
+  }, []);
+
+  const submitInboundZohoPo = React.useCallback<CreatePoSubmitAction>(
+    async (poData, creator) => {
+      return recreateInboundZohoPurchaseOrderAction(poData, creator);
+    },
+    []
+  );
 
   const columns: ColumnDef<FlattenedInboundItem>[] = [
+    {
+      id: "select",
+      header: ({ table }) => {
+        const visibleRows = table.getRowModel().rows.map((row) => row.original as FlattenedInboundItem);
+        const firstEligiblePo = asTrimmedString(
+          visibleRows.find(
+            (row) =>
+              !asTrimmedString(row.zohoPurchaseOrderNumber) &&
+              asTrimmedString(row.poNumber)
+          )?.poNumber
+        );
+        const targetPo = selectedPoNumber || firstEligiblePo;
+        const selectableRows = visibleRows.filter(
+          (row) =>
+            !asTrimmedString(row.zohoPurchaseOrderNumber) &&
+            asTrimmedString(row.poNumber) === targetPo
+        );
+        const selectedCount = selectableRows.filter((row) => !!rowSelection[row.id]).length;
+        const allSelected = selectableRows.length > 0 && selectedCount === selectableRows.length;
+        const partiallySelected = selectedCount > 0 && !allSelected;
+
+        return (
+          <Checkbox
+            checked={allSelected ? true : partiallySelected ? "indeterminate" : false}
+            disabled={selectableRows.length === 0}
+            onCheckedChange={(checked) => {
+              setRowSelection((prev) => {
+                const next = { ...prev };
+                selectableRows.forEach((row) => {
+                  if (checked) next[row.id] = true;
+                  else delete next[row.id];
+                });
+                return next;
+              });
+            }}
+            aria-label="Select all rows for same PO"
+          />
+        );
+      },
+      cell: ({ row }) => {
+        const current = row.original;
+        const checked = !!rowSelection[current.id];
+        const disabled = !isRowEligibleForZohoRecreate(current) && !checked;
+        return (
+          <Checkbox
+            checked={checked}
+            disabled={disabled}
+            onCheckedChange={(value) => toggleRowSelection(current, !!value)}
+            aria-label="Select row"
+          />
+        );
+      },
+      enableSorting: false,
+      enableHiding: false,
+    },
     { accessorKey:"dealId", header:"Order ID",
       cell:({ row }) => <Link href="#" className="font-bold text-primary hover:underline text-sm tabular-nums">{row.getValue("dealId")}</Link> },
     { accessorKey:"poNumber", header:"PO Number",
       cell:({ row }) => row.original.poNumber
         ? <button className="text-sm font-mono text-primary hover:underline font-semibold" onClick={() => { setActivePoNumber(row.original.poNumber!); setReceiveDialogOpen(true); }}>{row.original.poNumber}</button>
         : <span className="text-muted-foreground">â€”</span> },
+    {
+      accessorKey: "zohoPurchaseOrderNumber",
+      header: "Zoho PO Number",
+      cell: ({ row }) =>
+        row.original.zohoPurchaseOrderNumber ? (
+          <Badge variant="outline" className="text-xs font-medium border-emerald-200 bg-emerald-50 text-emerald-700">
+            {row.original.zohoPurchaseOrderNumber}
+          </Badge>
+        ) : row.original.zohoSyncStatus === "failed" ? (
+          <Badge
+            variant="outline"
+            className="text-xs border-red-200 bg-red-50 text-red-700"
+            title={row.original.zohoSyncError}
+          >
+            Failed
+          </Badge>
+        ) : row.original.zohoSyncStatus === "pending" ? (
+          <Badge variant="outline" className="text-xs border-amber-200 bg-amber-50 text-amber-700">
+            Pending
+          </Badge>
+        ) : (
+          <span className="text-xs text-amber-600">Not Created</span>
+        ),
+    },
     { accessorKey:"customerName", header:"Customer",
       cell:({ row }) => <span className="text-sm font-medium">{row.getValue("customerName")}</span> },
     { accessorKey:"itemName", header:"BCN / Item",
@@ -686,16 +1134,35 @@ export function InboundTable({ mode }: { mode: "pending" | "completed" }) {
   ];
 
   const table = useReactTable({
-    data: requests, columns,
+    data: tableData, columns,
     getCoreRowModel: getCoreRowModel(), getSortedRowModel: getSortedRowModel(), getFilteredRowModel: getFilteredRowModel(),
     onGlobalFilterChange: setGlobalFilter, state: { globalFilter },
   });
 
   const stats = React.useMemo(() => ({
-    total: requests.length,
-    inProgress: requests.filter((r) => r.status==="In Progress").length,
-    pending: requests.filter((r) => r.status==="Pending Receiving").length,
-  }), [requests]);
+    total: tableData.length,
+    inProgress: tableData.filter((r) => r.status==="In Progress").length,
+    pending: tableData.filter((r) => r.status==="Pending Receiving").length,
+  }), [tableData]);
+
+  const canRecreateZohoPo = React.useMemo(() => {
+    if (selectedPendingPoItems.length === 0) return false;
+    const po = asTrimmedString(selectedPendingPoItems[0]?.inboundDocId);
+    if (!po) return false;
+    return selectedPendingPoItems.every((item) => {
+      const candidatePo = asTrimmedString(item.inboundDocId);
+      const hasExistingZohoPo = asTrimmedString(item.currentZohoPoNumber);
+      return candidatePo === po && !hasExistingZohoPo;
+    });
+  }, [selectedPendingPoItems]);
+
+  const refreshInboundRows = () => {
+    setRequests([]);
+    setLastDoc(null);
+    setHasMore(true);
+    setLoading(false);
+    fetchPage(true, true);
+  };
 
   return (
     <>
@@ -722,15 +1189,78 @@ export function InboundTable({ mode }: { mode: "pending" | "completed" }) {
 
         <Card className="shadow-sm">
           <CardContent className="p-4 space-y-4">
-            <div className="relative max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Search order, customer, BCN..." value={globalFilter}
-                onChange={(e) => setGlobalFilter(e.target.value)} className="pl-9 h-9 text-sm" />
-              {globalFilter && (
-                <button className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setGlobalFilter("")}>
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center">
+                <div className="relative w-full md:max-w-sm">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input placeholder="Search order, customer, BCN..." value={globalFilter}
+                    onChange={(e) => setGlobalFilter(e.target.value)} className="pl-9 h-9 text-sm" />
+                  {globalFilter && (
+                    <button className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setGlobalFilter("")}>
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+                <Input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(event) => setDateFrom(event.target.value)}
+                  className="h-9 w-full md:w-44 text-sm"
+                  aria-label="Filter from date"
+                />
+                <Input
+                  type="date"
+                  value={dateTo}
+                  onChange={(event) => setDateTo(event.target.value)}
+                  className="h-9 w-full md:w-44 text-sm"
+                  aria-label="Filter to date"
+                />
+                {(dateFrom || dateTo) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 md:h-8"
+                    onClick={() => {
+                      setDateFrom("");
+                      setDateTo("");
+                    }}
+                  >
+                    Clear dates
+                  </Button>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {selectedPendingPoItems.length > 0 ? (
+                  <Badge variant="outline" className="text-xs font-medium">
+                    Selected {selectedPendingPoItems.length} item(s) · PO {selectedPoNumber || "—"}
+                  </Badge>
+                ) : null}
+                {selectedPendingPoItems.length > 0 && !canRecreateZohoPo ? (
+                  <Badge variant="outline" className="text-xs border-amber-200 bg-amber-50 text-amber-700">
+                    Select rows from same PO without Zoho PO number
+                  </Badge>
+                ) : null}
+                {selectedPendingPoItems.length > 0 ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8"
+                    onClick={() => setRowSelection({})}
+                  >
+                    Clear selection
+                  </Button>
+                ) : null}
+                <Button
+                  size="sm"
+                  onClick={() => setIsVerificationOpen(true)}
+                  disabled={!canRecreateZohoPo}
+                  className="gap-2"
+                >
+                  <ShoppingCart className="h-4 w-4" />
+                  Recreate Zoho PO
+                </Button>
+              </div>
             </div>
 
             <div className="rounded-xl border overflow-hidden">
@@ -803,6 +1333,26 @@ export function InboundTable({ mode }: { mode: "pending" | "completed" }) {
         open={trackingOpen}
         onClose={() => { setTrackingOpen(false); setActiveDocket(null); }}
         docketNo={activeDocket ?? ""}
+      />
+
+      <VendorVerificationDialog
+        isOpen={isVerificationOpen}
+        onClose={() => setIsVerificationOpen(false)}
+        onConfirm={handleVerificationConfirm}
+      />
+
+      <CreatePoDialog
+        isOpen={isCreateZohoPoOpen}
+        onClose={() => setIsCreateZohoPoOpen(false)}
+        items={selectedPendingPoItems}
+        creator={user ? { id: user.id, name: user.name } : null}
+        isNewVendor={isNewVendor}
+        submitAction={submitInboundZohoPo}
+        onSuccess={() => {
+          setRowSelection({});
+          setIsCreateZohoPoOpen(false);
+          refreshInboundRows();
+        }}
       />
     </>
   );

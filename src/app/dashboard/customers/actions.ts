@@ -315,7 +315,19 @@ export async function getSalesmen(): Promise<User[]> {
         if (snapshot.empty) {
             return [];
         }
-        const salesmen = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+        const salesmen = snapshot.docs
+          .map((doc: FirebaseFirestore.QueryDocumentSnapshot) => ({
+            id: doc.id,
+            ...doc.data(),
+          } as User))
+          .filter(
+            (user: User) =>
+              user.isActive !== false &&
+              String(user.employmentStatus || "").trim().toLowerCase() !== "inactive"
+          )
+          .sort((left: User, right: User) =>
+            String(left.name || "").localeCompare(String(right.name || ""))
+          );
         return JSON.parse(JSON.stringify(salesmen));
     } catch (error) {
         console.error('Error fetching salesmen:', error);

@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
-import { addDoc, collection, collectionGroup, onSnapshot, query, where } from "firebase/firestore";
+import { addDoc, collection, collectionGroup, limit, onSnapshot, query, where } from "firebase/firestore";
 import { ArrowRight, Clock3, CreditCard, Eye, FileText, Landmark, Loader2, Pencil, ShieldCheck, UserPlus, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -489,8 +489,10 @@ export default function HrDashboardClientPage() {
         dutyLabel: formatDutyLabel(summary?.dutyStart || entry.timesheetDutyStart, summary?.dutyEnd || entry.timesheetDutyEnd),
         filledSlots: summary?.filledSlots || 0,
         totalSlots: summary?.totalSlots || 0,
+        lockedSlots: summary?.lockedSlots || 0,
         remark: summary?.remark || "",
         updatedAt: summary?.updatedAt,
+        perHour: summary?.perHour || [],
       };
     }).sort((l, r) => {
       if (l.status !== r.status) return l.status === "pending" ? -1 : 1;
@@ -506,7 +508,8 @@ export default function HrDashboardClientPage() {
       [row.user.name, row.user.email, row.user.department, row.user.education, row.user.tenthBoardName,
         row.user.tenthMarks, row.user.twelfthBoardName, row.user.twelfthMarks, row.user.bachelorBoardName,
         row.user.bachelorMarks, row.user.masterBoardName, row.user.masterMarks, row.user.additionalQualification,
-        row.user.experienceType, row.user.experience, row.user.employeeCode, row.user.store, row.remark, row.status]
+        row.user.experienceType, row.user.experience, row.user.employeeCode, row.user.store, row.remark, row.status,
+        ...(row.perHour || []).flatMap((hour) => [hour.slotLabel, hour.workDetail, hour.updatedBy?.name, hour.submittedBy?.name])]
         .map((v) => normalizeText(v)).join(" ").includes(needle)
     );
   }, [deferredSearchTerm, todayRows]);
@@ -562,7 +565,7 @@ export default function HrDashboardClientPage() {
 
   useEffect(() => {
     if (!canAccessHr) { setAccountUsersLoading(false); return; }
-    const unsub = onSnapshot(query(collection(db, "users")), (snap) => {
+    const unsub = onSnapshot(query(collection(db, "users"), limit(500)), (snap) => {
       setAccountUsers(snap.docs.map((e) => mapAccountUserToHrEmployee({ id: e.id, ...e.data() } as User)));
       setAccountUsersLoading(false);
     }, () => setAccountUsersLoading(false));
@@ -571,7 +574,7 @@ export default function HrDashboardClientPage() {
 
   useEffect(() => {
     if (!canAccessHr) { setManualEmployeesLoading(false); return; }
-    const unsub = onSnapshot(query(collection(db, "hrEmployees")), (snap) => {
+    const unsub = onSnapshot(query(collection(db, "hrEmployees"), limit(500)), (snap) => {
       setManualEmployees(snap.docs.map((e) => mapManualEmployeeToHrEmployee(e.id, e.data())));
       setManualEmployeesLoading(false);
     }, () => setManualEmployeesLoading(false));
@@ -583,14 +586,47 @@ export default function HrDashboardClientPage() {
     if (!shouldLoadTimesheets) return;
     const todayDocId = format(new Date(), "yyyy-MM-dd");
     setTimesheetsLoading(true);
-    const unsub = onSnapshot(query(collectionGroup(db, "Timesheet"), where("date", "==", todayDocId)), (snap) => {
+    const unsub = onSnapshot(query(collectionGroup(db, "Timesheet"), where("date", "==", todayDocId), limit(500)), (snap) => {
       const nextMap: Record<string, TimesheetSummary> = {};
       snap.docs.forEach((docSnap) => {
         const data = docSnap.data() as any;
         const userId = String(data?.updatedBy?.id || "").trim() || String(docSnap.ref.parent.parent?.id || "").trim();
         if (!userId) return;
         const perHour = Array.isArray(data?.perHour) ? data.perHour : [];
-        nextMap[userId] = { userId, dutyStart: data?.dutyStart, dutyEnd: data?.dutyEnd, remark: String(data?.remark || ""), updatedAt: typeof data?.updatedAt === "string" ? data.updatedAt : undefined, filledSlots: perHour.filter((e: any) => String(e?.workDetail || "").trim()).length, totalSlots: perHour.length };
+        const normalizedPerHour = perHour.map((entry: any) => ({
+          slotStart: String(entry?.slotStart || ""),
+          slotEnd: String(entry?.slotEnd || ""),
+          slotLabel: String(entry?.slotLabel || [entry?.slotStart, entry?.slotEnd].filter(Boolean).join(" - ")),
+          workDetail: String(entry?.workDetail || ""),
+          updatedAt: typeof entry?.updatedAt === "string" ? entry.updatedAt : undefined,
+          lockedAt: typeof entry?.lockedAt === "string" ? entry.lockedAt : undefined,
+          autoSubmittedAt: typeof entry?.autoSubmittedAt === "string" ? entry.autoSubmittedAt : undefined,
+          updatedBy:
+            entry?.updatedBy && typeof entry.updatedBy === "object"
+              ? { id: String(entry.updatedBy.id || ""), name: String(entry.updatedBy.name || "") }
+              : undefined,
+          submittedBy:
+            entry?.submittedBy && typeof entry.submittedBy === "object"
+              ? {
+                  id: String(entry.submittedBy.id || ""),
+                  name: String(entry.submittedBy.name || ""),
+                  mode: String(entry.submittedBy.mode || ""),
+                }
+              : undefined,
+        }));
+        nextMap[userId] = {
+          userId,
+          dutyStart: data?.dutyStart,
+          dutyEnd: data?.dutyEnd,
+          remark: String(data?.remark || ""),
+          updatedAt: typeof data?.updatedAt === "string" ? data.updatedAt : undefined,
+          filledSlots: typeof data?.filledSlots === "number" ? data.filledSlots : normalizedPerHour.filter((e: any) => String(e?.workDetail || "").trim()).length,
+          totalSlots: typeof data?.totalSlots === "number" ? data.totalSlots : normalizedPerHour.length,
+          lockedSlots: typeof data?.lockedSlots === "number" ? data.lockedSlots : normalizedPerHour.filter((e: any) => e?.lockedAt || e?.autoSubmittedAt).length,
+          status: String(data?.status || ""),
+          submissionMode: String(data?.submissionMode || ""),
+          perHour: normalizedPerHour,
+        };
       });
       setTimesheetMap(nextMap);
       setTimesheetsLoading(false);
@@ -602,7 +638,7 @@ export default function HrDashboardClientPage() {
     if (!canAccessHr) { setPayrollLoading(false); return; }
     if (!shouldLoadPayroll) return;
     setPayrollLoading(true);
-    const unsub = onSnapshot(query(collection(db, "hrPayroll"), where("month", "==", selectedMonth)), (snap) => {
+    const unsub = onSnapshot(query(collection(db, "hrPayroll"), where("month", "==", selectedMonth), limit(500)), (snap) => {
       const nextMap: Record<string, PayrollRecord> = {};
       snap.docs.forEach((e) => { const data = e.data() as Omit<PayrollRecord, "id">; nextMap[data.userId] = { id: e.id, ...data }; });
       setPayrollMapRaw(nextMap);
@@ -614,91 +650,91 @@ export default function HrDashboardClientPage() {
   useEffect(() => {
     if (!canAccessHr) { setLeaveRequestsLoading(false); return; }
     if (!shouldLoadLeaveRequests) return;
-    const unsub = onSnapshot(query(collection(db, "hrLeaveRequests")), (snap) => { setLeaveRequests(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrLeaveRequest, "id">) }))); setLeaveRequestsLoading(false); }, () => setLeaveRequestsLoading(false));
+    const unsub = onSnapshot(query(collection(db, "hrLeaveRequests"), limit(500)), (snap) => { setLeaveRequests(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrLeaveRequest, "id">) }))); setLeaveRequestsLoading(false); }, () => setLeaveRequestsLoading(false));
     return () => unsub();
   }, [canAccessHr, shouldLoadLeaveRequests]);
 
   useEffect(() => {
     if (!canAccessHr) { setExitRecordsLoading(false); return; }
     if (!shouldLoadExitRecords) return;
-    const unsub = onSnapshot(query(collection(db, "hrExitRecords")), (snap) => { setExitRecords(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrExitRecord, "id">) }))); setExitRecordsLoading(false); }, () => setExitRecordsLoading(false));
+    const unsub = onSnapshot(query(collection(db, "hrExitRecords"), limit(500)), (snap) => { setExitRecords(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrExitRecord, "id">) }))); setExitRecordsLoading(false); }, () => setExitRecordsLoading(false));
     return () => unsub();
   }, [canAccessHr, shouldLoadExitRecords]);
 
   useEffect(() => {
     if (!canAccessHr) { setAttendanceLoading(false); return; }
     if (!shouldLoadAttendance) return;
-    const unsub = onSnapshot(query(collection(db, "hrAttendance"), where("date", ">=", `${selectedMonth}-01`), where("date", "<=", `${selectedMonth}-31`)), (snap) => { setAttendanceRecordsRaw(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<AttendanceRecord, "id">) }))); setAttendanceLoading(false); }, () => setAttendanceLoading(false));
+    const unsub = onSnapshot(query(collection(db, "hrAttendance"), where("date", ">=", `${selectedMonth}-01`), where("date", "<=", `${selectedMonth}-31`), limit(1000)), (snap) => { setAttendanceRecordsRaw(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<AttendanceRecord, "id">) }))); setAttendanceLoading(false); }, () => setAttendanceLoading(false));
     return () => unsub();
   }, [canAccessHr, selectedMonth, shouldLoadAttendance]);
 
   useEffect(() => {
     if (!canAccessHr) { setHolidaysLoading(false); return; }
     if (!shouldLoadHolidays) return;
-    const unsub = onSnapshot(query(collection(db, "hrHolidays")), (snap) => { setHolidays(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrHoliday, "id">) }))); setHolidaysLoading(false); }, () => setHolidaysLoading(false));
+    const unsub = onSnapshot(query(collection(db, "hrHolidays"), limit(500)), (snap) => { setHolidays(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrHoliday, "id">) }))); setHolidaysLoading(false); }, () => setHolidaysLoading(false));
     return () => unsub();
   }, [canAccessHr, shouldLoadHolidays]);
 
   useEffect(() => {
     if (!canAccessHr) { setLettersLoading(false); return; }
     if (!shouldLoadLetters) return;
-    const unsub = onSnapshot(query(collection(db, "hrLetters")), (snap) => { setLetters(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrLetter, "id">) }))); setLettersLoading(false); }, () => setLettersLoading(false));
+    const unsub = onSnapshot(query(collection(db, "hrLetters"), limit(500)), (snap) => { setLetters(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrLetter, "id">) }))); setLettersLoading(false); }, () => setLettersLoading(false));
     return () => unsub();
   }, [canAccessHr, shouldLoadLetters]);
 
   useEffect(() => {
     if (!canAccessHr) { setLoansLoading(false); return; }
     if (!shouldLoadLoans) return;
-    const unsub = onSnapshot(query(collection(db, "hrLoans")), (snap) => { setLoans(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrLoan, "id">) }))); setLoansLoading(false); }, () => setLoansLoading(false));
+    const unsub = onSnapshot(query(collection(db, "hrLoans"), limit(500)), (snap) => { setLoans(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrLoan, "id">) }))); setLoansLoading(false); }, () => setLoansLoading(false));
     return () => unsub();
   }, [canAccessHr, shouldLoadLoans]);
 
   useEffect(() => {
     if (!canAccessHr) { setWarningsLoading(false); return; }
     if (!shouldLoadWarnings) return;
-    const unsub = onSnapshot(query(collection(db, "hrWarnings")), (snap) => { setWarnings(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrWarning, "id">) }))); setWarningsLoading(false); }, () => setWarningsLoading(false));
+    const unsub = onSnapshot(query(collection(db, "hrWarnings"), limit(500)), (snap) => { setWarnings(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrWarning, "id">) }))); setWarningsLoading(false); }, () => setWarningsLoading(false));
     return () => unsub();
   }, [canAccessHr, shouldLoadWarnings]);
 
   useEffect(() => {
     if (!canAccessHr) { setExpenseClaimsLoading(false); return; }
     if (!shouldLoadExpenseClaims) return;
-    const unsub = onSnapshot(query(collection(db, "hrExpenseClaims")), (snap) => { setExpenseClaims(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrExpenseClaim, "id">) }))); setExpenseClaimsLoading(false); }, () => setExpenseClaimsLoading(false));
+    const unsub = onSnapshot(query(collection(db, "hrExpenseClaims"), limit(500)), (snap) => { setExpenseClaims(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrExpenseClaim, "id">) }))); setExpenseClaimsLoading(false); }, () => setExpenseClaimsLoading(false));
     return () => unsub();
   }, [canAccessHr, shouldLoadExpenseClaims]);
 
   useEffect(() => {
     if (!canAccessHr) { setRosterLoading(false); return; }
     if (!shouldLoadRoster) return;
-    const unsub = onSnapshot(query(collection(db, "hrRoster"), where("date", ">=", `${selectedMonth}-01`), where("date", "<=", `${selectedMonth}-31`)), (snap) => { setRosterEntries(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrRosterEntry, "id">) }))); setRosterLoading(false); }, () => setRosterLoading(false));
+    const unsub = onSnapshot(query(collection(db, "hrRoster"), where("date", ">=", `${selectedMonth}-01`), where("date", "<=", `${selectedMonth}-31`), limit(1000)), (snap) => { setRosterEntries(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrRosterEntry, "id">) }))); setRosterLoading(false); }, () => setRosterLoading(false));
     return () => unsub();
   }, [canAccessHr, selectedMonth, shouldLoadRoster]);
 
   useEffect(() => {
     if (!canAccessHr) { setAppraisalsLoading(false); return; }
     if (!shouldLoadAppraisals) return;
-    const unsub = onSnapshot(query(collection(db, "hrAppraisals")), (snap) => { setAppraisals(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrAppraisal, "id">) }))); setAppraisalsLoading(false); }, () => setAppraisalsLoading(false));
+    const unsub = onSnapshot(query(collection(db, "hrAppraisals"), limit(500)), (snap) => { setAppraisals(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrAppraisal, "id">) }))); setAppraisalsLoading(false); }, () => setAppraisalsLoading(false));
     return () => unsub();
   }, [canAccessHr, shouldLoadAppraisals]);
 
   useEffect(() => {
     if (!canAccessHr) { setIncrementsLoading(false); return; }
     if (!shouldLoadIncrements) return;
-    const unsub = onSnapshot(query(collection(db, "hrIncrements")), (snap) => { setIncrements(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrIncrementRecord, "id">) }))); setIncrementsLoading(false); }, () => setIncrementsLoading(false));
+    const unsub = onSnapshot(query(collection(db, "hrIncrements"), limit(500)), (snap) => { setIncrements(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrIncrementRecord, "id">) }))); setIncrementsLoading(false); }, () => setIncrementsLoading(false));
     return () => unsub();
   }, [canAccessHr, shouldLoadIncrements]);
 
   useEffect(() => {
     if (!canAccessHr) { setJobsLoading(false); return; }
     if (!shouldLoadJobs) return;
-    const unsub = onSnapshot(query(collection(db, "hrJobs")), (snap) => { setJobs(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrJobOpening, "id">) }))); setJobsLoading(false); }, () => setJobsLoading(false));
+    const unsub = onSnapshot(query(collection(db, "hrJobs"), limit(500)), (snap) => { setJobs(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrJobOpening, "id">) }))); setJobsLoading(false); }, () => setJobsLoading(false));
     return () => unsub();
   }, [canAccessHr, shouldLoadJobs]);
 
   useEffect(() => {
     if (!canAccessHr) { setApplicantsLoading(false); return; }
     if (!shouldLoadApplicants) return;
-    const unsub = onSnapshot(query(collection(db, "hrApplicants")), (snap) => { setApplicants(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrApplicant, "id">) }))); setApplicantsLoading(false); }, () => setApplicantsLoading(false));
+    const unsub = onSnapshot(query(collection(db, "hrApplicants"), limit(500)), (snap) => { setApplicants(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrApplicant, "id">) }))); setApplicantsLoading(false); }, () => setApplicantsLoading(false));
     return () => unsub();
   }, [canAccessHr, shouldLoadApplicants]);
 
@@ -707,7 +743,7 @@ export default function HrDashboardClientPage() {
   useEffect(() => {
     if (!canAccessHr) { setSelfServiceRequestsLoading(false); return; }
     if (!shouldLoadSelfServiceRequests) return;
-    const unsub = onSnapshot(query(collection(db, "hrSelfServiceRequests")), (snap) => {
+    const unsub = onSnapshot(query(collection(db, "hrSelfServiceRequests"), limit(500)), (snap) => {
       setSelfServiceRequests(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrSelfServiceRequest, "id">) })));
       setSelfServiceRequestsLoading(false);
     }, () => setSelfServiceRequestsLoading(false));
@@ -717,7 +753,7 @@ export default function HrDashboardClientPage() {
   useEffect(() => {
     if (!canAccessHr) { setDepartmentsLoading(false); return; }
     if (!shouldLoadOrgSetup) return;
-    const unsub = onSnapshot(query(collection(db, "hrDepartments")), (snap) => {
+    const unsub = onSnapshot(query(collection(db, "hrDepartments"), limit(500)), (snap) => {
       setDepartments(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrDepartmentRecord, "id">) })));
       setDepartmentsLoading(false);
     }, () => setDepartmentsLoading(false));
@@ -727,7 +763,7 @@ export default function HrDashboardClientPage() {
   useEffect(() => {
     if (!canAccessHr) { setDesignationsLoading(false); return; }
     if (!shouldLoadOrgSetup) return;
-    const unsub = onSnapshot(query(collection(db, "hrDesignations")), (snap) => {
+    const unsub = onSnapshot(query(collection(db, "hrDesignations"), limit(500)), (snap) => {
       setDesignations(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrDesignationRecord, "id">) })));
       setDesignationsLoading(false);
     }, () => setDesignationsLoading(false));
@@ -737,7 +773,7 @@ export default function HrDashboardClientPage() {
   useEffect(() => {
     if (!canAccessHr) { setBranchesLoading(false); return; }
     if (!shouldLoadOrgSetup) return;
-    const unsub = onSnapshot(query(collection(db, "hrBranches")), (snap) => {
+    const unsub = onSnapshot(query(collection(db, "hrBranches"), limit(500)), (snap) => {
       setBranches(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<HrBranchRecord, "id">) })));
       setBranchesLoading(false);
     }, () => setBranchesLoading(false));

@@ -31,6 +31,85 @@ import { useAuth } from "@/context/AuthContext";
 import { format } from "date-fns";
 import { parseDate } from "../../utils/dateUtils";
 
+const getQuotationValueBreakdown = (quotation: Quotation) => {
+  const items = Array.isArray(quotation.items) ? quotation.items : [];
+  const goodsTotal = items.reduce((sum, item: any) => {
+    const quantity = Number(item.quantity ?? item.qty) || 0;
+    const rawRate = Number(item.rate ?? item.mrp ?? item.price) || 0;
+    const gstPercent = Number(item.gstPercent ?? item.gst ?? 0) || 0;
+    const gstMode = item.gstMode === "EXCL" ? "EXCL" : "INCL";
+    const storedExclusiveRate = Number(item.exclusiveRate);
+    const exclusiveRate =
+      Number.isFinite(storedExclusiveRate) && storedExclusiveRate > 0
+        ? storedExclusiveRate
+        : gstMode === "INCL" && gstPercent > 0
+          ? rawRate / (1 + gstPercent / 100)
+          : rawRate;
+    const taxableBeforeDiscount = quantity * exclusiveRate;
+    const discountPercent = Number(item.discountPercent ?? item.discount) || 0;
+    const taxableAmount = Math.max(
+      0,
+      taxableBeforeDiscount - taxableBeforeDiscount * (discountPercent / 100)
+    );
+    return sum + taxableAmount + taxableAmount * (gstPercent / 100);
+  }, 0);
+
+  const vasDetails = Array.isArray(quotation.vasDetails) ? quotation.vasDetails : [];
+  const vasTotal = vasDetails.reduce((sum, vas: any) => {
+    const quantity = Number(vas.quantity ?? vas.qty) || 0;
+    const rate = Number(vas.exclusiveRate ?? vas.rate) || 0;
+    const gstPercent = Number(vas.gstPercent ?? vas.gst) || 0;
+    const taxableAmount = quantity * rate;
+    return sum + taxableAmount + taxableAmount * (gstPercent / 100);
+  }, 0);
+
+  return {
+    goods: goodsTotal,
+    vas: vasTotal,
+    total: goodsTotal + vasTotal,
+  };
+};
+
+const getQuotationDisplayAmount = (quotation: Quotation): number =>
+  getQuotationValueBreakdown(quotation).total;
+
+const mapQuotationItemsForDialog = (quotation: Quotation): DealProduct[] =>
+  (quotation.items || []).map((item: any, index) => ({
+    id: item.id || `quotation-item-${index}`,
+    productType:
+      String(item.bcnType || "").toLowerCase() === "hardware"
+        ? "Hardware"
+        : "Fabric",
+    collectionBrand: item.collectionBrand || item.bcn || "",
+    bcn: item.collectionBrand || item.bcn || "",
+    serialNo: item.serialNo || "",
+    itemName: item.salesDescription || "",
+    salesDescription: item.salesDescription || "",
+    quantity: String(item.quantity ?? item.qty ?? "0"),
+    rate: Number(item.rate ?? 0),
+    mrp: String(item.originalMrp ?? item.rate ?? 0),
+    discountPercent: Number(item.discountPercent ?? 0),
+    gstMode: item.gstMode || "INCL",
+    exclusiveRate: Number(item.exclusiveRate),
+    room: item.room || "",
+    noOfPcs: item.noOfPcs || "1",
+    remarks: item.remark || "",
+    unit: item.unit || item.stockUnit || "Mtr",
+    gstPercent: Number(item.gstPercent ?? 0),
+    hsnCode: item.hsnCode || "",
+    categoryGroup: item.categoryGroup || "",
+  })) as DealProduct[];
+
+const mapQuotationVasForDialog = (quotation: Quotation): VasDetail[] =>
+  (quotation.vasDetails || []).map((vas: any) => ({
+    vasName: vas.vasName || vas.description || "",
+    rate: String(vas.rate ?? vas.exclusiveRate ?? "0"),
+    quantity: String(vas.quantity ?? vas.qty ?? "1"),
+    room: vas.room || vas.roomName || "",
+    gstPercent: Number(vas.gstPercent ?? vas.gst ?? 0),
+    hsnCode: vas.hsnCode || vas.hsn || "",
+  }));
+
 
 interface QuotationsTabProps {
   customerId: string;
@@ -39,7 +118,6 @@ interface QuotationsTabProps {
   deal?: Deal | null;
   salesmen?: User[];
   cpds?: Cpd[];
-  onCloneQuotation?: (quotation: Quotation) => void;
 }
 
 // ✅ Memoized row component — prevents re-rendering all rows when one changes
@@ -49,6 +127,7 @@ const QuotationRow = memo(function QuotationRow({
   isAdmin,
   deletingId,
   onView,
+  onEdit,
   onClone,
   onConvert,
   onClose,
@@ -59,12 +138,14 @@ const QuotationRow = memo(function QuotationRow({
   isAdmin: boolean;
   deletingId: string | null;
   onView: () => void;
+  onEdit: () => void;
   onClone: () => void;
   onConvert: () => void;
   onClose: () => void;
   onDelete: () => void;
 }) {
   const isDisabled = q.status === "Converted to Order" || q.status === "Closed";
+  const displayAmount = getQuotationDisplayAmount(q);
   return (
     <TableRow className="cursor-pointer hover:bg-muted/50" onClick={onView}>
       <TableCell onClick={(e) => e.stopPropagation()}>
@@ -77,6 +158,12 @@ const QuotationRow = memo(function QuotationRow({
           <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onView(); }}>
               View / Print
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={(e) => { e.stopPropagation(); onEdit(); }}
+              disabled={q.status !== "Converted to Order"}
+            >
+              Edit Converted Quotation
             </DropdownMenuItem>
             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onClone(); }}>
               Clone Quotation
@@ -110,7 +197,7 @@ const QuotationRow = memo(function QuotationRow({
           <Badge variant="outline">{q.status}</Badge>
         )}
       </TableCell>
-      <TableCell className="text-right">₹{q.totalAmount.toFixed(2)}</TableCell>
+      <TableCell className="text-right">₹{displayAmount.toFixed(2)}</TableCell>
       <TableCell>{q.store}</TableCell>
     </TableRow>
   );
@@ -123,7 +210,6 @@ export default function QuotationsTab({
   deal: dealProp,
   salesmen: salesmenProp = [],
   cpds: cpdsProp = [],
-  onCloneQuotation,
 }: QuotationsTabProps) {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [customer, setCustomer] = useState<Customer | null>(customerProp ?? null);
@@ -133,6 +219,9 @@ export default function QuotationsTab({
   const [loading, setLoading] = useState(true);
   const [deletingQuotationId, setDeletingQuotationId] = useState<string | null>(null);
   const [selectedQuotation, setSelectedQuotation] = useState<Quotation | null>(null);
+  const [editSourceQuotation, setEditSourceQuotation] = useState<Quotation | null>(null);
+  const [editItems, setEditItems] = useState<DealProduct[]>([]);
+  const [editVasDetails, setEditVasDetails] = useState<VasDetail[]>([]);
   const [cloneSourceQuotation, setCloneSourceQuotation] = useState<Quotation | null>(null);
   const [cloneItems, setCloneItems] = useState<DealProduct[]>([]);
   const [cloneVasDetails, setCloneVasDetails] = useState<VasDetail[]>([]);
@@ -236,11 +325,6 @@ export default function QuotationsTab({
 
   const handleCloneQuotation = useCallback(
     (quotation: Quotation) => {
-      if (onCloneQuotation) {
-        onCloneQuotation(quotation);
-        return;
-      }
-
       if (!deal || !customer) {
         toast({
           variant: "destructive",
@@ -250,39 +334,44 @@ export default function QuotationsTab({
         return;
       }
 
-      const mappedItems: DealProduct[] = (quotation.items || []).map((item, index) => ({
-        id: item.id || `clone-item-${index}`,
-        productType: "Fabric",
-        collectionBrand: item.collectionBrand || "",
-        serialNo: item.serialNo || "",
-        salesDescription: item.salesDescription || "",
-        quantity: String(item.quantity ?? "0"),
-        rate: Number(item.rate ?? 0),
-        mrp: String(item.rate ?? 0),
-        room: item.room || "",
-        noOfPcs: "1",
-        remarks: item.remark || "",
-        unit: item.unit || item.stockUnit || "Mtr",
-        gstPercent: Number(item.gstPercent ?? 0),
-        hsnCode: item.hsnCode || "",
-        categoryGroup: (item as any).categoryGroup || "",
-      }));
-
-      const mappedVas: VasDetail[] = (quotation.vasDetails || []).map((vas) => ({
-        vasName: vas.vasName || "",
-        rate: String(vas.rate ?? "0"),
-        quantity: String(vas.quantity ?? "1"),
-        room: vas.room || "",
-        gstPercent: Number(vas.gstPercent ?? 0),
-        hsnCode: vas.hsnCode || "",
-      }));
-
       setCloneSourceQuotation(quotation);
-      setCloneItems(mappedItems);
-      setCloneVasDetails(mappedVas);
+      setCloneItems(mapQuotationItemsForDialog(quotation));
+      setCloneVasDetails(mapQuotationVasForDialog(quotation));
     },
-    [onCloneQuotation, deal, customer, toast]
+    [deal, customer, toast]
   );
+
+  const handleEditQuotation = useCallback(
+    (quotation: Quotation) => {
+      if (!deal || !customer) {
+        toast({
+          variant: "destructive",
+          title: "Cannot Edit",
+          description: "Deal/customer data is still loading. Please try again.",
+        });
+        return;
+      }
+      if (quotation.status !== "Converted to Order") {
+        toast({
+          variant: "destructive",
+          title: "Cannot Edit",
+          description: "This correction flow is only for converted quotations.",
+        });
+        return;
+      }
+
+      setEditSourceQuotation(quotation);
+      setEditItems(mapQuotationItemsForDialog(quotation));
+      setEditVasDetails(mapQuotationVasForDialog(quotation));
+    },
+    [deal, customer, toast]
+  );
+
+  const handleEditDialogClose = useCallback(() => {
+    setEditSourceQuotation(null);
+    setEditItems([]);
+    setEditVasDetails([]);
+  }, []);
 
   const handleCloneDialogClose = useCallback(() => {
     setCloneSourceQuotation(null);
@@ -298,6 +387,22 @@ export default function QuotationsTab({
       </div>
     );
   }
+
+  const convertedQuotations = quotations.filter(
+    (quotation) => quotation.status === "Converted to Order"
+  );
+  const convertedValueBreakdown = convertedQuotations.reduce(
+    (totals, quotation) => {
+      const value = getQuotationValueBreakdown(quotation);
+      return {
+        goods: totals.goods + value.goods,
+        vas: totals.vas + value.vas,
+        total: totals.total + value.total,
+      };
+    },
+    { goods: 0, vas: 0, total: 0 }
+  );
+  const totalConvertedOrderValue = convertedValueBreakdown.total;
 
   return (
     <>
@@ -331,6 +436,7 @@ export default function QuotationsTab({
                         isAdmin={isAdmin}
                         deletingId={deletingQuotationId}
                         onView={() => setSelectedQuotation(q)}
+                        onEdit={() => handleEditQuotation(q)}
                         onClone={() => handleCloneQuotation(q)}
                         onConvert={() => handleConvertToOrder(q)}
                         onClose={() => handleCloseQuotation(q)}
@@ -340,6 +446,55 @@ export default function QuotationsTab({
                   </TableBody>
                 </Table>
               </div>
+              {convertedQuotations.length > 0 && (
+                <div className="flex justify-end border-t pt-4">
+                  <div className="min-w-80 rounded-lg bg-muted/50 px-5 py-4">
+                    <div className="flex items-center justify-between gap-6 text-sm">
+                      <span className="text-muted-foreground">
+                        Converted Goods Value
+                      </span>
+                      <span className="font-semibold">
+                        {new Intl.NumberFormat("en-IN", {
+                          style: "currency",
+                          currency: "INR",
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        }).format(convertedValueBreakdown.goods)}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-6 text-sm">
+                      <span className="text-muted-foreground">
+                        Converted VAS Value
+                      </span>
+                      <span className="font-semibold">
+                        {new Intl.NumberFormat("en-IN", {
+                          style: "currency",
+                          currency: "INR",
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        }).format(convertedValueBreakdown.vas)}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-6 border-t pt-3">
+                      <span className="font-medium">
+                        Total Converted to Order Value
+                      </span>
+                      <span className="text-2xl font-bold">
+                        {new Intl.NumberFormat("en-IN", {
+                          style: "currency",
+                          currency: "INR",
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        }).format(totalConvertedOrderValue)}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-right text-xs text-muted-foreground">
+                      {convertedQuotations.length} converted quotation
+                      {convertedQuotations.length === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                </div>
+              )}
               {/* Mobile cards — same pattern, omitted for brevity */}
             </div>
           ) : (
@@ -361,6 +516,24 @@ export default function QuotationsTab({
           cpds={cpds}
         />
       )}
+      {editSourceQuotation && customer && deal && (
+        <CreateQuotationDialog
+          isOpen={!!editSourceQuotation}
+          onOpenChange={(open) => {
+            if (!open) handleEditDialogClose();
+          }}
+          onSuccess={async () => {
+            await fetchQuotations();
+            handleEditDialogClose();
+          }}
+          deal={deal}
+          customer={customer}
+          initialItems={editItems}
+          initialVasDetails={editVasDetails}
+          initialQuotation={editSourceQuotation}
+          mode="edit"
+        />
+      )}
       {cloneSourceQuotation && customer && deal && (
         <CreateQuotationDialog
           isOpen={!!cloneSourceQuotation}
@@ -376,6 +549,7 @@ export default function QuotationsTab({
           initialItems={cloneItems}
           initialVasDetails={cloneVasDetails}
           initialQuotation={cloneSourceQuotation}
+          mode="clone"
         />
       )}
     </>

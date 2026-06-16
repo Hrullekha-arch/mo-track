@@ -390,7 +390,6 @@ export function EmployeeDetailsDialog({
                     <Select
                       value={employeeForm.role}
                       onValueChange={(value) => setEmployeeForm({ ...employeeForm, role: value })}
-                      disabled={employeeDialogUser.hasLoginAccount}
                     >
                       <SelectTrigger className="rounded-xl">
                         <SelectValue placeholder="Select role" />

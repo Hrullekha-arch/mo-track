@@ -7,6 +7,7 @@ import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequ
 import { getMilestonesForOrder } from '@/lib/constants';
 import { buildWorkflowMilestones } from '@/lib/order-workflow';
 import { upsertSalesmanIncentiveOrderEntry } from '@/lib/server/salesman-incentive';
+import { buildOrderPricingFromQuotation } from '@/lib/quotation-order-pricing';
 
 export async function getQuotationsForDeal(customerId: string, dealId: string): Promise<Quotation[]> {
     try {
@@ -61,34 +62,6 @@ const toIsoString = (value?: string | Date | null) => {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
 };
 
-const resolveOrderItemType = (item: any) => {
-  const raw = String(item?.type || item?.productType || item?.bcnType || "").trim().toUpperCase();
-  if (raw.includes("HARDWARE")) return "HARDWARE";
-  if (raw.includes("CHANNEL")) return "CHANNEL";
-  if (raw.includes("ACCESSORY")) return "ACCESSORY";
-  if (raw.includes("VAS")) return "VAS";
-  return "FABRIC";
-};
-
-const resolveOrderItemUnit = (itemType: string, item: any) => {
-  const unit = String(item?.unit || "").trim().toUpperCase();
-  if (unit) return unit;
-  if (itemType === "FABRIC") return "MTR";
-  return "PCS";
-};
-
-const summarizeOrderItems = (items: Array<{ taxableAmount?: number; gstAmount?: number; totalAmount?: number }>) => {
-  return items.reduce(
-    (acc, item) => {
-      acc.subTotal += coerceNumber(item.taxableAmount);
-      acc.gstTotal += coerceNumber(item.gstAmount);
-      acc.grandTotal += coerceNumber(item.totalAmount);
-      return acc;
-    },
-    { subTotal: 0, gstTotal: 0, grandTotal: 0 }
-  );
-};
-
 type BillingDetailsSnapshot = {
   billingName?: string;
   billingPhone?: string;
@@ -130,15 +103,15 @@ const resolvePreferredBillingDetails = (customerData: Record<string, any>): Bill
 export async function createDealOrderAction(
   customerId: string,
   dealId: string,
-  quotation: Quotation,
+  quotationInput: Quotation,
   creator: { id: string; name: string },
   orderType: OrderType
 ): Promise<{ success: boolean; message: string; order?: Order }> {
-  console.log ('Creating deal order for quotation:', quotation.id);
+  console.log ('Creating deal order for quotation:', quotationInput.id);
   try {
     const customerRef = adminDb.collection('customers').doc(customerId);
     const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
-    const quotationRef = dealRef.collection('quotations').doc(quotation.id);
+    const quotationRef = dealRef.collection('quotations').doc(quotationInput.id);
 
     // Get all necessary data in one go
     const [customerSnap, dealSnap, currentQuotationSnap] = await Promise.all([
@@ -148,7 +121,16 @@ export async function createDealOrderAction(
     ]);
 
     // Server-side check to prevent multiple conversions
-    if (currentQuotationSnap.exists && currentQuotationSnap.data()?.status === 'Converted to Order') {
+    if (!currentQuotationSnap.exists) {
+      return { success: false, message: 'Quotation not found.' };
+    }
+
+    const quotation = {
+      id: currentQuotationSnap.id,
+      ...currentQuotationSnap.data(),
+    } as Quotation;
+
+    if (quotation.status === 'Converted to Order') {
       return { success: false, message: 'This quotation has already been converted to an order.' };
     }
 
@@ -185,143 +167,26 @@ export async function createDealOrderAction(
 
     const now = new Date().toISOString();
 
-    const rawNormalItems = Array.isArray((quotation as any).sections?.NORMAL?.items)
-      ? (quotation as any).sections.NORMAL.items
-      : (quotation.items || []);
-    const rawVasItems = Array.isArray((quotation as any).sections?.VAS?.items)
-      ? (quotation as any).sections.VAS.items
-      : (quotation.vasDetails || []);
-
-    const normalItems = rawNormalItems.map((item: any) => {
-      const itemType = resolveOrderItemType(item);
-      const qty = coerceNumber(item.qty ?? item.quantity);
-      const gst = coerceNumber(item.gst ?? item.gstPercent);
-      const discountPercent = coerceNumber(item.discountPercent ?? item.discount, 0);
-      const gstMode = String(item.gstMode ?? item.gstType ?? "").toUpperCase() === "EXCL" ? "EXCL" : "INCL";
-
-      const inputRate = coerceNumber(item.rate ?? item.originalMrp ?? item.mrp ?? item.unitPrice);
-      let exclusiveRate = coerceNumber(item.exclusiveRate, Number.NaN);
-      if (!Number.isFinite(exclusiveRate)) {
-        if (gstMode === "INCL" && gst > 0 && Number.isFinite(inputRate)) {
-          exclusiveRate = inputRate / (1 + gst / 100);
-        } else if (Number.isFinite(inputRate)) {
-          exclusiveRate = inputRate;
-        } else {
-          exclusiveRate = 0;
-        }
-      }
-
-      let grossRate = inputRate;
-      if (!Number.isFinite(grossRate) || grossRate === 0) {
-        if (gstMode === "INCL" && gst > 0) {
-          grossRate = exclusiveRate * (1 + gst / 100);
-        } else {
-          grossRate = exclusiveRate;
-        }
-      }
-
-      const grossAmount = grossRate * qty;
-      const discountAmount = grossAmount * (discountPercent / 100);
-      const amountAfterDiscount = grossAmount - discountAmount;
-
-      let taxableAmount = 0;
-      let gstAmount = 0;
-      let totalAmount = 0;
-      if (gstMode === "EXCL") {
-        taxableAmount = amountAfterDiscount;
-        gstAmount = taxableAmount * (gst / 100);
-        totalAmount = taxableAmount + gstAmount;
-      } else {
-        taxableAmount = gst > 0 ? amountAfterDiscount / (1 + gst / 100) : amountAfterDiscount;
-        gstAmount = amountAfterDiscount - taxableAmount;
-        totalAmount = amountAfterDiscount;
-      }
-
+    const {
+      rawNormalItems,
+      rawVasItems,
+      normalItems,
+      vasItems,
+      sections,
+      overallSummary,
+    } = buildOrderPricingFromQuotation(quotation);
+    const quotationTotal = coerceNumber(quotation.totalAmount, Number.NaN);
+    if (
+      Number.isFinite(quotationTotal) &&
+      Math.abs(overallSummary.grandTotal - quotationTotal) > 1
+    ) {
       return {
-        roomName: item.roomName ?? item.room ?? undefined,
-        type: itemType,
-        category: item.category || item.subCategory || undefined,
-        itemId: item.itemId || undefined,
-        bcn: item.bcn ?? item.collectionBrand ?? undefined,
-        description: item.description || item.salesDescription || item.collectionBrand || undefined,
-        unit: resolveOrderItemUnit(itemType, item),
-        rate: exclusiveRate,
-        exclusiveRate,
-        qty,
-        gst,
-        gstMode,
-        discountPercent,
-        hsn: (item.hsn ?? item.hsnCode) || undefined,
-        group: item.group || undefined,
-        taxableAmount,
-        gstAmount,
-        totalAmount,
-        allocation: {
-          status: "PENDING",
-          lengths: [],
-          lots: [],
-        },
+        success: false,
+        message:
+          `Quotation pricing is inconsistent. Item total Rs. ${overallSummary.grandTotal.toFixed(2)} ` +
+          `does not match quotation total Rs. ${quotationTotal.toFixed(2)}. Please correct the quotation before conversion.`,
       };
-    });
-    
-    const vasItems = rawVasItems.map((vas: any) => {
-      const qty = coerceNumber(vas.qty ?? vas.quantity);
-      const gst = coerceNumber(vas.gst ?? vas.gstPercent);
-      const discountPercent = coerceNumber(vas.discountPercent ?? vas.discount, 0);
-      const gstMode = String(vas.gstMode ?? vas.gstType ?? "").toUpperCase() === "EXCL" ? "EXCL" : "INCL";
-      const inputRate = coerceNumber(vas.rate ?? vas.originalMrp ?? vas.mrp ?? vas.unitPrice);
-      const exclusiveRate = vas.rate;
-        // gstMode === "INCL" && gst > 0 ? inputRate / (1 + gst / 100) : inputRate;
-      const grossRate = gstMode === "INCL" && gst > 0 ? inputRate : exclusiveRate;
-      const grossAmount = grossRate * qty;
-      const discountAmount = grossAmount * (discountPercent / 100);
-      const amountAfterDiscount = grossAmount - discountAmount;
-
-      let taxableAmount = 0;
-      let gstAmount = 0;
-      let totalAmount = 0;
-      if (gstMode === "EXCL") {
-        taxableAmount = amountAfterDiscount;
-        gstAmount = taxableAmount * (gst / 100);
-        totalAmount = taxableAmount + gstAmount;
-      } else {
-        taxableAmount = gst > 0 ? amountAfterDiscount / (1 + gst / 100) : amountAfterDiscount;
-        gstAmount = amountAfterDiscount - taxableAmount;
-        totalAmount = amountAfterDiscount;
-      }
-
-      return {
-        roomName: vas.roomName ?? vas.room ?? undefined,
-        type: "VAS",
-        description: vas.description ?? vas.vasName ?? undefined,
-        unit: resolveOrderItemUnit("VAS", vas),
-        rate: exclusiveRate,
-        exclusiveRate,
-        qty,
-        gst,
-        gstMode,
-        discountPercent,
-        hsn: (vas.hsn ?? vas.hsnCode) || undefined,
-        group: vas.group || undefined,
-        taxableAmount,
-        gstAmount,
-        totalAmount,
-      };
-    });
-
-    const normalSummary = summarizeOrderItems(normalItems);
-    const vasSummary = summarizeOrderItems(vasItems);
-
-    const sections = {
-      NORMAL: { items: normalItems, summary: normalSummary },
-      VAS: { items: vasItems, summary: vasSummary },
-    };
-
-    const overallSummary = {
-      goodsTotal: normalSummary.grandTotal,
-      vasTotal: vasSummary.grandTotal,
-      grandTotal: normalSummary.grandTotal + vasSummary.grandTotal,
-    };
+    }
 
     const workflowMilestones = buildWorkflowMilestones(orderType, creator);
 

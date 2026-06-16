@@ -65,6 +65,7 @@ import {
   deleteDoc,
   where,
   updateDoc,
+  limit,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order } from "@/lib/types";
@@ -332,7 +333,8 @@ export function SaleOrdersTable() {
     const ordersQuery = query(
       collection(db, "orders"),
       where("isAcknowledged", "==", true),
-      where("status", "==", "Pending Approval")
+      where("status", "==", "Pending Approval"),
+      limit(500)
     );
 
     const unsubscribe = onSnapshot(

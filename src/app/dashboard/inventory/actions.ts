@@ -193,6 +193,21 @@ export async function getStockById(id: string): Promise<Stock | null> {
     }
 }
 
+export async function getAllStockForExportAction(): Promise<Stock[]> {
+    try {
+        const snapshot = await adminDb.collection("stocks").orderBy("bcn").get();
+        const rows = snapshot.docs.map((docSnap) => ({
+            id: docSnap.id,
+            ...docSnap.data(),
+        })) as Stock[];
+
+        return JSON.parse(JSON.stringify(rows));
+    } catch (error) {
+        console.error("Error fetching full stock export:", error);
+        return [];
+    }
+}
+
 export async function getStockFieldOptions(
   field: "supplierCompanyName" | "type" | "unit" | "category" | "categoryGroup",
   query: string = ""
@@ -991,13 +1006,21 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
     }
 
     // 🔥 Fallback: BCN Prefix search
-    const bcnSnap = await stockRef
-      .where("bcn", ">=", trimmed)
-      .where("bcn", "<=", trimmed + "\uf8ff")
-      .limit(30)
-      .get();
+    const bcnQueries = Array.from(
+      new Set([trimmed, trimmed.toUpperCase(), normalizedQuery].filter((value) => value.length >= 2))
+    );
 
-    addDocs(bcnSnap.docs);
+    for (const bcnQuery of bcnQueries) {
+      const bcnSnap = await stockRef
+        .where("bcn", ">=", bcnQuery)
+        .where("bcn", "<=", bcnQuery + "\uf8ff")
+        .limit(30)
+        .get();
+
+      addDocs(bcnSnap.docs);
+
+      if (resultsMap.size >= 30) break;
+    }
 
     return Array.from(resultsMap.values()).slice(0, 30);
 
@@ -2022,12 +2045,13 @@ export async function getAvailableStockLengths(bcn: string): Promise<{ success: 
 export type StockHistoryCursor = {
   additionLastPath?: string | null;
   deductionLastId?: string | null;
+  reservationLastPath?: string | null;
 };
 
 export type StockHistoryPageInput = {
   pageSize?: number;
   cursor?: StockHistoryCursor | null;
-  typeFilter?: "all" | "addition" | "deduction";
+  typeFilter?: "all" | "addition" | "deduction" | "reservation" | "release";
   fromDate?: string | null;
   toDate?: string | null;
 };
@@ -2041,21 +2065,46 @@ export type StockHistoryPageResult = {
 const DEFAULT_HISTORY_PAGE_SIZE = 60;
 const MAX_HISTORY_PAGE_SIZE = 200;
 
+const toDateInstanceSafe = (value: unknown): Date | null => {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+
+  if (typeof value === "object") {
+    const candidate = value as { toDate?: () => Date; seconds?: number; _seconds?: number };
+    if (typeof candidate.toDate === "function") {
+      const date = candidate.toDate();
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    const seconds = Number(candidate.seconds ?? candidate._seconds);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      const date = new Date(seconds * 1000);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+  }
+
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
 const toIsoStringSafe = (value: unknown) => {
-  if (!value) return "";
-  const date = value instanceof Date ? value : new Date(String(value));
-  if (Number.isNaN(date.getTime())) return "";
+  const date = toDateInstanceSafe(value);
+  if (!date) return "";
   return date.toISOString();
 };
 
 const toTimeSafe = (value: unknown) => {
-  const date = new Date(String(value || ""));
-  const time = date.getTime();
-  return Number.isFinite(time) ? time : 0;
+  return toDateInstanceSafe(value)?.getTime() || 0;
 };
 
 const normalizeHistoryTypeFilter = (value?: string) => {
-  if (value === "addition" || value === "deduction") return value;
+  if (
+    value === "addition" ||
+    value === "deduction" ||
+    value === "reservation" ||
+    value === "release"
+  ) {
+    return value;
+  }
   return "all";
 };
 
@@ -2072,75 +2121,185 @@ export async function getStockTransactionHistoryPage(
     const cursor = input.cursor || {};
     const fromDateIso = toIsoStringSafe(input.fromDate || undefined);
     const toDateIso = toIsoStringSafe(input.toDate || undefined);
+    const fromTime = toTimeSafe(fromDateIso);
+    const toTime = toTimeSafe(toDateIso);
 
-    const includeAdditions = typeFilter !== "deduction";
-    const includeDeductions = typeFilter !== "addition";
+    const includeAdditions = typeFilter === "all" || typeFilter === "addition";
+    const includeDeductions = typeFilter === "all" || typeFilter === "deduction";
+    const includeReservations =
+      typeFilter === "all" || typeFilter === "reservation" || typeFilter === "release";
 
     type GroupRow = {
-      source: "addition" | "deduction";
+      source: "addition" | "deduction" | "reservation";
       cursor: string;
       createdAt: string;
       rows: StockTransaction[];
     };
 
-    let additionGroups: GroupRow[] = [];
-    let deductionGroups: GroupRow[] = [];
-    let additionFetchedCount = 0;
-    let deductionFetchedCount = 0;
+    const isWithinRequestedDateRange = (createdAt: string) => {
+      const time = toTimeSafe(createdAt);
+      if (!time) return !fromTime && !toTime;
+      if (fromTime && time < fromTime) return false;
+      if (toTime && time > toTime) return false;
+      return true;
+    };
 
-    if (includeAdditions) {
-      let additionsQuery: any = adminDb.collectionGroup("lengths");
-      if (fromDateIso) additionsQuery = additionsQuery.where("lastUpdatedAt", ">=", fromDateIso);
-      if (toDateIso) additionsQuery = additionsQuery.where("lastUpdatedAt", "<=", toDateIso);
-      additionsQuery = additionsQuery.orderBy("lastUpdatedAt", "desc").limit(sourceLimit);
+    const mapLengthDocToGroup = (docSnap: any): GroupRow | null => {
+      const data = docSnap.data() || {};
+      const parentStockId = docSnap.ref.parent?.parent?.id || String(data?.bcn || "");
+      const bcn = String(data?.bcn || parentStockId || "").trim();
+      const createdAt =
+        toIsoStringSafe(data?.lastUpdatedAt || data?.receivedAt || data?.createdAt) ||
+        new Date(0).toISOString();
+      const quantityRaw = Number(
+        data?.originalLength ?? data?.quantity ?? data?.availableLength ?? data?.availableQty ?? 0
+      );
+      const quantity = Number.isFinite(quantityRaw) ? quantityRaw : 0;
+      if (!bcn || !isWithinRequestedDateRange(createdAt)) return null;
 
-      if (cursor.additionLastPath) {
-        const lastAdditionDoc = await adminDb.doc(cursor.additionLastPath).get();
-        if (lastAdditionDoc.exists) {
-          additionsQuery = additionsQuery.startAfter(lastAdditionDoc);
-        }
+      return {
+        source: "addition",
+        cursor: docSnap.ref.path,
+        createdAt,
+        rows: [
+          {
+            id: docSnap.ref.path,
+            stockId: parentStockId || bcn,
+            lengthId: docSnap.id,
+            bcn,
+            type: "addition",
+            quantityChange: quantity,
+            poNumber: data?.poNumber || "",
+            createdAt,
+            createdBy: data?.receivedBy || data?.createdBy || data?.salesman || "Inbound Process",
+            salesman: data?.salesman || "N/A",
+            status: data?.status,
+            rack: data?.rack,
+            notes: data?.batchNo,
+            unit: data?.unit,
+            source: data?.source,
+            purchaseRequestId: data?.purchaseRequestId,
+            inboundId: data?.inboundId,
+          } as StockTransaction,
+        ],
+      };
+    };
+
+    const mapReservationDocToGroup = (docSnap: any): GroupRow | null => {
+      const data = docSnap.data() || {};
+      const lengthRef = docSnap.ref.parent?.parent;
+      const stockId = lengthRef?.parent?.parent?.id || String(data?.stockId || data?.bcn || "");
+      const bcn = String(data?.bcn || stockId || "").trim();
+      const createdAt =
+        toIsoStringSafe(data?.createdAt || data?.timestamp || data?.reservedAt) ||
+        new Date(0).toISOString();
+      const rawQty = normalizeStockQty(data?.reservedQty, normalizeStockQty(data?.quantity, 0));
+      const quantity = roundStockQty(Math.abs(rawQty));
+      const rawAction = String(data?.action ?? data?.type ?? "").trim().toLowerCase();
+      const txType: "reservation" | "release" =
+        rawAction === "release" || rawQty < 0 ? "release" : "reservation";
+
+      if (
+        !bcn ||
+        quantity <= STOCK_QTY_EPSILON ||
+        !isWithinRequestedDateRange(createdAt) ||
+        (typeFilter !== "all" && txType !== typeFilter)
+      ) {
+        return null;
       }
 
-      const additionsSnapshot = await additionsQuery.get();
-      additionFetchedCount = additionsSnapshot.docs.length;
-
-      additionGroups = additionsSnapshot.docs
-        .map((docSnap: any) => {
-          const data = docSnap.data() || {};
-          const parentStockId = docSnap.ref.parent?.parent?.id || String(data?.bcn || "");
-          const bcn = String(data?.bcn || parentStockId || "").trim();
-          const createdAt =
-            toIsoStringSafe(data?.lastUpdatedAt || data?.receivedAt || data?.createdAt) ||
-            new Date(0).toISOString();
-          const quantityRaw = Number(data?.quantity ?? data?.originalLength ?? data?.availableLength ?? 0);
-          const quantity = Number.isFinite(quantityRaw) ? quantityRaw : 0;
-          if (!bcn) return null;
-
-          return {
-            source: "addition" as const,
-            cursor: docSnap.ref.path,
+      return {
+        source: "reservation",
+        cursor: docSnap.ref.path,
+        createdAt,
+        rows: [
+          {
+            id: docSnap.ref.path,
+            stockId: stockId || bcn,
+            lengthId: data?.lengthId || lengthRef?.id,
+            bcn,
+            type: txType,
+            quantityChange: quantity,
+            orderId: data?.orderId,
+            customerName: data?.customerName,
+            notes: data?.notes,
             createdAt,
-            rows: [
-              {
-                id: docSnap.ref.path,
-                stockId: parentStockId || bcn,
-                lengthId: docSnap.id,
-                bcn,
-                type: "addition",
-                quantityChange: quantity,
-                poNumber: data?.poNumber || "",
-                createdAt,
-                createdBy: data?.salesman || "Inbound Process",
-                salesman: data?.salesman || "N/A",
-                status: data?.status,
-                rack: data?.rack,
-                notes: data?.batchNo,
-                unit: data?.unit,
-              } as StockTransaction,
-            ],
-          };
-        })
-        .filter(Boolean) as GroupRow[];
+            createdBy: data?.createdBy || data?.reservedBy || data?.releasedBy || "System",
+            salesman: data?.salesman || "N/A",
+            unit: data?.unit,
+            source: data?.source,
+          } as StockTransaction,
+        ],
+      };
+    };
+
+    const pageScannedGroups = (groups: GroupRow[], lastCursor?: string | null) => {
+      const sorted = groups.sort((a, b) => toTimeSafe(b.createdAt) - toTimeSafe(a.createdAt));
+      const startIndex = lastCursor
+        ? Math.max(0, sorted.findIndex((group) => group.cursor === lastCursor) + 1)
+        : 0;
+      return sorted.slice(startIndex, startIndex + sourceLimit);
+    };
+
+    const scanLengthGroupsFromStocks = async () => {
+      const stockSnapshot = await adminDb.collection("stocks").get();
+      const groups: GroupRow[] = [];
+      for (const stockDoc of stockSnapshot.docs) {
+        const lengthsSnapshot = await stockDoc.ref.collection("lengths").get();
+        lengthsSnapshot.docs.forEach((docSnap: any) => {
+          const group = mapLengthDocToGroup(docSnap);
+          if (group) groups.push(group);
+        });
+      }
+      return pageScannedGroups(groups, cursor.additionLastPath);
+    };
+
+    const scanReservationGroupsFromStocks = async () => {
+      const stockSnapshot = await adminDb.collection("stocks").get();
+      const groups: GroupRow[] = [];
+      for (const stockDoc of stockSnapshot.docs) {
+        const lengthsSnapshot = await stockDoc.ref.collection("lengths").get();
+        for (const lengthDoc of lengthsSnapshot.docs) {
+          const reservedSnapshot = await lengthDoc.ref.collection("reservedQty").get();
+          reservedSnapshot.docs.forEach((docSnap: any) => {
+            const group = mapReservationDocToGroup(docSnap);
+            if (group) groups.push(group);
+          });
+        }
+      }
+      return pageScannedGroups(groups, cursor.reservationLastPath);
+    };
+
+    let additionGroups: GroupRow[] = [];
+    let deductionGroups: GroupRow[] = [];
+    let reservationGroups: GroupRow[] = [];
+    let additionFetchedCount = 0;
+    let deductionFetchedCount = 0;
+    let reservationFetchedCount = 0;
+
+    if (includeAdditions) {
+      try {
+        let additionsQuery: any = adminDb.collectionGroup("lengths");
+        additionsQuery = additionsQuery.orderBy("lastUpdatedAt", "desc").limit(sourceLimit);
+
+        if (cursor.additionLastPath) {
+          const lastAdditionDoc = await adminDb.doc(cursor.additionLastPath).get();
+          if (lastAdditionDoc.exists) {
+            additionsQuery = additionsQuery.startAfter(lastAdditionDoc);
+          }
+        }
+
+        const additionsSnapshot = await additionsQuery.get();
+        additionFetchedCount = additionsSnapshot.docs.length;
+        additionGroups = additionsSnapshot.docs.map(mapLengthDocToGroup).filter(Boolean) as GroupRow[];
+      } catch (error) {
+        console.warn("Falling back to stock length scan for inventory history:", error);
+      }
+
+      if (!additionGroups.length) {
+        additionGroups = await scanLengthGroupsFromStocks();
+        additionFetchedCount = additionGroups.length;
+      }
     }
 
     if (includeDeductions) {
@@ -2181,7 +2340,7 @@ export async function getStockTransactionHistoryPage(
                 } as StockTransaction))
             : [];
 
-          if (!rows.length) return null;
+          if (!rows.length || !isWithinRequestedDateRange(createdAt)) return null;
           return {
             source: "deduction" as const,
             cursor: docSnap.id,
@@ -2192,15 +2351,44 @@ export async function getStockTransactionHistoryPage(
         .filter(Boolean) as GroupRow[];
     }
 
-    const mergedGroups = [...additionGroups, ...deductionGroups].sort(
+    if (includeReservations) {
+      try {
+        let reservationsQuery: any = adminDb.collectionGroup("reservedQty");
+        reservationsQuery = reservationsQuery.orderBy("createdAt", "desc").limit(sourceLimit);
+
+        if (cursor.reservationLastPath) {
+          const lastReservationDoc = await adminDb.doc(cursor.reservationLastPath).get();
+          if (lastReservationDoc.exists) {
+            reservationsQuery = reservationsQuery.startAfter(lastReservationDoc);
+          }
+        }
+
+        const reservationsSnapshot = await reservationsQuery.get();
+        reservationFetchedCount = reservationsSnapshot.docs.length;
+        reservationGroups = reservationsSnapshot.docs
+          .map(mapReservationDocToGroup)
+          .filter(Boolean) as GroupRow[];
+      } catch (error) {
+        console.warn("Falling back to stock reservation scan for inventory history:", error);
+      }
+
+      if (!reservationGroups.length) {
+        reservationGroups = await scanReservationGroupsFromStocks();
+        reservationFetchedCount = reservationGroups.length;
+      }
+    }
+
+    const mergedGroups = [...additionGroups, ...deductionGroups, ...reservationGroups].sort(
       (a, b) => toTimeSafe(b.createdAt) - toTimeSafe(a.createdAt)
     );
 
     const consumedAddition = new Set<string>();
     const consumedDeduction = new Set<string>();
+    const consumedReservation = new Set<string>();
     const pagedRows: StockTransaction[] = [];
     let nextAdditionCursor = cursor.additionLastPath || null;
     let nextDeductionCursor = cursor.deductionLastId || null;
+    let nextReservationCursor = cursor.reservationLastPath || null;
 
     for (const group of mergedGroups) {
       if (pagedRows.length >= pageSize && pagedRows.length > 0) break;
@@ -2208,9 +2396,12 @@ export async function getStockTransactionHistoryPage(
       if (group.source === "addition") {
         consumedAddition.add(group.cursor);
         nextAdditionCursor = group.cursor;
-      } else {
+      } else if (group.source === "deduction") {
         consumedDeduction.add(group.cursor);
         nextDeductionCursor = group.cursor;
+      } else {
+        consumedReservation.add(group.cursor);
+        nextReservationCursor = group.cursor;
       }
     }
 
@@ -2218,10 +2409,14 @@ export async function getStockTransactionHistoryPage(
       includeAdditions && additionGroups.some((group) => !consumedAddition.has(group.cursor));
     const remainingDeductionInBatch =
       includeDeductions && deductionGroups.some((group) => !consumedDeduction.has(group.cursor));
+    const remainingReservationInBatch =
+      includeReservations && reservationGroups.some((group) => !consumedReservation.has(group.cursor));
 
     const additionHasMore = includeAdditions && (remainingAdditionInBatch || additionFetchedCount === sourceLimit);
     const deductionHasMore =
       includeDeductions && (remainingDeductionInBatch || deductionFetchedCount === sourceLimit);
+    const reservationHasMore =
+      includeReservations && (remainingReservationInBatch || reservationFetchedCount === sourceLimit);
 
     const items = pagedRows.sort((a, b) => toTimeSafe(b.createdAt) - toTimeSafe(a.createdAt));
 
@@ -2231,8 +2426,9 @@ export async function getStockTransactionHistoryPage(
         cursor: {
           additionLastPath: includeAdditions ? nextAdditionCursor : cursor.additionLastPath || null,
           deductionLastId: includeDeductions ? nextDeductionCursor : cursor.deductionLastId || null,
+          reservationLastPath: includeReservations ? nextReservationCursor : cursor.reservationLastPath || null,
         },
-        hasMore: additionHasMore || deductionHasMore,
+        hasMore: additionHasMore || deductionHasMore || reservationHasMore,
       } as StockHistoryPageResult)
     );
   } catch (error) {

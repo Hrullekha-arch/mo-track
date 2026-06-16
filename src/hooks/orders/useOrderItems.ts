@@ -331,15 +331,26 @@ export function useOrderItems(
 
         const matchedInvoice = invoiceDocs.find((d: any) => {
           const inv = d.data() as Invoice;
-          const items =
-            inv.sections?.NORMAL?.items || (inv as any).items || [];
+          const normalItems = inv.sections?.NORMAL?.items || [];
+          const legacyItems = Array.isArray((inv as any).items)
+            ? (inv as any).items
+            : [];
+          const items = normalItems.length > 0 ? normalItems : legacyItems;
           return items.some((i: any) => i.bcn === bcn);
         });
 
         if (matchedInvoice) {
+          const invoiceData = matchedInvoice.data() as Invoice;
+          const zohoInvoiceNo = String(
+            invoiceData.zohoInvoiceNo || invoiceData.tallyVoucherNo || ""
+          ).trim();
+          const zohoInvoiceId = String(invoiceData.zohoInvoiceId || "").trim();
           status = {
             kind: "invoiced",
-            tallyNo: matchedInvoice.data().tallyVoucherNo || "",
+            tallyNo: zohoInvoiceNo,
+            zohoInvoiceId: zohoInvoiceId || undefined,
+            zohoInvoiceNo: zohoInvoiceNo || undefined,
+            invoiceDocId: String(matchedInvoice.id || "").trim() || undefined,
           };
         } else if (allocated >= required) {
           status = { kind: "allocated" };

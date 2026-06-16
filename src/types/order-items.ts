@@ -7,7 +7,13 @@ export type OrderItem = (FabricDetail | FurnitureDetail) & {
 export type ItemStatus =
   | { kind: "loading" }
   | { kind: "invalid" }
-  | { kind: "invoiced"; tallyNo: string }
+  | {
+      kind: "invoiced";
+      tallyNo: string;
+      zohoInvoiceId?: string;
+      zohoInvoiceNo?: string;
+      invoiceDocId?: string;
+    }
   | { kind: "allocated" }
   | { kind: "in_stock" }
   | { kind: "pr_created" }

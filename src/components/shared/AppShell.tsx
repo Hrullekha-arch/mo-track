@@ -52,10 +52,8 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
-  SheetDescription,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { LeaveWidget } from "@/components/features/dashboard/LeaveWidget";
 import { RequiredOnboardingDialog } from "@/components/shared/RequiredOnboardingDialog";
 
 
@@ -89,6 +87,8 @@ function SidebarNav({ className }: { className?: string }) {
   const { user, role } = useAuth();
 
   const navItemsForUser = React.useMemo(() => {
+    if (user?.isActive === false) return [];
+
     const normalizedRole = String(role || user?.role || "")
       .trim()
       .toLowerCase()
@@ -100,6 +100,13 @@ function SidebarNav({ className }: { className?: string }) {
       .replace(/[\s_-]/g, "");
     const isHeadSalesManager =
       normalizedRole === "headsalesmanager" || normalizedDesignation === "headsalesmanager";
+    const isManagement =
+      normalizedRole === "md" ||
+      normalizedRole === "management" ||
+      normalizedRole === "managingdirector" ||
+      normalizedDesignation === "md" ||
+      normalizedDesignation === "management" ||
+      normalizedDesignation === "managingdirector";
     const isAllocator =
       normalizedDesignation === "allocators" || normalizedDesignation === "allocator";
 
@@ -114,6 +121,8 @@ function SidebarNav({ className }: { className?: string }) {
         }
         // Headsalesmanager can always access complain approval page.
         if (isHeadSalesManager && item.href === "/dashboard/complain-approval") return true;
+        // MD and management users review excess inbound receipts here.
+        if (isManagement && item.href === "/dashboard/approvals") return true;
         // Allocators should always have access to inbound.
         if (isAllocator && item.href === "/dashboard/inbound") return true;
         // For other roles, check the permissions array.
@@ -401,7 +410,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
         </header>
         <main className="flex-1 overflow-y-auto">
-          <LeaveWidget />
           <RequiredOnboardingDialog />
           {children}
         </main>

@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:quotation-pricing": "node scripts/test-quotation-order-pricing.mjs",
+    "audit:invoice-pricing": "node scripts/audit-repair-all-invoice-pricing.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^4.1.3",

@@ -1,0 +1,1515 @@
+[browser] Image with src "/logo.png" has either width or height modified, but not the other. If you use CSS to change the size of your image, also include the styles 'width: "auto"' or 'height: "auto"' to maintain the aspect ratio.
+[browser] Image with src "/logo.png" has either width or height modified, but not the other. If you use CSS to change the size of your image, also include the styles 'width: "auto"' or 'height: "auto"' to maintain the aspect ratio.
+[browser] [2026-06-09T08:55:39.658Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x75cdad72 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-09T09:06:25.074Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x75cdad73 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-09T09:06:25.718Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x75cdad74 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-09T09:06:29.663Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x75cdad75 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-09T09:06:30.510Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x75cdad76 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-09T10:18:50.699Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x75cdad79 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-09T10:18:51.237Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x1b9888e0 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-09T10:18:51.237Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x7842c79f transport errored. Name: undefined Message: undefined
+[browser] [2026-06-09T11:18:59.115Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x75cdad7b transport errored. Name: undefined Message: undefined
+[browser] [2026-06-09T11:31:15.857Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x75cdad7c transport errored. Name: undefined Message: undefined
+[browser] [2026-06-09T11:52:26.854Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x1b9888e3 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-09T12:08:58.839Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x75cdad7e transport errored. Name: undefined Message: undefined
+[browser] [2026-06-09T11:52:26.866Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x7842c7a2 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-09T12:12:10.191Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x7842c7a3 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-09T12:12:10.192Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x1b9888e4 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-09T12:16:33.766Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x7842c7a4 transport errored. Name: undefined Message: undefined
+⨯ ./src/components/features/dashboard/TimesheetPanel.tsx:128:13
+Expected ',', got ';'
+  [90m126 |[0m                   : [36mundefined[0m,
+  [90m127 |[0m             };
+[31m[1m>[0m [90m128 |[0m           });
+  [90m    |[0m             [31m[1m^[0m
+  [90m129 |[0m         setEntries(hydratedEntries);
+  [90m130 |[0m         setSavedEntries(hydratedEntries);
+  [90m131 |[0m         setRemark([33mString[0m(data?.remark || [32m""[0m));
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component Browser]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component SSR]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+
+⨯ ./src/components/features/dashboard/TimesheetPanel.tsx:128:13
+Expected ',', got ';'
+  [90m126 |[0m                   : [36mundefined[0m,
+  [90m127 |[0m             };
+[31m[1m>[0m [90m128 |[0m           });
+  [90m    |[0m             [31m[1m^[0m
+  [90m129 |[0m         setEntries(hydratedEntries);
+  [90m130 |[0m         setSavedEntries(hydratedEntries);
+  [90m131 |[0m         setRemark([33mString[0m(data?.remark || [32m""[0m));
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component Browser]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component SSR]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+
+⨯ ./src/components/features/dashboard/TimesheetPanel.tsx:128:13
+Expected ',', got ';'
+  [90m126 |[0m                   : [36mundefined[0m,
+  [90m127 |[0m             };
+[31m[1m>[0m [90m128 |[0m           });
+  [90m    |[0m             [31m[1m^[0m
+  [90m129 |[0m         setEntries(hydratedEntries);
+  [90m130 |[0m         setSavedEntries(hydratedEntries);
+  [90m131 |[0m         setRemark([33mString[0m(data?.remark || [32m""[0m));
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component Browser]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component SSR]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+
+⨯ ./src/components/features/dashboard/TimesheetPanel.tsx:128:13
+Expected ',', got ';'
+  [90m126 |[0m                   : [36mundefined[0m,
+  [90m127 |[0m             };
+[31m[1m>[0m [90m128 |[0m           });
+  [90m    |[0m             [31m[1m^[0m
+  [90m129 |[0m         setEntries(hydratedEntries);
+  [90m130 |[0m         setSavedEntries(hydratedEntries);
+  [90m131 |[0m         setRemark([33mString[0m(data?.remark || [32m""[0m));
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component Browser]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component SSR]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+
+⨯ ./src/components/features/dashboard/TimesheetPanel.tsx:128:13
+Expected ',', got ';'
+  [90m126 |[0m                   : [36mundefined[0m,
+  [90m127 |[0m             };
+[31m[1m>[0m [90m128 |[0m           });
+  [90m    |[0m             [31m[1m^[0m
+  [90m129 |[0m         setEntries(hydratedEntries);
+  [90m130 |[0m         setSavedEntries(hydratedEntries);
+  [90m131 |[0m         setRemark([33mString[0m(data?.remark || [32m""[0m));
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component Browser]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component SSR]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+
+⨯ ./src/components/features/dashboard/TimesheetPanel.tsx:128:13
+Expected ',', got ';'
+  [90m126 |[0m                   : [36mundefined[0m,
+  [90m127 |[0m             };
+[31m[1m>[0m [90m128 |[0m           });
+  [90m    |[0m             [31m[1m^[0m
+  [90m129 |[0m         setEntries(hydratedEntries);
+  [90m130 |[0m         setSavedEntries(hydratedEntries);
+  [90m131 |[0m         setRemark([33mString[0m(data?.remark || [32m""[0m));
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component Browser]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component SSR]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+
+⨯ ./src/components/features/dashboard/TimesheetPanel.tsx:128:13
+Expected ',', got ';'
+  [90m126 |[0m                   : [36mundefined[0m,
+  [90m127 |[0m             };
+[31m[1m>[0m [90m128 |[0m           });
+  [90m    |[0m             [31m[1m^[0m
+  [90m129 |[0m         setEntries(hydratedEntries);
+  [90m130 |[0m         setSavedEntries(hydratedEntries);
+  [90m131 |[0m         setRemark([33mString[0m(data?.remark || [32m""[0m));
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component Browser]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component SSR]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+
+⨯ ./src/components/features/dashboard/TimesheetPanel.tsx:128:13
+Expected ',', got ';'
+  [90m126 |[0m                   : [36mundefined[0m,
+  [90m127 |[0m             };
+[31m[1m>[0m [90m128 |[0m           });
+  [90m    |[0m             [31m[1m^[0m
+  [90m129 |[0m         setEntries(hydratedEntries);
+  [90m130 |[0m         setSavedEntries(hydratedEntries);
+  [90m131 |[0m         setRemark([33mString[0m(data?.remark || [32m""[0m));
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component Browser]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component SSR]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+
+[browser] Uncaught Error: ./src/components/features/dashboard/TimesheetPanel.tsx:128:13
+Expected ',', got ';'
+  126 |                   : undefined,
+  127 |             };
+> 128 |           });
+      |             ^
+  129 |         setEntries(hydratedEntries);
+  130 |         setSavedEntries(hydratedEntries);
+  131 |         setRemark(String(data?.remark || ""));
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component Browser]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component SSR]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+
+    at <unknown> (Error: ./src/components/features/dashboard/TimesheetPanel.tsx:128:13)
+    at <unknown> (Error: (./src/components/features/dashboard/TimesheetPanel.tsx:128:13)
+[browser] ./src/components/features/dashboard/TimesheetPanel.tsx:128:13
+Expected ',', got ';'
+  126 |                   : undefined,
+  127 |             };
+> 128 |           });
+      |             ^
+  129 |         setEntries(hydratedEntries);
+  130 |         setSavedEntries(hydratedEntries);
+  131 |         setRemark(String(data?.remark || ""));
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component Browser]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component SSR]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Server Component] 
+[browser] Uncaught Error: ./src/components/features/dashboard/TimesheetPanel.tsx:128:13
+Expected ',', got ';'
+  126 |                   : undefined,
+  127 |             };
+> 128 |           });
+      |             ^
+  129 |         setEntries(hydratedEntries);
+  130 |         setSavedEntries(hydratedEntries);
+  131 |         setRemark(String(data?.remark || ""));
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component Browser]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component SSR]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+
+    at <unknown> (Error: ./src/components/features/dashboard/TimesheetPanel.tsx:128:13)
+    at <unknown> (Error: (./src/components/features/dashboard/TimesheetPanel.tsx:128:13)
+[browser] ./src/components/features/dashboard/TimesheetPanel.tsx:128:13
+Expected ',', got ';'
+  126 |                   : undefined,
+  127 |             };
+> 128 |           });
+      |             ^
+  129 |         setEntries(hydratedEntries);
+  130 |         setSavedEntries(hydratedEntries);
+  131 |         setRemark(String(data?.remark || ""));
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component Browser]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component SSR]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Server Component] 
+[browser] Uncaught Error: ./src/components/features/dashboard/TimesheetPanel.tsx:128:13
+Expected ',', got ';'
+  126 |                   : undefined,
+  127 |             };
+> 128 |           });
+      |             ^
+  129 |         setEntries(hydratedEntries);
+  130 |         setSavedEntries(hydratedEntries);
+  131 |         setRemark(String(data?.remark || ""));
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component Browser]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component SSR]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+
+    at <unknown> (Error: ./src/components/features/dashboard/TimesheetPanel.tsx:128:13)
+    at <unknown> (Error: (./src/components/features/dashboard/TimesheetPanel.tsx:128:13)
+[browser] Uncaught Error: ./src/components/features/dashboard/TimesheetPanel.tsx:128:13
+Expected ',', got ';'
+  126 |                   : undefined,
+  127 |             };
+> 128 |           });
+      |             ^
+  129 |         setEntries(hydratedEntries);
+  130 |         setSavedEntries(hydratedEntries);
+  131 |         setRemark(String(data?.remark || ""));
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component Browser]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component SSR]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+
+    at <unknown> (Error: ./src/components/features/dashboard/TimesheetPanel.tsx:128:13)
+    at <unknown> (Error: (./src/components/features/dashboard/TimesheetPanel.tsx:128:13)
+[browser] Uncaught Error: ./src/components/features/dashboard/TimesheetPanel.tsx:128:13
+Expected ',', got ';'
+  126 |                   : undefined,
+  127 |             };
+> 128 |           });
+      |             ^
+  129 |         setEntries(hydratedEntries);
+  130 |         setSavedEntries(hydratedEntries);
+  131 |         setRemark(String(data?.remark || ""));
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component Browser]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component SSR]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+
+    at <unknown> (Error: ./src/components/features/dashboard/TimesheetPanel.tsx:128:13)
+    at <unknown> (Error: (./src/components/features/dashboard/TimesheetPanel.tsx:128:13)
+[browser] ./src/components/features/dashboard/TimesheetPanel.tsx:128:13
+Expected ',', got ';'
+  126 |                   : undefined,
+  127 |             };
+> 128 |           });
+      |             ^
+  129 |         setEntries(hydratedEntries);
+  130 |         setSavedEntries(hydratedEntries);
+  131 |         setRemark(String(data?.remark || ""));
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component Browser]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Client Component Browser]
+    ./src/app/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./src/components/features/dashboard/TimesheetPanel.tsx [Client Component SSR]
+    ./src/components/features/dashboard/AccountsDashboard.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Client Component SSR]
+    ./src/app/dashboard/page.tsx [Server Component] 
+Order sheet sync failed: Error: The service is currently unavailable.
+    at async POST (src\app\api\orders\syncOrderSheet\route.ts:1229:38)
+  1227 |     const uniquePurchaseRows = mergeDuplicatePurchaseRows(purchaseRows);
+  1228 |
+> 1229 |     const existingPurchaseResponse = await sheets.spreadsheets.values.get({
+       |                                      ^
+  1230 |       spreadsheetId: sheetId,
+  1231 |       range: `${purchaseSheetName}!A1:${PURCHASE_SHEET_LAST_COLUMN}`,
+  1232 |     }); {
+  config: {
+    url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+    method: 'GET',
+    apiVersion: '',
+    userAgentDirectives: [ [Object] ],
+    paramsSerializer: [Function (anonymous)],
+    headers: {
+      'x-goog-api-client': 'gdcl/7.2.0 gl-node/22.19.0',
+      'Accept-Encoding': 'gzip',
+      'User-Agent': 'google-api-nodejs-client/7.2.0 (gzip)',
+      Authorization: '<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.'
+    },
+    params: {},
+    validateStatus: [Function (anonymous)],
+    retry: true,
+    responseType: 'unknown',
+    errorRedactor: [Function: defaultErrorRedactor],
+    retryConfig: {
+      currentRetryAttempt: 3,
+      retry: 3,
+      httpMethodsToRetry: [Array],
+      noResponseRetries: 2,
+      retryDelayMultiplier: 2,
+      timeOfFirstRequest: 1781009203476,
+      totalTimeout: 9007199254740991,
+      maxRetryDelay: 9007199254740991,
+      statusCodesToRetry: [Array]
+    }
+  },
+  response: {
+    config: {
+      url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+      method: 'GET',
+      apiVersion: '',
+      userAgentDirectives: [Array],
+      paramsSerializer: [Function (anonymous)],
+      headers: [Object],
+      params: {},
+      validateStatus: [Function (anonymous)],
+      retry: true,
+      responseType: 'unknown',
+      errorRedactor: [Function: defaultErrorRedactor],
+      retryConfig: [Object]
+    },
+    data: { error: [Object] },
+    headers: {
+      'alt-svc': 'h3=":443"; ma=2592000,h3-29=":443"; ma=2592000',
+      'content-encoding': 'gzip',
+      'content-type': 'application/json; charset=UTF-8',
+      date: 'Tue, 09 Jun 2026 12:49:51 GMT',
+      server: 'ESF',
+      'transfer-encoding': 'chunked',
+      vary: 'Origin, X-Origin, Referer',
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'SAMEORIGIN',
+      'x-l2-request-path': 'l2-managed-6',
+      'x-xss-protection': '0'
+    },
+    status: 503,
+    statusText: 'Service Unavailable',
+    request: {
+      responseURL: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ'
+    }
+  },
+  error: undefined,
+  status: 503,
+  code: 503,
+  errors: [
+    {
+      message: 'The service is currently unavailable.',
+      domain: 'global',
+      reason: 'backendError'
+    }
+  ]
+}
+[browser] Image with src "/logo.png" has either width or height modified, but not the other. If you use CSS to change the size of your image, also include the styles 'width: "auto"' or 'height: "auto"' to maintain the aspect ratio.
+Order sheet sync failed: Error: The service is currently unavailable.
+    at async POST (src\app\api\orders\syncOrderSheet\route.ts:1229:38)
+  1227 |     const uniquePurchaseRows = mergeDuplicatePurchaseRows(purchaseRows);
+  1228 |
+> 1229 |     const existingPurchaseResponse = await sheets.spreadsheets.values.get({
+       |                                      ^
+  1230 |       spreadsheetId: sheetId,
+  1231 |       range: `${purchaseSheetName}!A1:${PURCHASE_SHEET_LAST_COLUMN}`,
+  1232 |     }); {
+  config: {
+    url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+    method: 'GET',
+    apiVersion: '',
+    userAgentDirectives: [ [Object] ],
+    paramsSerializer: [Function (anonymous)],
+    headers: {
+      'x-goog-api-client': 'gdcl/7.2.0 gl-node/22.19.0',
+      'Accept-Encoding': 'gzip',
+      'User-Agent': 'google-api-nodejs-client/7.2.0 (gzip)',
+      Authorization: '<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.'
+    },
+    params: {},
+    validateStatus: [Function (anonymous)],
+    retry: true,
+    responseType: 'unknown',
+    errorRedactor: [Function: defaultErrorRedactor],
+    retryConfig: {
+      currentRetryAttempt: 3,
+      retry: 3,
+      httpMethodsToRetry: [Array],
+      noResponseRetries: 2,
+      retryDelayMultiplier: 2,
+      timeOfFirstRequest: 1781009633317,
+      totalTimeout: 9007199254740991,
+      maxRetryDelay: 9007199254740991,
+      statusCodesToRetry: [Array]
+    }
+  },
+  response: {
+    config: {
+      url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+      method: 'GET',
+      apiVersion: '',
+      userAgentDirectives: [Array],
+      paramsSerializer: [Function (anonymous)],
+      headers: [Object],
+      params: {},
+      validateStatus: [Function (anonymous)],
+      retry: true,
+      responseType: 'unknown',
+      errorRedactor: [Function: defaultErrorRedactor],
+      retryConfig: [Object]
+    },
+    data: { error: [Object] },
+    headers: {
+      'alt-svc': 'h3=":443"; ma=2592000,h3-29=":443"; ma=2592000',
+      'content-encoding': 'gzip',
+      'content-type': 'application/json; charset=UTF-8',
+      date: 'Tue, 09 Jun 2026 12:57:00 GMT',
+      server: 'ESF',
+      'transfer-encoding': 'chunked',
+      vary: 'Origin, X-Origin, Referer',
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'SAMEORIGIN',
+      'x-l2-request-path': 'l2-managed-6',
+      'x-xss-protection': '0'
+    },
+    status: 503,
+    statusText: 'Service Unavailable',
+    request: {
+      responseURL: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ'
+    }
+  },
+  error: undefined,
+  status: 503,
+  code: 503,
+  errors: [
+    {
+      message: 'The service is currently unavailable.',
+      domain: 'global',
+      reason: 'backendError'
+    }
+  ]
+}
+[browser] [2026-06-10T12:17:33.956Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x5bb31fb7 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-10T12:25:25.605Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x5bb31fb9 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-10T12:17:30.148Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x89e2fc8f transport errored. Name: undefined Message: undefined
+[browser] [2026-06-10T12:25:26.706Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x89e2fc91 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-10T12:39:58.690Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x89e2fc92 transport errored. Name: undefined Message: undefined
+[browser] Image with src "/logo.png" has either width or height modified, but not the other. If you use CSS to change the size of your image, also include the styles 'width: "auto"' or 'height: "auto"' to maintain the aspect ratio.
+Order sheet sync failed: Error: The service is currently unavailable.
+    at async POST (src\app\api\orders\syncOrderSheet\route.ts:1229:38)
+  1227 |     const uniquePurchaseRows = mergeDuplicatePurchaseRows(purchaseRows);
+  1228 |
+> 1229 |     const existingPurchaseResponse = await sheets.spreadsheets.values.get({
+       |                                      ^
+  1230 |       spreadsheetId: sheetId,
+  1231 |       range: `${purchaseSheetName}!A1:${PURCHASE_SHEET_LAST_COLUMN}`,
+  1232 |     }); {
+  config: {
+    url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+    method: 'GET',
+    apiVersion: '',
+    userAgentDirectives: [ [Object] ],
+    paramsSerializer: [Function (anonymous)],
+    headers: {
+      'x-goog-api-client': 'gdcl/7.2.0 gl-node/22.19.0',
+      'Accept-Encoding': 'gzip',
+      'User-Agent': 'google-api-nodejs-client/7.2.0 (gzip)',
+      Authorization: '<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.'
+    },
+    params: {},
+    validateStatus: [Function (anonymous)],
+    retry: true,
+    responseType: 'unknown',
+    errorRedactor: [Function: defaultErrorRedactor],
+    retryConfig: {
+      currentRetryAttempt: 3,
+      retry: 3,
+      httpMethodsToRetry: [Array],
+      noResponseRetries: 2,
+      retryDelayMultiplier: 2,
+      timeOfFirstRequest: 1781154505992,
+      totalTimeout: 9007199254740991,
+      maxRetryDelay: 9007199254740991,
+      statusCodesToRetry: [Array]
+    }
+  },
+  response: {
+    config: {
+      url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+      method: 'GET',
+      apiVersion: '',
+      userAgentDirectives: [Array],
+      paramsSerializer: [Function (anonymous)],
+      headers: [Object],
+      params: {},
+      validateStatus: [Function (anonymous)],
+      retry: true,
+      responseType: 'unknown',
+      errorRedactor: [Function: defaultErrorRedactor],
+      retryConfig: [Object]
+    },
+    data: { error: [Object] },
+    headers: {
+      'alt-svc': 'h3=":443"; ma=2592000,h3-29=":443"; ma=2592000',
+      'content-encoding': 'gzip',
+      'content-type': 'application/json; charset=UTF-8',
+      date: 'Thu, 11 Jun 2026 05:11:33 GMT',
+      server: 'ESF',
+      'transfer-encoding': 'chunked',
+      vary: 'Origin, X-Origin, Referer',
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'SAMEORIGIN',
+      'x-l2-request-path': 'l2-managed-6',
+      'x-xss-protection': '0'
+    },
+    status: 503,
+    statusText: 'Service Unavailable',
+    request: {
+      responseURL: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ'
+    }
+  },
+  error: undefined,
+  status: 503,
+  code: 503,
+  errors: [
+    {
+      message: 'The service is currently unavailable.',
+      domain: 'global',
+      reason: 'backendError'
+    }
+  ]
+}
+[browser] Sheet auto-sync completed with failures: [
+  {
+    label: [32m'Order'[39m,
+    message: [32m'The service is currently unavailable.'[39m,
+    ok: [33mfalse[39m,
+    status: [33m500[39m
+  }
+] (src/app/dashboard/page.tsx:2595:19)
+[browser] Uncaught Error: Internal Next.js error: Router action dispatched before initialization.
+[browser] Uncaught Error: Internal Next.js error: Router action dispatched before initialization.
+[browser] Uncaught Error: Internal Next.js error: Router action dispatched before initialization.
+[browser] Image with src "/logo.png" has either width or height modified, but not the other. If you use CSS to change the size of your image, also include the styles 'width: "auto"' or 'height: "auto"' to maintain the aspect ratio.
+Order sheet sync failed: Error: Internal error encountered.
+    at async POST (src\app\api\orders\syncOrderSheet\route.ts:887:30)
+  885 |       row.every((cell) => String(cell ?? "").trim() === "");
+  886 |
+> 887 |     const existingResponse = await sheets.spreadsheets.values.get({
+      |                              ^
+  888 |       spreadsheetId: sheetId,
+  889 |       range: `${sheetName}!A1:${SHEET_LAST_COLUMN}`,
+  890 |     }); {
+  config: {
+    url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Sheet2%21A1%3AR',
+    method: 'GET',
+    apiVersion: '',
+    userAgentDirectives: [ [Object] ],
+    paramsSerializer: [Function (anonymous)],
+    headers: {
+      'x-goog-api-client': 'gdcl/7.2.0 gl-node/22.19.0',
+      'Accept-Encoding': 'gzip',
+      'User-Agent': 'google-api-nodejs-client/7.2.0 (gzip)',
+      Authorization: '<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.'
+    },
+    params: {},
+    validateStatus: [Function (anonymous)],
+    retry: true,
+    responseType: 'unknown',
+    errorRedactor: [Function: defaultErrorRedactor],
+    retryConfig: {
+      currentRetryAttempt: 3,
+      retry: 3,
+      httpMethodsToRetry: [Array],
+      noResponseRetries: 2,
+      retryDelayMultiplier: 2,
+      timeOfFirstRequest: 1781156810935,
+      totalTimeout: 9007199254740991,
+      maxRetryDelay: 9007199254740991,
+      statusCodesToRetry: [Array]
+    }
+  },
+  response: {
+    config: {
+      url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Sheet2%21A1%3AR',
+      method: 'GET',
+      apiVersion: '',
+      userAgentDirectives: [Array],
+      paramsSerializer: [Function (anonymous)],
+      headers: [Object],
+      params: {},
+      validateStatus: [Function (anonymous)],
+      retry: true,
+      responseType: 'unknown',
+      errorRedactor: [Function: defaultErrorRedactor],
+      retryConfig: [Object]
+    },
+    data: { error: [Object] },
+    headers: {
+      'alt-svc': 'h3=":443"; ma=2592000,h3-29=":443"; ma=2592000',
+      'content-encoding': 'gzip',
+      'content-type': 'application/json; charset=UTF-8',
+      date: 'Thu, 11 Jun 2026 05:50:21 GMT',
+      server: 'ESF',
+      'transfer-encoding': 'chunked',
+      vary: 'Origin, X-Origin, Referer',
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'SAMEORIGIN',
+      'x-l2-request-path': 'l2-managed-6',
+      'x-xss-protection': '0'
+    },
+    status: 500,
+    statusText: 'Internal Server Error',
+    request: {
+      responseURL: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Sheet2%21A1%3AR'
+    }
+  },
+  error: undefined,
+  status: 500,
+  code: 500,
+  errors: [
+    {
+      message: 'Internal error encountered.',
+      domain: 'global',
+      reason: 'backendError'
+    }
+  ]
+}
+[browser] Sheet auto-sync completed with failures: [
+  {
+    label: [32m'Order'[39m,
+    message: [32m'Internal error encountered.'[39m,
+    ok: [33mfalse[39m,
+    status: [33m500[39m
+  }
+] (src/app/dashboard/page.tsx:2595:19)
+[browser] Sheet auto-sync completed with failures: [
+  { label: [32m'Order'[39m, message: [32m'Failed to fetch'[39m, ok: [33mfalse[39m, status: [33m0[39m }
+] (src/app/dashboard/page.tsx:2595:19)
+[browser] [2026-06-11T08:29:31.114Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x89e2fc99 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-11T08:29:31.689Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x89e2fc9a transport errored. Name: undefined Message: undefined
+[browser] [2026-06-11T08:29:31.150Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x40591286 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-11T08:29:31.237Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x40591287 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-11T09:17:37.522Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x89e2fc9b transport errored. Name: undefined Message: undefined
+[browser] [2026-06-11T09:17:37.615Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x40591288 transport errored. Name: undefined Message: undefined
+Order sheet sync failed: Error: The service is currently unavailable.
+    at async POST (src\app\api\orders\syncOrderSheet\route.ts:1229:38)
+  1227 |     const uniquePurchaseRows = mergeDuplicatePurchaseRows(purchaseRows);
+  1228 |
+> 1229 |     const existingPurchaseResponse = await sheets.spreadsheets.values.get({
+       |                                      ^
+  1230 |       spreadsheetId: sheetId,
+  1231 |       range: `${purchaseSheetName}!A1:${PURCHASE_SHEET_LAST_COLUMN}`,
+  1232 |     }); {
+  config: {
+    url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+    method: 'GET',
+    apiVersion: '',
+    userAgentDirectives: [ [Object] ],
+    paramsSerializer: [Function (anonymous)],
+    headers: {
+      'x-goog-api-client': 'gdcl/7.2.0 gl-node/22.19.0',
+      'Accept-Encoding': 'gzip',
+      'User-Agent': 'google-api-nodejs-client/7.2.0 (gzip)',
+      Authorization: '<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.'
+    },
+    params: {},
+    validateStatus: [Function (anonymous)],
+    retry: true,
+    responseType: 'unknown',
+    errorRedactor: [Function: defaultErrorRedactor],
+    retryConfig: {
+      currentRetryAttempt: 3,
+      retry: 3,
+      httpMethodsToRetry: [Array],
+      noResponseRetries: 2,
+      retryDelayMultiplier: 2,
+      timeOfFirstRequest: 1781169726622,
+      totalTimeout: 9007199254740991,
+      maxRetryDelay: 9007199254740991,
+      statusCodesToRetry: [Array]
+    }
+  },
+  response: {
+    config: {
+      url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+      method: 'GET',
+      apiVersion: '',
+      userAgentDirectives: [Array],
+      paramsSerializer: [Function (anonymous)],
+      headers: [Object],
+      params: {},
+      validateStatus: [Function (anonymous)],
+      retry: true,
+      responseType: 'unknown',
+      errorRedactor: [Function: defaultErrorRedactor],
+      retryConfig: [Object]
+    },
+    data: { error: [Object] },
+    headers: {
+      'alt-svc': 'h3=":443"; ma=2592000,h3-29=":443"; ma=2592000',
+      'content-encoding': 'gzip',
+      'content-type': 'application/json; charset=UTF-8',
+      date: 'Thu, 11 Jun 2026 09:25:14 GMT',
+      server: 'ESF',
+      'transfer-encoding': 'chunked',
+      vary: 'Origin, X-Origin, Referer',
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'SAMEORIGIN',
+      'x-l2-request-path': 'l2-managed-6',
+      'x-xss-protection': '0'
+    },
+    status: 503,
+    statusText: 'Service Unavailable',
+    request: {
+      responseURL: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ'
+    }
+  },
+  error: undefined,
+  status: 503,
+  code: 503,
+  errors: [
+    {
+      message: 'The service is currently unavailable.',
+      domain: 'global',
+      reason: 'backendError'
+    }
+  ]
+}
+Order sheet sync failed: Error: Requested entity was not found.
+    at async POST (src\app\api\orders\syncOrderSheet\route.ts:887:30)
+  885 |       row.every((cell) => String(cell ?? "").trim() === "");
+  886 |
+> 887 |     const existingResponse = await sheets.spreadsheets.values.get({
+      |                              ^
+  888 |       spreadsheetId: sheetId,
+  889 |       range: `${sheetName}!A1:${SHEET_LAST_COLUMN}`,
+  890 |     }); {
+  config: {
+    url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Sheet2%21A1%3AR',
+    method: 'GET',
+    apiVersion: '',
+    userAgentDirectives: [ [Object] ],
+    paramsSerializer: [Function (anonymous)],
+    headers: {
+      'x-goog-api-client': 'gdcl/7.2.0 gl-node/22.19.0',
+      'Accept-Encoding': 'gzip',
+      'User-Agent': 'google-api-nodejs-client/7.2.0 (gzip)',
+      Authorization: '<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.'
+    },
+    params: {},
+    validateStatus: [Function (anonymous)],
+    retry: true,
+    responseType: 'unknown',
+    errorRedactor: [Function: defaultErrorRedactor],
+    retryConfig: {
+      currentRetryAttempt: 0,
+      retry: 3,
+      httpMethodsToRetry: [Array],
+      noResponseRetries: 2,
+      retryDelayMultiplier: 2,
+      timeOfFirstRequest: 1781171013674,
+      totalTimeout: 9007199254740991,
+      maxRetryDelay: 9007199254740991,
+      statusCodesToRetry: [Array]
+    }
+  },
+  response: {
+    config: {
+      url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Sheet2%21A1%3AR',
+      method: 'GET',
+      apiVersion: '',
+      userAgentDirectives: [Array],
+      paramsSerializer: [Function (anonymous)],
+      headers: [Object],
+      params: {},
+      validateStatus: [Function (anonymous)],
+      retry: true,
+      responseType: 'unknown',
+      errorRedactor: [Function: defaultErrorRedactor]
+    },
+    data: { error: [Object] },
+    headers: {
+      'alt-svc': 'h3=":443"; ma=2592000,h3-29=":443"; ma=2592000',
+      'content-encoding': 'gzip',
+      'content-type': 'application/json; charset=UTF-8',
+      date: 'Thu, 11 Jun 2026 09:43:32 GMT',
+      server: 'ESF',
+      'transfer-encoding': 'chunked',
+      vary: 'Origin, X-Origin, Referer',
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'SAMEORIGIN',
+      'x-l2-request-path': 'l2-managed-6',
+      'x-xss-protection': '0'
+    },
+    status: 404,
+    statusText: 'Not Found',
+    request: {
+      responseURL: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Sheet2%21A1%3AR'
+    }
+  },
+  error: undefined,
+  status: 404,
+  code: 404,
+  errors: [
+    {
+      message: 'Requested entity was not found.',
+      domain: 'global',
+      reason: 'notFound'
+    }
+  ]
+}
+Order sheet sync failed: Error: The service is currently unavailable.
+    at async POST (src\app\api\orders\syncOrderSheet\route.ts:1229:38)
+  1227 |     const uniquePurchaseRows = mergeDuplicatePurchaseRows(purchaseRows);
+  1228 |
+> 1229 |     const existingPurchaseResponse = await sheets.spreadsheets.values.get({
+       |                                      ^
+  1230 |       spreadsheetId: sheetId,
+  1231 |       range: `${purchaseSheetName}!A1:${PURCHASE_SHEET_LAST_COLUMN}`,
+  1232 |     }); {
+  config: {
+    url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+    method: 'GET',
+    apiVersion: '',
+    userAgentDirectives: [ [Object] ],
+    paramsSerializer: [Function (anonymous)],
+    headers: {
+      'x-goog-api-client': 'gdcl/7.2.0 gl-node/22.19.0',
+      'Accept-Encoding': 'gzip',
+      'User-Agent': 'google-api-nodejs-client/7.2.0 (gzip)',
+      Authorization: '<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.'
+    },
+    params: {},
+    validateStatus: [Function (anonymous)],
+    retry: true,
+    responseType: 'unknown',
+    errorRedactor: [Function: defaultErrorRedactor],
+    retryConfig: {
+      currentRetryAttempt: 3,
+      retry: 3,
+      httpMethodsToRetry: [Array],
+      noResponseRetries: 2,
+      retryDelayMultiplier: 2,
+      timeOfFirstRequest: 1781170909437,
+      totalTimeout: 9007199254740991,
+      maxRetryDelay: 9007199254740991,
+      statusCodesToRetry: [Array]
+    }
+  },
+  response: {
+    config: {
+      url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+      method: 'GET',
+      apiVersion: '',
+      userAgentDirectives: [Array],
+      paramsSerializer: [Function (anonymous)],
+      headers: [Object],
+      params: {},
+      validateStatus: [Function (anonymous)],
+      retry: true,
+      responseType: 'unknown',
+      errorRedactor: [Function: defaultErrorRedactor],
+      retryConfig: [Object]
+    },
+    data: { error: [Object] },
+    headers: {
+      'alt-svc': 'h3=":443"; ma=2592000,h3-29=":443"; ma=2592000',
+      'content-encoding': 'gzip',
+      'content-type': 'application/json; charset=UTF-8',
+      date: 'Thu, 11 Jun 2026 09:44:56 GMT',
+      server: 'ESF',
+      'transfer-encoding': 'chunked',
+      vary: 'Origin, X-Origin, Referer',
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'SAMEORIGIN',
+      'x-l2-request-path': 'l2-managed-6',
+      'x-xss-protection': '0'
+    },
+    status: 503,
+    statusText: 'Service Unavailable',
+    request: {
+      responseURL: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ'
+    }
+  },
+  error: undefined,
+  status: 503,
+  code: 503,
+  errors: [
+    {
+      message: 'The service is currently unavailable.',
+      domain: 'global',
+      reason: 'backendError'
+    }
+  ]
+}
+[browser] Image with src "/logo.png" has either width or height modified, but not the other. If you use CSS to change the size of your image, also include the styles 'width: "auto"' or 'height: "auto"' to maintain the aspect ratio.
+[browser] Sheet auto-sync completed with failures: [
+  {
+    label: [32m'Order'[39m,
+    message: [32m'The service is currently unavailable.'[39m,
+    ok: [33mfalse[39m,
+    status: [33m500[39m
+  }
+] (src/app/dashboard/page.tsx:2595:19)
+[browser] Sheet auto-sync completed with failures: [
+  {
+    label: [32m'Order'[39m,
+    message: [32m'The service is currently unavailable.'[39m,
+    ok: [33mfalse[39m,
+    status: [33m500[39m
+  }
+] (src/app/dashboard/page.tsx:2595:19)
+[browser] Sheet auto-sync completed with failures: [
+  {
+    label: [32m'Order'[39m,
+    message: [32m'Requested entity was not found.'[39m,
+    ok: [33mfalse[39m,
+    status: [33m500[39m
+  }
+] (src/app/dashboard/page.tsx:2595:19)
+[browser] Sheet auto-sync completed with failures: [
+  { label: [32m'Order'[39m, message: [32m'Failed to fetch'[39m, ok: [33mfalse[39m, status: [33m0[39m }
+] (src/app/dashboard/page.tsx:2595:19)
+[browser] `DialogContent` requires a `DialogTitle` for the component to be accessible for screen reader users.
+
+If you want to hide the `DialogTitle`, you can wrap it with our VisuallyHidden component.
+
+For more information, see https://radix-ui.com/primitives/docs/components/dialog 
+[browser] Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[browser] `DialogContent` requires a `DialogTitle` for the component to be accessible for screen reader users.
+
+If you want to hide the `DialogTitle`, you can wrap it with our VisuallyHidden component.
+
+For more information, see https://radix-ui.com/primitives/docs/components/dialog 
+[browser] Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[browser] Image with src "/logo.png" has either width or height modified, but not the other. If you use CSS to change the size of your image, also include the styles 'width: "auto"' or 'height: "auto"' to maintain the aspect ratio.
+[browser] Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[browser] Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+Order sheet sync failed: Error: request to https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ failed, reason: read ECONNRESET
+    at async POST (src\app\api\orders\syncOrderSheet\route.ts:1229:38)
+  1227 |     const uniquePurchaseRows = mergeDuplicatePurchaseRows(purchaseRows);
+  1228 |
+> 1229 |     const existingPurchaseResponse = await sheets.spreadsheets.values.get({
+       |                                      ^
+  1230 |       spreadsheetId: sheetId,
+  1231 |       range: `${purchaseSheetName}!A1:${PURCHASE_SHEET_LAST_COLUMN}`,
+  1232 |     }); {
+  config: {
+    url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+    method: 'GET',
+    apiVersion: '',
+    userAgentDirectives: [ [Object] ],
+    paramsSerializer: [Function (anonymous)],
+    headers: {
+      'x-goog-api-client': 'gdcl/7.2.0 gl-node/22.19.0',
+      'Accept-Encoding': 'gzip',
+      'User-Agent': 'google-api-nodejs-client/7.2.0 (gzip)',
+      Authorization: '<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.'
+    },
+    params: {},
+    validateStatus: [Function (anonymous)],
+    retry: true,
+    responseType: 'unknown',
+    errorRedactor: [Function: defaultErrorRedactor],
+    retryConfig: {
+      currentRetryAttempt: 2,
+      retry: 3,
+      httpMethodsToRetry: [Array],
+      noResponseRetries: 2,
+      retryDelayMultiplier: 2,
+      timeOfFirstRequest: 1781180066421,
+      totalTimeout: 9007199254740991,
+      maxRetryDelay: 9007199254740991,
+      statusCodesToRetry: [Array]
+    }
+  },
+  response: undefined,
+  error: Error [FetchError]: request to https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ failed, reason: read ECONNRESET
+      at ignore-listed frames {
+    type: 'system',
+    errno: 'ECONNRESET',
+    code: 'ECONNRESET',
+    constructor: [Function: FetchError]
+  },
+  code: 'ECONNRESET'
+}
+[browser] [2026-06-11T12:08:48.420Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x307b38bd transport errored. Name: undefined Message: undefined
+[browser] Sheet auto-sync completed with failures: [
+  { label: [32m'Order'[39m, message: [32m'Failed to fetch'[39m, ok: [33mfalse[39m, status: [33m0[39m }
+] (src/app/dashboard/page.tsx:2595:19)
+[browser] [2026-06-11T12:23:34.354Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x307b38be transport errored. Name: undefined Message: undefined
+[browser] [2026-06-11T12:23:34.352Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x89e2fc9f transport errored. Name: undefined Message: undefined
+Order sheet sync failed: Error: request to https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ failed, reason: read ECONNRESET
+    at async POST (src\app\api\orders\syncOrderSheet\route.ts:1229:38)
+  1227 |     const uniquePurchaseRows = mergeDuplicatePurchaseRows(purchaseRows);
+  1228 |
+> 1229 |     const existingPurchaseResponse = await sheets.spreadsheets.values.get({
+       |                                      ^
+  1230 |       spreadsheetId: sheetId,
+  1231 |       range: `${purchaseSheetName}!A1:${PURCHASE_SHEET_LAST_COLUMN}`,
+  1232 |     }); {
+  config: {
+    url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+    method: 'GET',
+    apiVersion: '',
+    userAgentDirectives: [ [Object] ],
+    paramsSerializer: [Function (anonymous)],
+    headers: {
+      'x-goog-api-client': 'gdcl/7.2.0 gl-node/22.19.0',
+      'Accept-Encoding': 'gzip',
+      'User-Agent': 'google-api-nodejs-client/7.2.0 (gzip)',
+      Authorization: '<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.'
+    },
+    params: {},
+    validateStatus: [Function (anonymous)],
+    retry: true,
+    responseType: 'unknown',
+    errorRedactor: [Function: defaultErrorRedactor],
+    retryConfig: {
+      currentRetryAttempt: 2,
+      retry: 3,
+      httpMethodsToRetry: [Array],
+      noResponseRetries: 2,
+      retryDelayMultiplier: 2,
+      timeOfFirstRequest: 1781180071755,
+      totalTimeout: 9007199254740991,
+      maxRetryDelay: 9007199254740991,
+      statusCodesToRetry: [Array]
+    }
+  },
+  response: undefined,
+  error: Error [FetchError]: request to https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ failed, reason: read ECONNRESET
+      at ignore-listed frames {
+    type: 'system',
+    errno: 'ECONNRESET',
+    code: 'ECONNRESET',
+    constructor: [Function: FetchError]
+  },
+  code: 'ECONNRESET'
+}
+Order sheet sync failed: Error: request to https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ failed, reason: getaddrinfo ENOTFOUND sheets.googleapis.com
+    at async POST (src\app\api\orders\syncOrderSheet\route.ts:1229:38)
+  1227 |     const uniquePurchaseRows = mergeDuplicatePurchaseRows(purchaseRows);
+  1228 |
+> 1229 |     const existingPurchaseResponse = await sheets.spreadsheets.values.get({
+       |                                      ^
+  1230 |       spreadsheetId: sheetId,
+  1231 |       range: `${purchaseSheetName}!A1:${PURCHASE_SHEET_LAST_COLUMN}`,
+  1232 |     }); {
+  config: {
+    url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+    method: 'GET',
+    apiVersion: '',
+    userAgentDirectives: [ [Object] ],
+    paramsSerializer: [Function (anonymous)],
+    headers: {
+      'x-goog-api-client': 'gdcl/7.2.0 gl-node/22.19.0',
+      'Accept-Encoding': 'gzip',
+      'User-Agent': 'google-api-nodejs-client/7.2.0 (gzip)',
+      Authorization: '<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.'
+    },
+    params: {},
+    validateStatus: [Function (anonymous)],
+    retry: true,
+    responseType: 'unknown',
+    errorRedactor: [Function: defaultErrorRedactor],
+    retryConfig: {
+      currentRetryAttempt: 2,
+      retry: 3,
+      httpMethodsToRetry: [Array],
+      noResponseRetries: 2,
+      retryDelayMultiplier: 2,
+      timeOfFirstRequest: 1781183025597,
+      totalTimeout: 9007199254740991,
+      maxRetryDelay: 9007199254740991,
+      statusCodesToRetry: [Array]
+    }
+  },
+  response: undefined,
+  error: Error [FetchError]: request to https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ failed, reason: getaddrinfo ENOTFOUND sheets.googleapis.com
+      at ignore-listed frames {
+    type: 'system',
+    errno: 'ENOTFOUND',
+    code: 'ENOTFOUND',
+    constructor: [Function: FetchError]
+  },
+  code: 'ENOTFOUND'
+}
+[browser] Sheet auto-sync completed with failures: [
+  { label: [32m'Order'[39m, message: [32m'Failed to fetch'[39m, ok: [33mfalse[39m, status: [33m0[39m }
+] (src/app/dashboard/page.tsx:2595:19)
+Order sheet sync failed: Error: Internal error encountered.
+    at async POST (src\app\api\orders\syncOrderSheet\route.ts:1229:38)
+  1227 |     const uniquePurchaseRows = mergeDuplicatePurchaseRows(purchaseRows);
+  1228 |
+> 1229 |     const existingPurchaseResponse = await sheets.spreadsheets.values.get({
+       |                                      ^
+  1230 |       spreadsheetId: sheetId,
+  1231 |       range: `${purchaseSheetName}!A1:${PURCHASE_SHEET_LAST_COLUMN}`,
+  1232 |     }); {
+  config: {
+    url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+    method: 'GET',
+    apiVersion: '',
+    userAgentDirectives: [ [Object] ],
+    paramsSerializer: [Function (anonymous)],
+    headers: {
+      'x-goog-api-client': 'gdcl/7.2.0 gl-node/22.19.0',
+      'Accept-Encoding': 'gzip',
+      'User-Agent': 'google-api-nodejs-client/7.2.0 (gzip)',
+      Authorization: '<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.'
+    },
+    params: {},
+    validateStatus: [Function (anonymous)],
+    retry: true,
+    responseType: 'unknown',
+    errorRedactor: [Function: defaultErrorRedactor],
+    retryConfig: {
+      currentRetryAttempt: 3,
+      retry: 3,
+      httpMethodsToRetry: [Array],
+      noResponseRetries: 2,
+      retryDelayMultiplier: 2,
+      timeOfFirstRequest: 1781183599948,
+      totalTimeout: 9007199254740991,
+      maxRetryDelay: 9007199254740991,
+      statusCodesToRetry: [Array]
+    }
+  },
+  response: {
+    config: {
+      url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+      method: 'GET',
+      apiVersion: '',
+      userAgentDirectives: [Array],
+      paramsSerializer: [Function (anonymous)],
+      headers: [Object],
+      params: {},
+      validateStatus: [Function (anonymous)],
+      retry: true,
+      responseType: 'unknown',
+      errorRedactor: [Function: defaultErrorRedactor],
+      retryConfig: [Object]
+    },
+    data: { error: [Object] },
+    headers: {
+      'alt-svc': 'h3=":443"; ma=2592000,h3-29=":443"; ma=2592000',
+      'content-encoding': 'gzip',
+      'content-type': 'application/json; charset=UTF-8',
+      date: 'Thu, 11 Jun 2026 13:17:27 GMT',
+      server: 'ESF',
+      'transfer-encoding': 'chunked',
+      vary: 'Origin, X-Origin, Referer',
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'SAMEORIGIN',
+      'x-l2-request-path': 'l2-managed-6',
+      'x-xss-protection': '0'
+    },
+    status: 500,
+    statusText: 'Internal Server Error',
+    request: {
+      responseURL: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ'
+    }
+  },
+  error: undefined,
+  status: 500,
+  code: 500,
+  errors: [
+    {
+      message: 'Internal error encountered.',
+      domain: 'global',
+      reason: 'backendError'
+    }
+  ]
+}
+[browser] Sheet auto-sync completed with failures: [
+  {
+    label: [32m'Order'[39m,
+    message: [32m'Internal error encountered.'[39m,
+    ok: [33mfalse[39m,
+    status: [33m500[39m
+  }
+] (src/app/dashboard/page.tsx:2595:19)
+[browser] [2026-06-11T13:03:57.935Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x4059128f transport errored. Name: undefined Message: undefined
+[browser] [2026-06-11T13:03:56.016Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x6dd8bb49 transport errored. Name: undefined Message: undefined
+[browser] [2026-06-11T13:03:49.272Z]  @firebase/firestore: Firestore (11.10.0): WebChannelConnection RPC 'Listen' stream 0x3b436ee0 transport errored. Name: undefined Message: undefined
+Order sheet sync failed: Error [FetchError]: request to https://firestore.googleapis.com/v1/projects/studio-3799785967-d0d9d/databases/(default)/documents:runQuery?$alt=json%3Benum-encoding=int failed, reason: getaddrinfo ENOTFOUND firestore.googleapis.com
+    at POST (src\app\api\orders\syncOrderSheet\route.ts:611:66)
+  609 | ...tName = process.env.PURCHASE_SHEET_NAME || DEFAULT_PURCHASE_SHEET_NAME;
+  610 | ...
+> 611 | ...t = await adminDb.collectionGroup("deals").get();
+      |                                               ^
+  612 | ...
+  613 | ...= new Set<string>();
+  614 | ...sSnapshot.docs.map((doc) => { {
+  type: 'system',
+  errno: 'ENOTFOUND',
+  code: 'ENOTFOUND',
+  constructor: [Function: FetchError]
+}
+Walk-in sheet sync failed: Error [FetchError]: request to https://firestore.googleapis.com/v1/projects/studio-3799785967-d0d9d/databases/(default)/documents:runQuery?$alt=json%3Benum-encoding=int failed, reason: getaddrinfo ENOTFOUND firestore.googleapis.com
+    at POST (src\app\api\walkin\syncWalkinSheet\route.ts:341:72)
+  339 | ...s.env.WALKIN_SHEET_NAME || process.env.WALKING_SHEET_NAME || DEFAULT_SHEET_NAME;
+  340 | ...
+> 341 | ...wait adminDb.collection("Walkin_Customer").get();
+      |                                               ^
+  342 | ...Lookup = new Set<string>();
+  343 | ...ach((docSnap: FirestoreDocSnap) => {
+  344 | ....data() as Record<string, unknown>; {
+  type: 'system',
+  errno: 'ENOTFOUND',
+  code: 'ENOTFOUND',
+  constructor: [Function: FetchError]
+}
+Order sheet sync failed: Error [FetchError]: request to https://firestore.googleapis.com/v1/projects/studio-3799785967-d0d9d/databases/(default)/documents:runQuery?$alt=json%3Benum-encoding=int failed, reason: getaddrinfo ENOTFOUND firestore.googleapis.com
+    at POST (src\app\api\orders\syncOrderSheet\route.ts:611:66)
+  609 | ...tName = process.env.PURCHASE_SHEET_NAME || DEFAULT_PURCHASE_SHEET_NAME;
+  610 | ...
+> 611 | ...t = await adminDb.collectionGroup("deals").get();
+      |                                               ^
+  612 | ...
+  613 | ...= new Set<string>();
+  614 | ...sSnapshot.docs.map((doc) => { {
+  type: 'system',
+  errno: 'ENOTFOUND',
+  code: 'ENOTFOUND',
+  constructor: [Function: FetchError]
+}
+Walk-in sheet sync failed: Error [FetchError]: request to https://firestore.googleapis.com/v1/projects/studio-3799785967-d0d9d/databases/(default)/documents:runQuery?$alt=json%3Benum-encoding=int failed, reason: getaddrinfo ENOTFOUND firestore.googleapis.com
+    at POST (src\app\api\walkin\syncWalkinSheet\route.ts:341:72)
+  339 | ...s.env.WALKIN_SHEET_NAME || process.env.WALKING_SHEET_NAME || DEFAULT_SHEET_NAME;
+  340 | ...
+> 341 | ...wait adminDb.collection("Walkin_Customer").get();
+      |                                               ^
+  342 | ...Lookup = new Set<string>();
+  343 | ...ach((docSnap: FirestoreDocSnap) => {
+  344 | ....data() as Record<string, unknown>; {
+  type: 'system',
+  errno: 'ENOTFOUND',
+  code: 'ENOTFOUND',
+  constructor: [Function: FetchError]
+}
+[browser] Sheet auto-sync completed with failures: [
+  { label: [32m'Order'[39m, message: [32m'Failed to fetch'[39m, ok: [33mfalse[39m, status: [33m0[39m },
+  {
+    label: [32m'Walk-in'[39m,
+    message: [32m'Failed to fetch'[39m,
+    ok: [33mfalse[39m,
+    status: [33m0[39m
+  }
+] (src/app/dashboard/page.tsx:2595:19)
+[browser] Sheet auto-sync completed with failures: [
+  {
+    label: [32m'Order'[39m,
+    message: [32m'request to https://firestore.googleapis.com/v1/projects/studio-3799785967-d0d9d/databases/(default)/documents:runQuery?$alt=json%3Benum-encoding=int failed, reason: getaddrinfo ENOTFOUND firestore.googleapis.com'[39m,
+    ok: [33mfalse[39m,
+    status: [33m500[39m
+  },
+  {
+    label: [32m'Walk-in'[39m,
+    message: [32m'request to https://firestore.googleapis.com/v1/projects/studio-3799785967-d0d9d/databases/(default)/documents:runQuery?$alt=json%3Benum-encoding=int failed, reason: getaddrinfo ENOTFOUND firestore.googleapis.com'[39m,
+    ok: [33mfalse[39m,
+    status: [33m500[39m
+  }
+] (src/app/dashboard/page.tsx:2595:19)
+Order sheet sync failed: Error: Internal error encountered.
+    at async POST (src\app\api\orders\syncOrderSheet\route.ts:1229:38)
+  1227 |     const uniquePurchaseRows = mergeDuplicatePurchaseRows(purchaseRows);
+  1228 |
+> 1229 |     const existingPurchaseResponse = await sheets.spreadsheets.values.get({
+       |                                      ^
+  1230 |       spreadsheetId: sheetId,
+  1231 |       range: `${purchaseSheetName}!A1:${PURCHASE_SHEET_LAST_COLUMN}`,
+  1232 |     }); {
+  config: {
+    url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+    method: 'GET',
+    apiVersion: '',
+    userAgentDirectives: [ [Object] ],
+    paramsSerializer: [Function (anonymous)],
+    headers: {
+      'x-goog-api-client': 'gdcl/7.2.0 gl-node/22.19.0',
+      'Accept-Encoding': 'gzip',
+      'User-Agent': 'google-api-nodejs-client/7.2.0 (gzip)',
+      Authorization: '<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.'
+    },
+    params: {},
+    validateStatus: [Function (anonymous)],
+    retry: true,
+    responseType: 'unknown',
+    errorRedactor: [Function: defaultErrorRedactor],
+    retryConfig: {
+      currentRetryAttempt: 3,
+      retry: 3,
+      httpMethodsToRetry: [Array],
+      noResponseRetries: 2,
+      retryDelayMultiplier: 2,
+      timeOfFirstRequest: 1781241178686,
+      totalTimeout: 9007199254740991,
+      maxRetryDelay: 9007199254740991,
+      statusCodesToRetry: [Array]
+    }
+  },
+  response: {
+    config: {
+      url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ',
+      method: 'GET',
+      apiVersion: '',
+      userAgentDirectives: [Array],
+      paramsSerializer: [Function (anonymous)],
+      headers: [Object],
+      params: {},
+      validateStatus: [Function (anonymous)],
+      retry: true,
+      responseType: 'unknown',
+      errorRedactor: [Function: defaultErrorRedactor],
+      retryConfig: [Object]
+    },
+    data: { error: [Object] },
+    headers: {
+      'alt-svc': 'h3=":443"; ma=2592000,h3-29=":443"; ma=2592000',
+      'content-encoding': 'gzip',
+      'content-type': 'application/json; charset=UTF-8',
+      date: 'Fri, 12 Jun 2026 05:15:57 GMT',
+      server: 'ESF',
+      'transfer-encoding': 'chunked',
+      vary: 'Origin, X-Origin, Referer',
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'SAMEORIGIN',
+      'x-l2-request-path': 'l2-managed-6',
+      'x-xss-protection': '0'
+    },
+    status: 500,
+    statusText: 'Internal Server Error',
+    request: {
+      responseURL: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values/Purchase%21A1%3AQ'
+    }
+  },
+  error: undefined,
+  status: 500,
+  code: 500,
+  errors: [
+    {
+      message: 'Internal error encountered.',
+      domain: 'global',
+      reason: 'backendError'
+    }
+  ]
+}

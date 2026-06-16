@@ -135,9 +135,9 @@ export function LeaveWidget() {
   };
 
   return (
-    <div className="border-b border-amber-100 bg-amber-50/80 backdrop-blur-sm">
-      <div className="mx-auto max-w-screen-2xl px-4 md:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+    <div className="rounded-lg border border-amber-200 bg-amber-50/80 shadow-sm">
+      <div className="px-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 py-3">
           <button
             type="button"
             className="flex items-center gap-2 text-sm font-medium text-amber-800 hover:text-amber-900"
@@ -188,7 +188,7 @@ export function LeaveWidget() {
               <p className="py-1 text-xs text-amber-600">Loading...</p>
             ) : (
               <div className="space-y-2">
-                <div className="grid grid-cols-3 gap-3 text-center sm:grid-cols-6">
+                <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-3">
                   {[
                     { label: "Accrued", value: accrued, sub: accrualLabel },
                     { label: "Used", value: used, sub: "approved" },
@@ -206,7 +206,7 @@ export function LeaveWidget() {
                 </div>
 
                 {(showApplyForm || requests.length > 0) && (
-                  <div className="mt-2 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+                  <div className="mt-2 grid gap-3">
                     {showApplyForm ? (
                       <Card className="border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#fff8ed_100%)] shadow-sm">
                         <CardHeader className="pb-3">
@@ -229,7 +229,7 @@ export function LeaveWidget() {
                           </div>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                          <div className="grid gap-4 md:grid-cols-2">
+                          <div className="grid gap-4">
                             <div className="space-y-1.5">
                               <Label>Leave Type</Label>
                               <Select value={form.leaveType} onValueChange={(value) => setForm((prev) => ({ ...prev, leaveType: value }))}>

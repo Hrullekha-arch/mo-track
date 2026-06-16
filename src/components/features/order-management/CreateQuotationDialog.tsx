@@ -15,7 +15,10 @@ import { useAuth } from "@/context/AuthContext";
 import { Separator } from "@/components/ui/separator";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
-import { createQuotationAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
+import {
+  createQuotationAction,
+  updateConvertedQuotationAction,
+} from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
@@ -36,6 +39,7 @@ import {
 // ═══════════════════════════════════════════════════════════
 
 type BcnType = "fabric" | "foam" | "tassel" | "hardware";
+type QuotationDialogMode = "create" | "clone" | "edit";
 
 interface CreateQuotationDialogProps {
   isOpen: boolean;
@@ -46,6 +50,7 @@ interface CreateQuotationDialogProps {
   initialItems: DealProduct[];
   initialVasDetails: VasDetail[];
   initialQuotation?: Quotation | null;
+  mode?: QuotationDialogMode;
 }
 
 const DEFAULT_ADD_ITEM_STATE = {
@@ -57,7 +62,7 @@ const DEFAULT_ADD_ITEM_STATE = {
   room: "",
   noOfPcs: "1",
   remark: "",
-  gstMode: "INCL" as const,
+  gstMode: "INCL" as "EXCL" | "INCL",
   categoryGroup: "", // ✅ ADDED
 };
 
@@ -87,6 +92,7 @@ export const itemDetailSchema = z.object({
     (val) => val === '' || val == null ? 0 : (typeof val === "string" ? parseFloat(val) : Number(val)),
     z.number().min(0, "Rate must be non-negative")
   ),
+  exclusiveRate: z.number().optional(),
   originalMrp: z.number().optional(),
   subtotal: z.number().optional(),
   discountPercent: z.preprocess(
@@ -244,32 +250,27 @@ async function fetchStockTypeMapByBcn(bcns: string[]): Promise<Map<string, any>>
 
 function calculateItemTotals(item: any) {
   const quantity = Number(item.quantity) || 0;
-  const rate = Number(item.rate) || 0;
-  const subtotal = quantity * rate;
-  const discountPercent = Number(item.discountPercent) || 0;
-  const discount = subtotal * (discountPercent / 100);
-  const amountAfterDiscount = subtotal - discount;
-  
   const gstFromItem = Number(item.gstPercent);
   const resolvedGst = Number.isFinite(gstFromItem) && gstFromItem > 0
     ? gstFromItem
     : gstPercentForBcnType(item.bcnType);
-
   const gstMode = item.gstMode === "EXCL" ? "EXCL" : "INCL";
-  
-  let taxableAmt = 0;
-  let totalGst = 0;
-  let totalAmount = 0;
-  
-  if (gstMode === "EXCL") {
-    taxableAmt = amountAfterDiscount;
-    totalGst = taxableAmt * (resolvedGst / 100);
-    totalAmount = taxableAmt + totalGst;
-  } else {
-    taxableAmt = amountAfterDiscount / (1 + resolvedGst / 100);
-    totalGst = amountAfterDiscount - taxableAmt;
-    totalAmount = amountAfterDiscount;
-  }
+  const rawRate = Number(item.rate) || 0;
+  const storedExclusiveRate = Number(item.exclusiveRate);
+  const exclusiveRate =
+    rawRate > 0
+      ? gstMode === "EXCL" || resolvedGst <= 0
+        ? rawRate
+        : rawRate / (1 + resolvedGst / 100)
+      : Number.isFinite(storedExclusiveRate) && storedExclusiveRate > 0
+      ? storedExclusiveRate
+      : 0;
+  const subtotal = quantity * exclusiveRate;
+  const discountPercent = Number(item.discountPercent) || 0;
+  const discount = subtotal * (discountPercent / 100);
+  const taxableAmt = subtotal - discount;
+  const totalGst = taxableAmt * (resolvedGst / 100);
+  const totalAmount = taxableAmt + totalGst;
   
   const cgst = totalGst / 2;
   const sgst = totalGst / 2;
@@ -280,7 +281,8 @@ function calculateItemTotals(item: any) {
     gstPercent: resolvedGst,
     gstMode,
     quantity,
-    rate,
+    rate: rawRate,
+    exclusiveRate,
     discountPercent,
     subtotal,
     discount,
@@ -306,6 +308,7 @@ export function CreateQuotationDialog({
   initialItems,
   initialVasDetails,
   initialQuotation,
+  mode,
 }: CreateQuotationDialogProps) {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -319,6 +322,10 @@ export function CreateQuotationDialog({
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
   const [addItem, setAddItem] = useState({ ...DEFAULT_ADD_ITEM_STATE });
   const initSignatureRef = useRef("");
+  const dialogMode: QuotationDialogMode =
+    mode || (initialQuotation ? "clone" : "create");
+  const isCloneMode = dialogMode === "clone";
+  const isEditMode = dialogMode === "edit";
 
   // ─── Form ────────────────────────────────────────────────
   const form = useForm<FormValues>({
@@ -411,6 +418,16 @@ export function CreateQuotationDialog({
 
     const rateValue = Number(addItem.rate) || resolveStockRate(selectedStock);
     const discountPercent = Number(addItem.discountPercent) || 0;
+
+    if (rateValue <= 0) {
+      toast({
+        variant: "destructive",
+        title: "Missing Rate",
+        description: "No stock rate is available. Please enter the rate manually.",
+      });
+      return;
+    }
+
     const resolvedBcnType = normalizeBcnType(selectedStock?.type) || "fabric";
     const gstPercent = gstPercentForBcnType(resolvedBcnType);
     const fallbackUnit = resolvedBcnType === "fabric" ? "Mtr" : "Pcs";
@@ -467,6 +484,7 @@ export function CreateQuotationDialog({
       customerId: customer?.id || "",
       quotationId: initialQuotation?.id || "",
       quotationUpdatedAt: (initialQuotation as any)?.updatedAt || "",
+      dialogMode,
       userStore: user?.store || "",
       items: (initialItems || []).map((item: any) => [
         item.id || "",
@@ -523,7 +541,11 @@ export function CreateQuotationDialog({
             resolvedBcnType = normalizeBcnType(stock?.type) || "fabric";
           }
           
-          const detectedGst = gstPercentForBcnType(resolvedBcnType);
+          const storedGst = Number(item.gstPercent);
+          const detectedGst =
+            Number.isFinite(storedGst) && storedGst >= 0
+              ? storedGst
+              : gstPercentForBcnType(resolvedBcnType);
           const fallbackUnit = resolvedBcnType === "fabric" ? "Mtr" : "Pcs";
           const resolvedStockUnit = normalizeStockUnit(item.stockUnit || item.unit || stock?.unit, fallbackUnit);
 
@@ -559,6 +581,11 @@ export function CreateQuotationDialog({
             stockUnit: resolvedStockUnit,
             quantity: Number(item.quantity) || 0,
             rate: effectiveRate,
+            exclusiveRate:
+              Number.isFinite(Number(item.exclusiveRate)) &&
+              Number(item.exclusiveRate) >= 0
+                ? Number(item.exclusiveRate)
+                : undefined,
             originalMrp,
             discountPercent: Number(item.discountPercent) || 0,
             bcnType: resolvedBcnType,
@@ -609,7 +636,10 @@ export function CreateQuotationDialog({
             (customer as any).customerName ||
             customer.customerId ||
             "Customer",
-          billingAddress: customer.billingAddress?.line1 || customer.addressPinCode,
+          billingAddress:
+            (initialQuotation as any)?.billingAddress ||
+            customer.billingAddress?.line1 ||
+            customer.addressPinCode,
           dealName:
             initialQuotation?.dealName ||
             deal.title ||
@@ -634,7 +664,17 @@ export function CreateQuotationDialog({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, deal, customer, initialItems, initialVasDetails, initialQuotation, user, form]);
+  }, [
+    isOpen,
+    deal,
+    customer,
+    initialItems,
+    initialVasDetails,
+    initialQuotation,
+    dialogMode,
+    user,
+    form,
+  ]);
 
   // ─── Submission Handlers ─────────────────────────────────
 
@@ -663,29 +703,49 @@ export function CreateQuotationDialog({
     const valuesForCreate = {
       ...values,
       items: normalizedItems,
+      createdBy: user.name || user.id,
     };
 
-    const totalAmount = valuesForCreate.items.reduce((sum, item) => {
-      const { totalAmount } = calculateItemTotals(item);
-      return sum + totalAmount;
+    const totalAmount = normalizedItems.reduce((sum, item) => {
+      return sum + (Number(item.totalAmount) || 0);
     }, 0);
 
     const vasTotal = (values.vasDetails || []).reduce((sum, vas) => {
-      return sum + (Number(vas.rate) || 0) * (Number(vas.quantity) || 0);
+      const taxableAmount = (Number(vas.rate) || 0) * (Number(vas.quantity) || 0);
+      const gstPercent = Number(vas.gstPercent) || 0;
+      return sum + taxableAmount + taxableAmount * (gstPercent / 100);
     }, 0);
 
     try {
-      const quotationResult = await createQuotationAction(
-        customer.id,
-        deal.id,
-        valuesForCreate,
-        totalAmount + vasTotal
-      );
+      const quotationResult =
+        isEditMode && initialQuotation
+          ? await updateConvertedQuotationAction(
+              customer.id,
+              deal.id,
+              initialQuotation.id,
+              valuesForCreate,
+              totalAmount + vasTotal,
+              {
+                id: user.id,
+                name: user.name || user.email || user.id,
+                role: user.role,
+              }
+            )
+          : await createQuotationAction(
+              customer.id,
+              deal.id,
+              valuesForCreate,
+              totalAmount + vasTotal
+            );
 
       if (quotationResult.success) {
         toast({
-          title: "✓ Quotation Created",
-          description: "The quotation has been created successfully.",
+          title: isEditMode
+            ? "Quotation Updated"
+            : isCloneMode
+              ? "Quotation Cloned"
+              : "Quotation Created",
+          description: quotationResult.message,
         });
         form.reset();
         onSuccess();
@@ -693,7 +753,11 @@ export function CreateQuotationDialog({
       } else {
         toast({
           variant: "destructive",
-          title: "Quotation Creation Failed",
+          title: isEditMode
+            ? "Quotation Update Failed"
+            : isCloneMode
+              ? "Quotation Clone Failed"
+              : "Quotation Creation Failed",
           description: quotationResult.message,
         });
       }
@@ -702,12 +766,27 @@ export function CreateQuotationDialog({
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to create the quotation.",
+        description: isEditMode
+          ? "Failed to update the converted quotation."
+          : isCloneMode
+            ? "Failed to clone the quotation."
+            : "Failed to create the quotation.",
       });
     } finally {
       setLoading(false);
     }
-  }, [form, user, customer.id, deal.id, toast, onSuccess, onOpenChange]);
+  }, [
+    form,
+    user,
+    customer.id,
+    deal.id,
+    initialQuotation,
+    isCloneMode,
+    isEditMode,
+    toast,
+    onSuccess,
+    onOpenChange,
+  ]);
 
   const handleProceed = useCallback(async () => {
     const isValid = await form.trigger();
@@ -747,12 +826,30 @@ export function CreateQuotationDialog({
       <DialogContent className="max-w-[90vw] h-[95vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>
-            {view === 'edit' ? 'Create Quotation' : 'Preview Quotation'}
+            {view === 'edit'
+              ? isEditMode
+                ? `Edit Converted Quotation #${initialQuotation?.quotationNo}`
+                : isCloneMode
+                  ? `Clone Quotation #${initialQuotation?.quotationNo}`
+                  : 'Create Quotation'
+              : isEditMode
+                ? 'Preview Quotation Correction'
+                : isCloneMode
+                  ? 'Preview Cloned Quotation'
+                  : 'Preview Quotation'}
           </DialogTitle>
           <DialogDescription>
             {view === 'edit'
-              ? 'Fill in the quotation details and add items.'
-              : 'Review the quotation details before creating.'}
+              ? isEditMode
+                ? 'Update the converted quotation. Its linked order will be synchronized when saved.'
+                : isCloneMode
+                  ? 'Review and update the copied quotation before creating the new quotation.'
+                  : 'Fill in the quotation details and add items.'
+              : isEditMode
+                ? 'Confirm the corrected quotation and linked order values.'
+                : isCloneMode
+                  ? 'Review the cloned quotation before creating it.'
+                  : 'Review the quotation details before creating.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -770,6 +867,7 @@ export function CreateQuotationDialog({
               onBcnSearch={handleBcnSearch}
               onBcnSelect={handleBcnSelect}
               onAddItem={handleAddItem}
+              mode={dialogMode}
             />
           ) : (
             <QuotationPreview
@@ -777,6 +875,7 @@ export function CreateQuotationDialog({
               onBack={handleBack}
               onSubmit={handleCreateQuotation}
               loading={loading}
+              mode={dialogMode}
             />
           )}
         </div>
@@ -820,6 +919,7 @@ interface QuotationEditFormProps {
   onBcnSearch: (query: string) => void;
   onBcnSelect: (value: string) => void;
   onAddItem: () => void;
+  mode: QuotationDialogMode;
 }
 
 const QuotationEditForm = memo(function QuotationEditForm({
@@ -834,7 +934,9 @@ const QuotationEditForm = memo(function QuotationEditForm({
   onBcnSearch,
   onBcnSelect,
   onAddItem,
+  mode,
 }: QuotationEditFormProps) {
+  const hasSourceQuotation = mode !== "create";
   return (
     <FormProvider {...form}>
       <form className="space-y-6 py-4">
@@ -846,6 +948,9 @@ const QuotationEditForm = memo(function QuotationEditForm({
           control={form.control}
           fields={itemFields}
           remove={removeItem}
+          isEditing={false}
+          isCloning={mode === "clone"}
+          isCorrection={mode === "edit"}
         />
         
         <Separator />
@@ -858,6 +963,7 @@ const QuotationEditForm = memo(function QuotationEditForm({
           onBcnSearch={onBcnSearch}
           onBcnSelect={onBcnSelect}
           onAddItem={onAddItem}
+          isEditing={hasSourceQuotation}
         />
         
         <Separator />
@@ -981,7 +1087,7 @@ const QuotationHeader = memo(function QuotationHeader({
           <FormItem>
             <FormLabel>Customer Name*</FormLabel>
             <FormControl>
-              <Input {...field} readOnly />
+              <Input {...field} value={field.value ?? ""} readOnly />
             </FormControl>
             <FormMessage />
           </FormItem>
@@ -1015,23 +1121,45 @@ const PreviouslySelectedItems = memo(function PreviouslySelectedItems({
   control,
   fields,
   remove,
+  isEditing,
+  isCloning = false,
+  isCorrection = false,
 }: {
   control: Control<FormValues>;
   fields: any[];
   remove: (index: number) => void;
+  isEditing: boolean;
+  isCloning?: boolean;
+  isCorrection?: boolean;
 }) {
   if (fields.length === 0) return null;
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold border-b pb-2">Previously Selected Items</h3>
+      {isCorrection ? (
+        <div className="border-b pb-2">
+          <h3 className="text-lg font-semibold">Converted Quotation Items</h3>
+          <p className="text-sm text-muted-foreground">
+            Changes saved here will also update the linked order.
+          </p>
+        </div>
+      ) : isCloning ? (
+        <div className="border-b pb-2">
+          <h3 className="text-lg font-semibold">Cloned Items</h3>
+          <p className="text-sm text-muted-foreground">
+            Update the copied item details before creating the new quotation.
+          </p>
+        </div>
+      ) : (
+        <h3 className="text-lg font-semibold border-b pb-2">Previously Selected Items</h3>
+      )}
       <div className="border rounded-md overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead className="w-10">#</TableHead>
               <TableHead>Description</TableHead>
-              <TableHead className="w-28">Category</TableHead> {/* ✅ ADDED */}
+              <TableHead className="w-28">Category</TableHead>
               <TableHead>Quantity</TableHead>
               <TableHead className="w-32">Rate</TableHead>
               <TableHead>Discount %</TableHead>
@@ -1049,6 +1177,7 @@ const PreviouslySelectedItems = memo(function PreviouslySelectedItems({
                 control={control}
                 index={index}
                 onRemove={remove}
+                isEditing={isEditing}
               />
             ))}
           </TableBody>
@@ -1062,10 +1191,12 @@ const ItemRow = memo(function ItemRow({
   control,
   index,
   onRemove,
+  isEditing,
 }: {
   control: Control<FormValues>;
   index: number;
   onRemove: (index: number) => void;
+  isEditing: boolean;
 }) {
   const handleRemove = useCallback(() => onRemove(index), [index, onRemove]);
   
@@ -1075,8 +1206,8 @@ const ItemRow = memo(function ItemRow({
     [currentItem]
   );
   const rateIsLower = currentItem &&
-    typeof currentItem.originalMrp === 'number' &&
-    typeof currentItem.rate === 'number' &&
+    typeof currentItem.originalMrp === "number" &&
+    typeof currentItem.rate === "number" &&
     currentItem.rate < currentItem.originalMrp;
 
   return (
@@ -1091,145 +1222,174 @@ const ItemRow = memo(function ItemRow({
             {currentItem?.salesDescription || "-"}
           </p>
         </div>
-
-        <FormField
-          control={control}
-          name={`items.${index}.salesDescription`}
-          render={({ field }) => (
-            <Combobox
-              options={DESCRIPTION_OPTIONS}
-              value={field.value}
-              onSelect={field.onChange}
-              placeholder="--SELECT--"
-            />
-          )}
-        />
+        {!isEditing && (
+          <FormField
+            control={control}
+            name={`items.${index}.salesDescription`}
+            render={({ field }) => (
+              <Combobox
+                options={DESCRIPTION_OPTIONS}
+                value={field.value}
+                onSelect={field.onChange}
+                placeholder="--SELECT--"
+              />
+            )}
+          />
+        )}
       </TableCell>
       <TableCell>
         <div className="text-sm font-medium text-blue-600">
           {currentItem?.categoryGroup || "-"}
         </div>
-      </TableCell> {/* ✅ ADDED */}
-      <TableCell>
-        <FormField
-          control={control}
-          name={`items.${index}.quantity`}
-          render={({ field }) => (
-            <Input
-              type="number"
-              value={field.value || ""}
-              onChange={(e) => {
-                const val = e.target.value;
-                field.onChange(val === "" ? 0 : parseFloat(val));
-              }}
-              onBlur={field.onBlur}
-              className="w-24"
-            />
-          )}
-        />
       </TableCell>
       <TableCell>
-        <FormField
-          control={control}
-          name={`items.${index}.rate`}
-          render={({ field }) => (
-            <Input
-              type="number"
-              step="0.01"
-              value={field.value || ""}
-              onChange={(e) => {
-                const val = e.target.value;
-                field.onChange(val === "" ? 0 : parseFloat(val));
-              }}
-              onBlur={field.onBlur}
-              className={rateIsLower ? "border-red-500 ring-2 ring-red-200 w-28" : "w-28"}
-            />
-          )}
-        />
+        {isEditing ? (
+          Number(currentItem?.quantity || 0)
+        ) : (
+          <FormField
+            control={control}
+            name={`items.${index}.quantity`}
+            render={({ field }) => (
+              <Input
+                type="number"
+                value={field.value || ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  field.onChange(val === "" ? 0 : parseFloat(val));
+                }}
+                onBlur={field.onBlur}
+                className="w-24"
+              />
+            )}
+          />
+        )}
       </TableCell>
       <TableCell>
-        <FormField
-          control={control}
-          name={`items.${index}.discountPercent`}
-          render={({ field }) => (
-            <Input
-              type="number"
-              step="0.01"
-              value={field.value || ""}
-              onChange={(e) => {
-                const val = e.target.value;
-                field.onChange(val === "" ? 0 : parseFloat(val));
-              }}
-              onBlur={field.onBlur}
-              className="w-20"
-            />
-          )}
-        />
+        {isEditing ? (
+          Number(currentItem?.rate || 0).toFixed(2)
+        ) : (
+          <FormField
+            control={control}
+            name={`items.${index}.rate`}
+            render={({ field }) => (
+              <Input
+                type="number"
+                step="0.01"
+                value={field.value || ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  field.onChange(val === "" ? 0 : parseFloat(val));
+                }}
+                onBlur={field.onBlur}
+                className={rateIsLower ? "border-red-500 ring-2 ring-red-200 w-28" : "w-28"}
+              />
+            )}
+          />
+        )}
       </TableCell>
       <TableCell>
-        <FormField
-          control={control}
-          name={`items.${index}.gstMode`}
-          render={({ field }) => (
-            <div className="flex flex-col gap-2 text-xs">
-              <label className="flex items-center gap-2">
-                <Checkbox
-                  checked={field.value === "EXCL"}
-                  onCheckedChange={() => field.onChange("EXCL")}
-                />
-                <span>Excl GST</span>
-              </label>
-              <label className="flex items-center gap-2">
-                <Checkbox
-                  checked={field.value === "INCL"}
-                  onCheckedChange={() => field.onChange("INCL")}
-                />
-                <span>Incl GST</span>
-              </label>
-            </div>
-          )}
-        />
+        {isEditing ? (
+          Number(currentItem?.discountPercent || 0).toFixed(2)
+        ) : (
+          <FormField
+            control={control}
+            name={`items.${index}.discountPercent`}
+            render={({ field }) => (
+              <Input
+                type="number"
+                step="0.01"
+                value={field.value || ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  field.onChange(val === "" ? 0 : parseFloat(val));
+                }}
+                onBlur={field.onBlur}
+                className="w-20"
+              />
+            )}
+          />
+        )}
       </TableCell>
       <TableCell>
-        <FormField
-          control={control}
-          name={`items.${index}.gstPercent`}
-          render={({ field }) => (
-            <Input
-              type="number"
-              step="0.01"
-              value={field.value ?? ""}
-              onChange={(e) => {
-                const val = e.target.value;
-                field.onChange(val === "" ? 0 : parseFloat(val));
-              }}
-              onBlur={field.onBlur}
-              className="w-20"
-            />
-          )}
-        />
+        {isEditing ? (
+          currentItem?.gstMode === "EXCL" ? "Excl GST" : "Incl GST"
+        ) : (
+          <FormField
+            control={control}
+            name={`items.${index}.gstMode`}
+            render={({ field }) => (
+              <div className="flex flex-col gap-2 text-xs">
+                <label className="flex items-center gap-2">
+                  <Checkbox
+                    checked={field.value === "EXCL"}
+                    onCheckedChange={() => field.onChange("EXCL")}
+                  />
+                  <span>Excl GST</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <Checkbox
+                    checked={field.value === "INCL"}
+                    onCheckedChange={() => field.onChange("INCL")}
+                  />
+                  <span>Incl GST</span>
+                </label>
+              </div>
+            )}
+          />
+        )}
       </TableCell>
       <TableCell>
-        <Input
-          readOnly
-          disabled
-          value={Number(calculatedItem.taxableAmt || 0).toFixed(2)}
-          className="w-24 bg-gray-50"
-        />
+        {isEditing ? (
+          Number(currentItem?.gstPercent || 0).toFixed(2)
+        ) : (
+          <FormField
+            control={control}
+            name={`items.${index}.gstPercent`}
+            render={({ field }) => (
+              <Input
+                type="number"
+                step="0.01"
+                value={field.value ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  field.onChange(val === "" ? 0 : parseFloat(val));
+                }}
+                onBlur={field.onBlur}
+                className="w-20"
+              />
+            )}
+          />
+        )}
       </TableCell>
       <TableCell>
-        <FormField
-          control={control}
-          name={`items.${index}.room`}
-          render={({ field }) => (
-            <Combobox
-              options={roomOptions}
-              value={field.value || ""}
-              onSelect={field.onChange}
-              placeholder="--SELECT--"
-            />
-          )}
-        />
+        {isEditing ? (
+          Number(calculatedItem.taxableAmt || 0).toFixed(2)
+        ) : (
+          <Input
+            readOnly
+            disabled
+            value={Number(calculatedItem.taxableAmt || 0).toFixed(2)}
+            className="w-24 bg-gray-50"
+          />
+        )}
+      </TableCell>
+      <TableCell>
+        {isEditing ? (
+          currentItem?.room || "-"
+        ) : (
+          <FormField
+            control={control}
+            name={`items.${index}.room`}
+            render={({ field }) => (
+              <Combobox
+                options={roomOptions}
+                value={field.value || ""}
+                onSelect={field.onChange}
+                placeholder="--SELECT--"
+              />
+            )}
+          />
+        )}
       </TableCell>
       <TableCell>
         <Button
@@ -1237,6 +1397,8 @@ const ItemRow = memo(function ItemRow({
           variant="destructive"
           size="icon"
           onClick={handleRemove}
+          title="Delete item"
+          aria-label={`Delete item ${index + 1}`}
         >
           <Trash2 className="h-4 w-4" />
         </Button>
@@ -1253,6 +1415,7 @@ const AddItemSection = memo(function AddItemSection({
   onBcnSearch,
   onBcnSelect,
   onAddItem,
+  isEditing,
 }: {
   addItem: typeof DEFAULT_ADD_ITEM_STATE;
   setAddItem: React.Dispatch<React.SetStateAction<typeof DEFAULT_ADD_ITEM_STATE>>;
@@ -1261,6 +1424,7 @@ const AddItemSection = memo(function AddItemSection({
   onBcnSearch: (query: string) => void;
   onBcnSelect: (value: string) => void;
   onAddItem: () => void;
+  isEditing: boolean;
 }) {
   return (
     <div className="space-y-4">
@@ -1301,8 +1465,10 @@ const AddItemSection = memo(function AddItemSection({
           <Input
             type="number"
             step="0.01"
+            min="0"
             value={addItem.rate}
-            readOnly
+            onChange={(e) => setAddItem((prev) => ({ ...prev, rate: e.target.value }))}
+            placeholder="Enter rate"
           />
         </div>
         <div className="space-y-2">
@@ -1314,6 +1480,31 @@ const AddItemSection = memo(function AddItemSection({
             onChange={(e) => setAddItem((prev) => ({ ...prev, discountPercent: e.target.value }))}
           />
         </div>
+        {isEditing && (
+          <div className="space-y-2">
+            <FormLabel>GST Mode</FormLabel>
+            <div className="flex min-h-10 items-center gap-4 rounded-md border px-3">
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={addItem.gstMode === "EXCL"}
+                  onCheckedChange={() =>
+                    setAddItem((prev) => ({ ...prev, gstMode: "EXCL" }))
+                  }
+                />
+                <span>Excl GST</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={addItem.gstMode === "INCL"}
+                  onCheckedChange={() =>
+                    setAddItem((prev) => ({ ...prev, gstMode: "INCL" }))
+                  }
+                />
+                <span>Incl GST</span>
+              </label>
+            </div>
+          </div>
+        )}
         <div className="space-y-2">
           <FormLabel>Room</FormLabel>
           <Combobox
@@ -1449,7 +1640,7 @@ const VasForm = memo(function VasForm({ form }: { form: UseFormReturn<FormValues
               <FormItem>
                 <FormLabel>Quantity*</FormLabel>
                 <FormControl>
-                  <Input {...field} />
+                  <Input {...field} value={field.value ?? ""} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -1463,7 +1654,7 @@ const VasForm = memo(function VasForm({ form }: { form: UseFormReturn<FormValues
               <FormItem>
                 <FormLabel>Rate*</FormLabel>
                 <FormControl>
-                  <Input {...field} />
+                  <Input {...field} value={field.value ?? ""} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -1477,7 +1668,12 @@ const VasForm = memo(function VasForm({ form }: { form: UseFormReturn<FormValues
               <FormItem>
                 <FormLabel>GST %</FormLabel>
                 <FormControl>
-                  <Input type="number" step="0.01" {...field} />
+                  <Input
+                    type="number"
+                    step="0.01"
+                    {...field}
+                    value={field.value ?? ""}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -1539,13 +1735,17 @@ const QuotationPreview = memo(function QuotationPreview({
   onBack,
   onSubmit,
   loading,
+  mode,
 }: {
   form: UseFormReturn<FormValues>;
   onBack: () => void;
   onSubmit: () => void;
   loading: boolean;
+  mode: QuotationDialogMode;
 }) {
   const values = form.getValues();
+  const isCloning = mode === "clone";
+  const isEditing = mode === "edit";
 
   const calculatedItems = useMemo(
     () => values.items.map(calculateItemTotals),
@@ -1621,7 +1821,13 @@ const QuotationPreview = memo(function QuotationPreview({
     <FormProvider {...form}>
       <div className="space-y-6">
         <div className="flex justify-between items-center">
-          <h2 className="text-xl font-bold">Confirm & Create Quotation</h2>
+          <h2 className="text-xl font-bold">
+            {isEditing
+              ? "Confirm Quotation Correction"
+              : isCloning
+                ? "Confirm Cloned Quotation"
+                : "Confirm & Create Quotation"}
+          </h2>
           <Button variant="ghost" onClick={onBack}>
             <ArrowLeft className="mr-2 h-4 w-4" /> Back
           </Button>
@@ -1669,7 +1875,7 @@ const QuotationPreview = memo(function QuotationPreview({
                 <TableRow>
                   <TableHead>#</TableHead>
                   <TableHead>Collection / Brand</TableHead>
-                  <TableHead>Category</TableHead> {/* ✅ ADDED */}
+                  <TableHead>Category</TableHead>
                   <TableHead>Serial No</TableHead>
                   <TableHead>Quantity</TableHead>
                   <TableHead>Rate</TableHead>
@@ -1688,7 +1894,7 @@ const QuotationPreview = memo(function QuotationPreview({
                   <TableRow key={item.id || index}>
                     <TableCell>{index + 1}</TableCell>
                     <TableCell>{item.collectionBrand}</TableCell>
-                    <TableCell className="font-medium text-blue-600">{item.categoryGroup || "-"}</TableCell> {/* ✅ ADDED */}
+                    <TableCell className="font-medium text-blue-600">{item.categoryGroup || "-"}</TableCell>
                     <TableCell>{item.serialNo}</TableCell>
                     <TableCell>{item.quantity.toFixed(2)}</TableCell>
                     <TableCell>{item.rate.toFixed(2)}</TableCell>
@@ -1886,20 +2092,40 @@ const QuotationPreview = memo(function QuotationPreview({
                   className="bg-cyan-600 hover:bg-cyan-700"
                 >
                   {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Create Quotation
+                  {isEditing
+                    ? "Update Quotation & Order"
+                    : isCloning
+                      ? "Create Cloned Quotation"
+                      : "Create Quotation"}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Confirm Quotation Creation</AlertDialogTitle>
+                  <AlertDialogTitle>
+                    {isEditing
+                      ? "Confirm Converted Quotation Update"
+                      : isCloning
+                        ? "Confirm Quotation Clone"
+                        : "Confirm Quotation Creation"}
+                  </AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will create a quotation with status 'Pending Approval' for an amount of
-                    Rs. {totals.quotationAmount.toFixed(2)}. Are you sure you want to continue?
+                    {isEditing
+                      ? `This will update the converted quotation and synchronize its linked order for Rs. ${totals.quotationAmount.toFixed(2)}.`
+                      : isCloning
+                      ? `This will create a new quotation with a new quotation number for Rs. ${totals.quotationAmount.toFixed(2)}.`
+                      : `This will create a quotation with status 'Pending Approval' for an amount of Rs. ${totals.quotationAmount.toFixed(2)}.`}
+                    {" Are you sure you want to continue?"}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={onSubmit}>Continue & Create</AlertDialogAction>
+                  <AlertDialogAction onClick={onSubmit}>
+                    {isEditing
+                      ? "Continue & Update"
+                      : isCloning
+                        ? "Continue & Clone"
+                        : "Continue & Create"}
+                  </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>

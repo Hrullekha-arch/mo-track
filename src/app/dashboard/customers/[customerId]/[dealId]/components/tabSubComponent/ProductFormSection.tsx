@@ -1,5 +1,6 @@
 // components/deals/ProductFormSection.tsx
 "use client";
+import { useState } from "react";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -35,6 +36,8 @@ export function ProductFormSection({
   selectedFlooringType, setSelectedFlooringType,
   onStageItem, onBack
 }: Props) {
+  const [wallpaperOptionsOpen, setWallpaperOptionsOpen] = useState(false);
+
   return (
     <div className="space-y-4">
       <h3 className="text-lg font-semibold">
@@ -93,7 +96,50 @@ export function ProductFormSection({
             <FormItem>
               <FormLabel>{section === "wallpaper" ? "Wallpaper Code*" : "BCN*"}</FormLabel>
               {section === "wallpaper" ? (
-                <FormControl><Input {...field} placeholder="Wallpaper Code..." /></FormControl>
+                <FormControl>
+                  <div className="relative">
+                    <Input
+                      {...field}
+                      placeholder="Wallpaper Code..."
+                      autoComplete="off"
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        field.onChange(value);
+                        onBcnSearch(value);
+                        setWallpaperOptionsOpen(value.trim().length >= 2);
+                      }}
+                      onFocus={() => {
+                        const value = String(field.value || "");
+                        if (value.trim().length >= 2) {
+                          onBcnSearch(value);
+                          setWallpaperOptionsOpen(true);
+                        }
+                      }}
+                      onBlur={() => {
+                        window.setTimeout(() => setWallpaperOptionsOpen(false), 120);
+                      }}
+                    />
+                    {wallpaperOptionsOpen && bcnOptions.length > 0 && (
+                      <div className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-md border bg-background p-1 shadow-lg">
+                        {bcnOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            className="flex w-full flex-col rounded-sm px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              onBcnSelect(option.value);
+                              setWallpaperOptionsOpen(false);
+                            }}
+                          >
+                            <span className="font-medium">{option.value}</span>
+                            <span className="truncate text-xs text-muted-foreground">{option.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </FormControl>
               ) : (
                 <FormControl>
                   <Combobox options={bcnOptions} value={field.value || ""} onSearch={onBcnSearch} onSelect={onBcnSelect} placeholder="Search by BCN..." />

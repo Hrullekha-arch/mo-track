@@ -229,7 +229,7 @@ export default function InstallerLiveMap({ markers }: { markers: InstallerMapMar
   }, [markers.length]);
 
   return (
-    <div className="relative h-[430px] w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+    <div className="relative z-0 isolate h-[430px] w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 [&_.leaflet-control-container]:!z-[2] [&_.leaflet-pane]:!z-[1]">
       <div ref={mapContainerRef} className="h-full w-full" />
       {!markers.length && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-slate-100/70 text-sm text-slate-500">

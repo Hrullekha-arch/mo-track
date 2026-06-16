@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Loader2, Upload, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { collection, onSnapshot, addDoc, deleteDoc, doc, query, writeBatch } from "firebase/firestore";
+import { collection, onSnapshot, addDoc, deleteDoc, doc, query, writeBatch, getDocs, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { TaxDetail, Stock } from "@/lib/types";
 import * as XLSX from "xlsx";
@@ -54,15 +54,17 @@ export function TaxDetails() {
       setLoading(false);
     });
 
-    const stockQuery = query(collection(db, "stocks"));
-    const unsubscribeStocks = onSnapshot(stockQuery, (snapshot) => {
-      const stockData = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Stock));
-      setStocks(stockData);
-    });
+    getDocs(query(collection(db, "stocks"), limit(1000)))
+      .then((snapshot) => {
+        const stockData = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Stock));
+        setStocks(stockData);
+      })
+      .catch((error) => {
+        console.error("Error loading stock count data:", error);
+      });
 
     return () => {
       unsubscribeTax();
-      unsubscribeStocks();
     };
   }, []);
 

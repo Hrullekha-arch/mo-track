@@ -8,12 +8,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import { Loader2, ExternalLink } from "lucide-react";
+import { Loader2, ExternalLink, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getItemName, getItemQty } from "@/lib/order-utils";
 import AllocateDialog from "./AllocateDialog";
 import StatusBadge from "./StatusBadge";
 import Link from "next/link";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
+import { regenerateInvoiceAllocationAction } from "@/app/dashboard/orders/[orderId]/actions";
 
 interface OrderItemRowProps {
   resolved: ResolvedOrderItem;
@@ -27,7 +30,7 @@ interface OrderItemRowProps {
   isRefreshing?: boolean;
 }
 
-export default function OrderItemRow({
+ function OrderItemRow({
   resolved,
   order,
   orderId,
@@ -44,11 +47,60 @@ export default function OrderItemRow({
   const isLoading = status.kind === "loading";
   const isOrderApproved = order.status === "Approved";
   const invoiceRequired = order.invoicing?.invoiceRequired !== false;
+  const { toast } = useToast();
+  const { user, role } = useAuth();
 
   const name = getItemName(item);
   const bcn = stock?.bcn || name.split(" - ")[0] || name;
   const unit = item.type === "Fabric" ? "Mtr" : "PCS";
   const requiredQty = getItemQty(item);
+  const [isRegeneratingAllocation, setIsRegeneratingAllocation] = React.useState(false);
+
+  // True when the order document's allocation field shows this item is allocated,
+  // even if the reservedQty subcollection is out of sync (causing status.kind to be wrong).
+  const isItemAllocatedOnOrder = React.useMemo(() => {
+    const itemAny = item as any;
+    const allocationStatus = String(itemAny?.allocation?.status || "").toUpperCase();
+    const itemStatus = String(itemAny?.status || "").toLowerCase();
+    const lots: any[] = Array.isArray(itemAny?.allocation?.lots) ? itemAny.allocation.lots : [];
+    const lengths: any[] = Array.isArray(itemAny?.allocation?.lengths) ? itemAny.allocation.lengths : [];
+    const lotsAllocated = lots.reduce((s: number, l: any) => s + Number(l?.allocatedQty || 0), 0);
+    const lengthsAllocated = lengths.reduce((s: number, l: any) => s + Number(l?.allocatedQty || 0), 0);
+    return (
+      allocationStatus === "ALLOCATED" ||
+      allocationStatus === "PARTIAL" ||
+      itemStatus === "allocated" ||
+      Number(itemAny?.allocation?.allocatedQty) > 0 ||
+      lotsAllocated > 0 ||
+      lengthsAllocated > 0
+    );
+  }, [item]);
+
+  const handleRegenerateAllocation = React.useCallback(async () => {
+    if (!user?.id) return;
+    setIsRegeneratingAllocation(true);
+    try {
+      const result = await regenerateInvoiceAllocationAction({
+        orderId,
+        lineId: String((item as any)?.lineId || "").trim() || undefined,
+        bcn,
+        itemName: name,
+        requiredQty,
+        allocatedQty,
+        actor: { id: user.id, name: user.name || "Admin" },
+      });
+      if (!result.success) {
+        toast({ variant: "destructive", title: "Regenerate failed", description: result.message });
+        return;
+      }
+      toast({ title: "Allocation regenerated", description: result.message });
+      onAllocationSuccess(bcn);
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Regenerate failed", description: error?.message || "Failed to regenerate allocation." });
+    } finally {
+      setIsRegeneratingAllocation(false);
+    }
+  }, [allocatedQty, bcn, item, name, onAllocationSuccess, orderId, requiredQty, toast, user]);
 
   // Check if this item can be allocated
   const canAllocate = React.useMemo(() => {
@@ -248,8 +300,31 @@ export default function OrderItemRow({
 
       {/* Status */}
       <TableCell>
-        <StatusBadge status={status} invoiceRequired={invoiceRequired} />
+        {role === "admin" && invoiceRequired && status.kind !== "invoiced" && (status.kind === "allocated" || isItemAllocatedOnOrder) ? (
+          <div className="flex items-center gap-1.5">
+            <StatusBadge status={status} invoiceRequired={invoiceRequired} />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={() => void handleRegenerateAllocation()}
+              disabled={isRegeneratingAllocation || isLoading || isRefreshing}
+              title="Regenerate Allocation — resend for invoice"
+              aria-label="Regenerate Allocation"
+            >
+              {isRegeneratingAllocation ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+            </Button>
+          </div>
+        ) : (
+          <StatusBadge status={status} invoiceRequired={invoiceRequired} />
+        )}
       </TableCell>
     </TableRow>
   );
 }
+export default React.memo(OrderItemRow);

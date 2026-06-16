@@ -2,6 +2,7 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import { Order, PrintableInvoicePayload } from '@/lib/types';
+import { getMoDesignsCompanyName, normalizeCompanyFinancialYear } from '@/lib/financial-year';
 
 interface QuotationItem {
   collectionBrand: string;
@@ -67,7 +68,7 @@ export async function buildAndFetchInvoicePayload(
       customerName: order.customerName,
     });
 
-    const quotationNo = order.crmOrderNo;
+    const quotationNo = order.quotationNo || order.crmOrderNo;
 
     // -------------------- FETCH QUOTATION --------------------
     console.log(`${LOG_PREFIX} 🔎 Fetching quotation`, { quotationNo });
@@ -193,9 +194,12 @@ export async function buildAndFetchInvoicePayload(
       { subTotal: 0, discount: 0, taxableValue: 0, cgst: 0, sgst: 0, igst: 0 }
     );
 
-    const netAmount = totals.taxableValue + totals.cgst + totals.sgst + totals.igst;
+    const netAmount =
+      Math.round(
+        (totals.taxableValue + totals.cgst + totals.sgst + totals.igst + Number.EPSILON) * 100
+      ) / 100;
     const roundedTotal = Math.round(netAmount);
-    const roundOff = roundedTotal - netAmount;
+    const roundOff = Math.round((roundedTotal - netAmount + Number.EPSILON) * 100) / 100;
 
     console.log(`${LOG_PREFIX} 🧮 Totals computed`, {
       ...totals,
@@ -241,11 +245,12 @@ export async function buildAndFetchInvoicePayload(
     console.log(`${LOG_PREFIX} 🏷️ Invoice type`, { isVas });
 
     // -------------------- PAYLOAD --------------------
+    const invoiceDate = new Date().toISOString();
     const payload: PrintableInvoicePayload = {
       meta: {
         orderNo: order.id,
         quotationNo: quotation.quotationNo,
-        invoiceDate: new Date().toISOString(),
+        invoiceDate,
         isVas,
         salesPerson: order.salesPerson,
       },
@@ -255,9 +260,12 @@ export async function buildAndFetchInvoicePayload(
         address: quotation.billingAddress || order.customerAddress,
       },
       seller: {
-        companyName:
-          quotation.company ||
-          (isVas ? "SP SERVICES" : "MO Designs Private Limited - (2024-2025)"),
+        companyName: isVas
+          ? quotation.company || "SP SERVICES"
+          : normalizeCompanyFinancialYear(
+              quotation.company || getMoDesignsCompanyName(invoiceDate),
+              invoiceDate
+            ),
         address:
           isVas
             ? "2nd Floor, B-50 (MO), Sushant Lok Phase 2, Block B, Sector 56, Gurugram - 122011, Haryana, India"

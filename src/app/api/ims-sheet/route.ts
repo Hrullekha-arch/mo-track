@@ -8,6 +8,7 @@ const SHEET_ID =
   "1EpfQfhfNA0AKSLoPVRsi62fsBwU4GbIoVHgCBBZs69Y";
 
 const SHEET_NAME = "IMS";
+const CLOSING_QTY_COLUMN = "L";
 
 // ================= HELPERS =================
 function parseGoogleVisualizationResponse(
@@ -21,25 +22,12 @@ function parseGoogleVisualizationResponse(
   );
 }
 
-// COLUMN NUMBER => LETTER
-function getColumnLetter(column: number) {
-  let temp = "";
-  let letter = "";
-
-  while (column > 0) {
-    temp = ((column - 1) % 26).toString();
-
-    letter =
-      String.fromCharCode(
-        Number(temp) + 65
-      ) + letter;
-
-    column =
-      (column - (Number(temp) + 1)) /
-      26;
-  }
-
-  return letter;
+function toQty(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const normalized = String(value ?? "").replace(/,/g, "").trim();
+  if (!normalized) return 0;
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 // ================= API =================
@@ -65,94 +53,6 @@ export async function GET(
       );
     }
 
-    // ================= GET HEADER =================
-    const headerUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
-      SHEET_NAME
-    )}&range=M1:CC1&tq=${encodeURIComponent(
-      "SELECT *"
-    )}`;
-
-    const headerResponse =
-      await fetch(headerUrl, {
-        cache: "no-store",
-      });
-
-    const headerText =
-      await headerResponse.text();
-
-    const headerJson =
-      parseGoogleVisualizationResponse(
-        headerText
-      );
-
-    const headerRow =
-      headerJson?.table?.rows?.[0]?.c ||
-      [];
-
-    // ================= FIND TODAY DATE COLUMN =================
-    let dateColumnLetter = "M";
-
-    const today = new Date();
-
-    const todayDate =
-      today.getDate();
-
-    const todayMonth =
-      today.getMonth();
-
-    const todayYear =
-      today.getFullYear();
-
-    for (
-      let i = 0;
-      i < headerRow.length;
-      i++
-    ) {
-      const value =
-        headerRow?.[i]?.v;
-
-      if (!value) continue;
-
-      const headerValue = String(
-        value
-      ).trim();
-
-      // FORMAT:
-      // Date(2026,4,11)
-      const match =
-        headerValue.match(
-          /Date\((\d+),(\d+),(\d+)\)/
-        );
-
-      if (!match) continue;
-
-      const year = Number(
-        match[1]
-      );
-
-      // ZERO INDEXED
-      const month = Number(
-        match[2]
-      );
-
-      const day = Number(
-        match[3]
-      );
-
-      // MATCH TODAY
-      if (
-        day === todayDate &&
-        month === todayMonth &&
-        year === todayYear
-      ) {
-        // M starts from 13
-        dateColumnLetter =
-          getColumnLetter(i + 13);
-
-        break;
-      }
-    }
-
     // ================= QUERY =================
     // ONLY RETURN REQUIRED COLUMNS
     const query = encodeURIComponent(`
@@ -164,7 +64,7 @@ export async function GET(
         E,
         F,
         G,
-        ${dateColumnLetter}
+        ${CLOSING_QTY_COLUMN}
       WHERE A='${bcn}'
     `);
 
@@ -204,8 +104,8 @@ export async function GET(
       success: true,
       found: true,
 
-      dateColumn:
-        dateColumnLetter,
+      qtyColumn:
+        CLOSING_QTY_COLUMN,
 
       item: {
         bcn:
@@ -230,7 +130,7 @@ export async function GET(
           row?.c?.[6]?.v || null,
 
         qty:
-          row?.c?.[7]?.v || 0,
+          toQty(row?.c?.[7]?.v),
       },
     });
   } catch (error: any) {

@@ -71,6 +71,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import CrmDashboard from "@/components/features/dashboard/CrmDashboard";
 import { AccountsDashboard } from "@/components/features/dashboard/AccountsDashboard";
+import { LeaveWidget } from "@/components/features/dashboard/LeaveWidget";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -138,6 +139,9 @@ interface TimesheetHourEntry {
   workDetail: string;
   updatedAt?: string;
   updatedBy?: { id?: string; name?: string };
+  lockedAt?: string;
+  autoSubmittedAt?: string;
+  submittedBy?: { id?: string; name?: string; mode?: string };
 }
 
 type SalesmanUpdateCategory = "order" | "lead" | "quotation" | "purchase";
@@ -646,6 +650,16 @@ const  SalesmanDashboardV2 =() => {
             workDetail: String(existing?.workDetail || ""),
             updatedAt: existing?.updatedAt ? String(existing.updatedAt) : undefined,
             updatedBy,
+            lockedAt: existing?.lockedAt ? String(existing.lockedAt) : undefined,
+            autoSubmittedAt: existing?.autoSubmittedAt ? String(existing.autoSubmittedAt) : undefined,
+            submittedBy:
+              existing?.submittedBy && typeof existing.submittedBy === "object"
+                ? {
+                    id: String(existing.submittedBy.id || ""),
+                    name: String(existing.submittedBy.name || ""),
+                    mode: String(existing.submittedBy.mode || ""),
+                  }
+                : undefined,
           };
         });
 
@@ -663,9 +677,11 @@ const  SalesmanDashboardV2 =() => {
   }, [user, timesheetEnabled, timesheetConfigValid, timesheetSlots]);
 
   const handleTimesheetEntryChange = (slotStart: string, value: string) => {
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
     setTimesheetEntries((current) =>
       current.map((entry) =>
-        entry.slotStart === slotStart
+        entry.slotStart === slotStart && entry.endMinutes > currentMinutes
           ? {
               ...entry,
               workDetail: value,
@@ -675,25 +691,12 @@ const  SalesmanDashboardV2 =() => {
     );
   };
 
-  const handleSaveTimesheet = async () => {
-    if (!user || !timesheetEnabled || !timesheetConfigValid) return;
+  const persistTimesheet = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!user || !timesheetEnabled || !timesheetConfigValid) return false;
 
     const now = new Date();
     const nowIso = now.toISOString();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
-    const firstMissing = timesheetEntries.find(
-      (entry) => entry.endMinutes <= currentMinutes && !entry.workDetail.trim()
-    );
-
-    if (firstMissing) {
-      toast({
-        variant: "destructive",
-        title: "Pending hour entry",
-        description: `Please fill ${firstMissing.slotLabel} before submitting today's timesheet.`,
-      });
-      return;
-    }
 
     setTimesheetSaving(true);
     try {
@@ -706,19 +709,36 @@ const  SalesmanDashboardV2 =() => {
         const previous = previousMap.get(key);
         const trimmedWorkDetail = entry.workDetail.trim();
         const previousWorkDetail = previous?.workDetail?.trim() || "";
-        const hasChanged = trimmedWorkDetail !== previousWorkDetail;
+        const isLocked = entry.endMinutes <= currentMinutes;
+        const wasLocked = Boolean(previous?.lockedAt || previous?.autoSubmittedAt);
+        const effectiveWorkDetail = isLocked && wasLocked ? previousWorkDetail : trimmedWorkDetail;
+        const hasChanged = !wasLocked && effectiveWorkDetail !== previousWorkDetail;
+        const lockedAt = isLocked ? previous?.lockedAt || nowIso : previous?.lockedAt;
+        const autoSubmittedAt = isLocked ? previous?.autoSubmittedAt || nowIso : previous?.autoSubmittedAt;
+        const updatedAt = hasChanged ? nowIso : previous?.updatedAt || (effectiveWorkDetail ? nowIso : undefined);
+        const updatedBy = hasChanged
+          ? { id: user.id, name: user.name }
+          : previous?.updatedBy || (effectiveWorkDetail ? { id: user.id, name: user.name } : undefined);
+        const submittedBy = isLocked
+          ? previous?.submittedBy || { id: user.id, name: user.name, mode: silent ? "auto" : "manual" }
+          : previous?.submittedBy;
 
-        return {
+        const row: Record<string, any> = {
           slotStart: entry.slotStart,
           slotEnd: entry.slotEnd,
           slotLabel: entry.slotLabel,
-          workDetail: trimmedWorkDetail,
-          updatedAt: hasChanged ? nowIso : previous?.updatedAt || nowIso,
-          updatedBy: hasChanged
-            ? { id: user.id, name: user.name }
-            : previous?.updatedBy || { id: user.id, name: user.name },
+          workDetail: effectiveWorkDetail,
         };
+        if (updatedAt) row.updatedAt = updatedAt;
+        if (updatedBy) row.updatedBy = updatedBy;
+        if (lockedAt) row.lockedAt = lockedAt;
+        if (autoSubmittedAt) row.autoSubmittedAt = autoSubmittedAt;
+        if (submittedBy) row.submittedBy = submittedBy;
+
+        return row;
       });
+      const lockedSlots = perHour.filter((entry) => Boolean(entry.lockedAt)).length;
+      const filledSlots = perHour.filter((entry) => String(entry.workDetail || "").trim()).length;
 
       const dateDocId = format(now, "yyyy-MM-dd");
       await setDoc(
@@ -729,6 +749,12 @@ const  SalesmanDashboardV2 =() => {
           dutyEnd: timesheetDutyEnd,
           perHour,
           remark: timesheetRemark.trim(),
+          filledSlots,
+          totalSlots: perHour.length,
+          lockedSlots,
+          status: lockedSlots >= perHour.length ? "submitted" : "in_progress",
+          submissionMode: silent ? "auto" : "manual",
+          ...(silent ? { autoSubmittedAt: nowIso } : {}),
           updatedAt: nowIso,
           updatedBy: { id: user.id, name: user.name },
         },
@@ -748,24 +774,56 @@ const  SalesmanDashboardV2 =() => {
           workDetail: item.workDetail,
           updatedAt: item.updatedAt,
           updatedBy: item.updatedBy,
+          lockedAt: item.lockedAt,
+          autoSubmittedAt: item.autoSubmittedAt,
+          submittedBy: item.submittedBy,
         };
       });
       setSavedTimesheetEntries(localEntries);
 
-      toast({
-        title: "Timesheet saved",
-        description: "Hourly updates were saved for today.",
-      });
+      if (!silent) {
+        toast({
+          title: "Timesheet saved",
+          description: "Hourly updates were saved. Completed hours are now fixed.",
+        });
+      }
+      return true;
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Save failed",
-        description: error?.message || "Unable to save timesheet right now.",
-      });
+      if (!silent) {
+        toast({
+          variant: "destructive",
+          title: "Save failed",
+          description: error?.message || "Unable to save timesheet right now.",
+        });
+      }
+      return false;
     } finally {
       setTimesheetSaving(false);
     }
   };
+
+  const handleSaveTimesheet = async () => {
+    await persistTimesheet();
+  };
+
+  useEffect(() => {
+    if (!user || !timesheetEnabled || !timesheetConfigValid || !timesheetEntries.length) return;
+
+    const autoSubmitDueSlots = () => {
+      const now = new Date();
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      const savedMap = new Map(savedTimesheetEntries.map((entry) => [`${entry.slotStart}-${entry.slotEnd}`, entry]));
+      const hasUnsubmittedDueSlot = timesheetEntries.some((entry) => {
+        const previous = savedMap.get(`${entry.slotStart}-${entry.slotEnd}`);
+        return entry.endMinutes <= currentMinutes && !previous?.autoSubmittedAt;
+      });
+      if (hasUnsubmittedDueSlot) void persistTimesheet({ silent: true });
+    };
+
+    autoSubmitDueSlots();
+    const timer = window.setInterval(autoSubmitDueSlots, 60_000);
+    return () => window.clearInterval(timer);
+  }, [user, timesheetEnabled, timesheetConfigValid, timesheetEntries, savedTimesheetEntries]);
 
   // ── Firestore ──
   useEffect(() => {
@@ -1833,20 +1891,28 @@ const  SalesmanDashboardV2 =() => {
 
                       {timesheetEntries.map((entry, index) => {
                         const isFilled = entry.workDetail.trim().length > 0;
+                        const isLocked = entry.endMinutes <= currentMinutes;
                         return (
-                          <div key={index} className={`rounded-xl border p-2.5 ${isFilled ? "border-emerald-200 bg-emerald-50/30" : "border-slate-200"}`}>
+                          <div key={index} className={`rounded-xl border p-2.5 ${isLocked ? "border-slate-200 bg-slate-50" : isFilled ? "border-emerald-200 bg-emerald-50/30" : "border-slate-200"}`}>
                             <div className="flex items-center justify-between mb-1.5">
                               <span className="text-[11px] font-semibold text-slate-700">{entry.slotLabel}</span>
-                              <span className={`text-[10px] font-bold rounded-md px-1.5 py-0.5 ${isFilled ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-                                {isFilled ? "Done" : "Fill now"}
+                              <span className={`text-[10px] font-bold rounded-md px-1.5 py-0.5 ${isLocked ? "bg-slate-200 text-slate-700" : isFilled ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                                {isLocked ? "Locked" : isFilled ? "Done" : "Fill now"}
                               </span>
                             </div>
                             <Textarea
                               value={entry.workDetail}
                               onChange={(e) => handleTimesheetEntryChange(entry.slotStart, e.target.value)}
-                              placeholder="Work done in this slot..."
+                              placeholder={isLocked ? "This hour is fixed." : "Work done in this slot..."}
+                              disabled={isLocked}
                               className="min-h-[56px] text-xs rounded-lg border-slate-200 focus-visible:ring-1 resize-none"
                             />
+                            {(entry.updatedAt || entry.autoSubmittedAt) && (
+                              <p className="mt-1.5 text-[10px] text-slate-500">
+                                {entry.updatedBy?.name ? `Updated by ${entry.updatedBy.name}` : "Auto submitted"}
+                                {entry.updatedAt ? ` ${formatRelativeTimeSafe(entry.updatedAt)}` : ""}
+                              </p>
+                            )}
                           </div>
                         );
                       })}
@@ -2455,6 +2521,26 @@ const AdminDashboard = () => {
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval> | null = null;
 
+    const parseSyncResponse = async (label: string, response: Response) => {
+      let payload: any = null;
+      try {
+        payload = await response.json();
+      } catch {
+        payload = null;
+      }
+
+      return {
+        label,
+        ok: response.ok && payload?.success !== false,
+        status: response.status,
+        message:
+          payload?.message ||
+          payload?.error ||
+          response.statusText ||
+          "Sheet sync request failed.",
+      };
+    };
+
     const syncSheets = async () => {
       if (syncOrderSheetRef.current) return;
       syncOrderSheetRef.current = true;
@@ -2464,11 +2550,11 @@ const AdminDashboard = () => {
           fetch("/api/orders/syncOrderSheet", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-          }),
+          }).then((response) => parseSyncResponse("Order", response)),
           fetch("/api/walkin/syncWalkinSheet", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-          }),
+          }).then((response) => parseSyncResponse("Walk-in", response)),
         ]);
 
         const orderOk =
@@ -2480,14 +2566,36 @@ const AdminDashboard = () => {
           setLastSheetSyncAt(new Date());
         }
 
-        if (!orderOk) {
-          console.error("Order sheet auto-sync failed:", orderResult);
-        }
-        if (!walkinOk) {
-          console.error("Walkin sheet auto-sync failed:", walkinResult);
+        const failedSyncs = [
+          orderResult.status === "fulfilled"
+            ? orderResult.value
+            : {
+                label: "Order",
+                ok: false,
+                status: 0,
+                message:
+                  orderResult.reason instanceof Error
+                    ? orderResult.reason.message
+                    : String(orderResult.reason || "Sheet sync request failed."),
+              },
+          walkinResult.status === "fulfilled"
+            ? walkinResult.value
+            : {
+                label: "Walk-in",
+                ok: false,
+                status: 0,
+                message:
+                  walkinResult.reason instanceof Error
+                    ? walkinResult.reason.message
+                    : String(walkinResult.reason || "Sheet sync request failed."),
+              },
+        ].filter((result) => !result.ok);
+
+        if (failedSyncs.length > 0) {
+          console.warn("Sheet auto-sync completed with failures:", failedSyncs);
         }
       } catch (error) {
-        console.error("Sheet sync failed:", error);
+        console.warn("Sheet sync failed:", error);
       } finally {
         syncOrderSheetRef.current = false;
         setIsSheetSyncing(false);
@@ -2504,17 +2612,18 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     const queries: { [key: string]: any } = {
-      orders: query(collection(db, "orders")),
-      quotations: query(collectionGroup(db, "quotations")),
-      purchaseRequests: query(collection(db, "purchaseRequests")),
-      inbounds: query(collection(db, "inbounds"), where("status", "==", "Active")),
-      visits: query(collectionGroup(db, "visits")),
-      cuttingTasks: query(collection(db, "Cutting"), where("status", "!=", "Completed")),
+      orders: query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(1000)),
+      quotations: query(collectionGroup(db, "quotations"), limit(500)),
+      purchaseRequests: query(collection(db, "purchaseRequests"), where("status", "==", "Approved"), limit(1000)),
+      inbounds: query(collection(db, "inbounds"), where("status", "==", "Active"), limit(500)),
+      visits: query(collectionGroup(db, "visits"), limit(1000)),
+      cuttingTasks: query(collection(db, "Cutting"), where("status", "!=", "Completed"), limit(500)),
     };
 
     const unsubscribes = Object.entries(queries).map(([key, q]) =>
       onSnapshot(q, (snapshot: any) => {
         const docsData = snapshot.docs.map((doc: any) => doc.data());
+        setLoading(false);
 
         if (key === "orders") {
           const orders = docsData as Order[];
@@ -2548,9 +2657,7 @@ const AdminDashboard = () => {
         if (key === "purchaseRequests") {
           setCounts((prev) => ({
             ...prev,
-            pendingPurchase: docsData.filter(
-              (pr: any) => (pr as PurchaseRequest).status === "Approved"
-            ).length,
+            pendingPurchase: docsData.length,
           }));
         }
         if (key === "inbounds") {
@@ -2562,6 +2669,9 @@ const AdminDashboard = () => {
         if (key === "cuttingTasks") {
           setCounts((prev) => ({ ...prev, pendingCutting: snapshot.size }));
         }
+      }, (error) => {
+        console.error(`Dashboard listener failed for ${key}:`, error);
+        setLoading(false);
       })
     );
 
@@ -2576,8 +2686,6 @@ const AdminDashboard = () => {
     };
 
     void fetchFollowUpCount();
-    void Promise.all(Object.values(queries).map((q) => getDocs(q))).finally(() => setLoading(false));
-
     return () => unsubscribes.forEach((unsub) => unsub());
   }, []);
 
@@ -2889,6 +2997,8 @@ const AdminDashboard = () => {
               </Button>
             </CardContent>
           </Card>
+
+          <LeaveWidget />
         </div>
       </div>
     </div>
@@ -2988,7 +3098,7 @@ export default function DashboardPage() {
         return <CrmDashboard dashboardType="CRM" />;
     }
     
-    if (user?.designation === 'PC') {
+    if (normalizedRole === "pc" || user?.designation === 'PC') {
         return <CrmDashboard dashboardType="PC" />;
     }
 

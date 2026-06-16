@@ -3,7 +3,7 @@
 import { ComboboxOption } from "@/components/ui/combobox";
 import { Timestamp as AdminTimestamp } from "firebase-admin/firestore";
 
-export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr' | 'Purchase';
+export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr' | 'Purchase' | 'PC' | 'IT' | 'Data Analytics';
 export type Weekday = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';
 
 export interface PmsProduct {
@@ -98,13 +98,15 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
+  isActive?: boolean;
   avatarUrl?: string;
-  designation?: 'CRM' | 'Allocators' | 'PC' |'salesmanager';
+  designation?: 'CRM' | 'Allocators' | 'PC' | 'EA' | 'salesmanager' | 'Recruiter' | 'MIS & Data Analytics' | 'Software Developer';
   salesmanCode?: string;
   permissions?: string[]; // Array of allowed module keys
   store?: string;
   fcmTokens?: string[]; // For push notifications
   dayOff?: Weekday;
+  weekOff?: string;
   timesheetEnabled?: boolean;
   timesheetDutyStart?: string; // HH:mm
   timesheetDutyEnd?: string; // HH:mm
@@ -1372,11 +1374,35 @@ export interface Invoice {
     orderId: string;
     orderNo?: string;
     customerId?: string;
+    storeName?: string;
+    zohoCustomerId?: string;
+    zohoCustomerName?: string;
+    zohoInvoiceId?: string;
+    zohoInvoiceNo?: string;
+    zohoRequestedInvoiceNo?: string;
+    zohoSyncStatus?: "pending" | "processing" | "synced" | "retry_required" | "failed" | "not_applicable" | "local_only";
+    zohoSyncError?: string | null;
+    zohoSyncedAt?: string | null;
+    zohoProcessingStartedAt?: string | null;
+    zohoId?: string | null;
+    zohoNumber?: string | null;
+    zohoRetryCount?: number;
+    zohoStatus?: string;
     tallyBillNo?: string;
     tallyVoucherNo?: string;
     isVas?: boolean;
     status?: "ISSUED" | "CANCELLED" | "VOID";
     isLocked?: boolean;
+    approvalStatus?: "pending" | "approved" | "rejected";
+    approvedAt?: string;
+    approvedBy?: {
+      id?: string;
+      name?: string;
+      email?: string;
+      role?: string;
+    };
+    stockAllocationStatus?: "not_required" | "allocated" | "verified" | "verified_override";
+    stockAllocationValidated?: boolean;
     sellerSnapshot?: {
       companyName?: string;
       address?: string;
@@ -1387,6 +1413,8 @@ export interface Invoice {
       phone?: string;
       address?: string;
       gstin?: string;
+      billingAddress?: CustomerAddress;
+      shippingAddress?: CustomerAddress;
       billingDetails?: CustomerBillingDetail;
     };
     sections?: {
@@ -1475,6 +1503,9 @@ export interface Invoice {
     };
     createdAt: string; // ISO Date string
     createdBy: string; // User name
+    createdById?: string;
+    createdByName?: string;
+    createdByRole?: UserRole;
     tallySalesXml?: string; // To store the generated XML
 }
 
@@ -1493,6 +1524,10 @@ export interface PrintableInvoicePayload {
     phone: string;
     address: string;
     gstin?: string;
+    state?: string;
+    pincode?: string;
+    placeOfSupply?: string;
+    taxMode?: "INTRASTATE" | "INTERSTATE" | "UNKNOWN";
     billingDetails?: CustomerBillingDetail;
   };
   seller: {
@@ -1750,3 +1785,49 @@ export type HandoverRequest = {
 };
 
 export { type ComboboxOption };
+
+// lib/types/inbound.ts - Simple, flat types
+
+export interface InboundItem {
+  itemName: string;
+  quantity: string;
+  receivedQty?: string;
+  unit?: string;
+  vendorName?: string;
+  collectionName?: string;
+  collectionCode?: string;
+  docketNo?: string;
+}
+
+export interface InboundRequest {
+  id: string;
+  poNumber: string;
+  dealId: string;
+  customerName: string;
+  vendor: string;
+  salesman?: string;
+  status: "Active" | "Completed" | "Cancelled";
+  createdAt: string;
+  items: InboundItem[];
+  purchaseRequestId?: string;
+}
+
+// For table display - flat and simple
+export interface InboundRow {
+  id: string;           // unique: `${poNumber}-${itemName}-${index}`
+  poNumber: string;
+  dealId: string;
+  customerName: string;
+  itemName: string;
+  collection?: string;
+  collectionCode?: string;
+  quantity: string;
+  received: string;
+  remaining: string;
+  status: "pending" | "partial" | "received";
+  createdAt: string;
+  vendor?: string;
+  docketNo?: string;
+  purchaseRequestId?: string;
+  itemIndex: number;    // for referencing original item
+}

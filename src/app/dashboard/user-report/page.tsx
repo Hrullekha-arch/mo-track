@@ -205,7 +205,7 @@ export default function UserReportPage() {
         } else if (targetUser.role === "installer") {
           linkedOrders = orders.filter((o) => String(o.assignedTo || "") === targetUser.id);
           workScope = "Installer-assigned orders";
-        } else if (targetUser.role === "employee" && targetUser.designation === "PC") {
+        } else if (targetUser.role === "PC" || (targetUser.role === "employee" && targetUser.designation === "PC")) {
           linkedOrders = orders;
           linkedPr = purchaseRequests;
           workScope = "PC full control room visibility";

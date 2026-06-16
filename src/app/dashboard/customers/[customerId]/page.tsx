@@ -7,6 +7,7 @@ import Link from "next/link";
 import {
   ArrowLeft,
   Edit,
+  Loader2,
   PlusCircle,
   Settings,
   Trash2,
@@ -38,14 +39,29 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
 import {
   getCustomerById,
   getDealsForCustomer,
   getSalesmen,
+  updateDealSalesmanAction,
 } from "../actions";
 import { deleteDealAction } from "./actions";
 import { useRouter } from "next/navigation";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // ================= DYNAMIC IMPORTS =================
 const NewDealDialog = dynamic(
@@ -80,6 +96,8 @@ interface DealCardProps {
   deal: Deal;
   customerId: string;
   onDealDelete: (dealId: string) => void;
+  onEditClick: (dealId: string) => void;
+  onChangeSalesman: (deal: Deal) => void;
 }
 
 // ================= UTILITIES =================
@@ -180,6 +198,7 @@ const DealCard = React.memo(function DealCard({
   customerId,
   onDealDelete,
   onEditClick,
+  onChangeSalesman,
 }: DealCardProps) {
 
   const router = useRouter();
@@ -200,11 +219,6 @@ const DealCard = React.memo(function DealCard({
     } finally {
       setIsDeleting(false);
     }
-  };
-  const handleEdit = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    onEditClick(deal.id);
   };
   return (
     <div
@@ -313,10 +327,10 @@ const DealCard = React.memo(function DealCard({
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                // TODO: Implement change salesman
+                onChangeSalesman(deal);
               }}
             >
-              Change Salesman
+              {deal.assignedSalesPerson?.name ? "Change Salesman" : "Assign Salesman"}
             </Button>
           </div>
         </CardContent>
@@ -391,6 +405,9 @@ export default function CustomerDetailPage({
   const [isNewDealOpen, setIsNewDealOpen] = React.useState(false);
   const [editOpen, setEditOpen] = React.useState(false);
   const [editDealId, setEditDealId] = React.useState<string | null>(null);  
+  const [changeSalesmanDeal, setChangeSalesmanDeal] = React.useState<Deal | null>(null);
+  const [selectedSalesmanId, setSelectedSalesmanId] = React.useState("");
+  const [isChangingSalesman, setIsChangingSalesman] = React.useState(false);
 
   // ================= FETCH DATA =================
   React.useEffect(() => {
@@ -448,7 +465,8 @@ export default function CustomerDetailPage({
 
   // ================= FETCH SALESMEN (LAZY) =================
   React.useEffect(() => {
-    if (!isNewDealOpen || salesmen.length > 0) return;
+    const shouldLoadSalesmen = isNewDealOpen || Boolean(changeSalesmanDeal);
+    if (!shouldLoadSalesmen || salesmen.length > 0) return;
 
     getSalesmen()
       .then((data) => setSalesmen(data || []))
@@ -460,7 +478,7 @@ export default function CustomerDetailPage({
           description: "Failed to load salesmen list.",
         });
       });
-  }, [isNewDealOpen, salesmen.length, toast]);
+  }, [isNewDealOpen, changeSalesmanDeal, salesmen.length, toast]);
 
   // ================= HANDLERS =================
   const handleNewDealSuccess = React.useCallback(
@@ -523,6 +541,80 @@ export default function CustomerDetailPage({
     },
     []
   );
+
+  const handleOpenChangeSalesman = React.useCallback((deal: Deal) => {
+    setChangeSalesmanDeal(deal);
+    setSelectedSalesmanId(
+      String(deal.assignedSalesPerson?.id || deal.representativeId || "").trim()
+    );
+  }, []);
+
+  const handleCloseChangeSalesman = React.useCallback(() => {
+    if (isChangingSalesman) return;
+    setChangeSalesmanDeal(null);
+    setSelectedSalesmanId("");
+  }, [isChangingSalesman]);
+
+  const handleConfirmChangeSalesman = React.useCallback(async () => {
+    if (!changeSalesmanDeal) return;
+    const safeSalesmanId = String(selectedSalesmanId || "").trim();
+    if (!safeSalesmanId) {
+      toast({
+        variant: "destructive",
+        title: "Salesman required",
+        description: "Please select a salesman.",
+      });
+      return;
+    }
+
+    setIsChangingSalesman(true);
+    try {
+      const result = await updateDealSalesmanAction(
+        customerId,
+        changeSalesmanDeal.id,
+        safeSalesmanId
+      );
+
+      if (!result.success) {
+        throw new Error(result.message || "Failed to update salesman.");
+      }
+
+      const selectedSalesman = salesmen.find((s) => s.id === safeSalesmanId);
+      setDeals((prev) =>
+        prev.map((deal) =>
+          deal.id !== changeSalesmanDeal.id
+            ? deal
+            : {
+                ...deal,
+                ...(result.deal || {}),
+                assignedSalesPerson: {
+                  id: safeSalesmanId,
+                  name:
+                    result.deal?.assignedSalesPerson?.name ||
+                    selectedSalesman?.name ||
+                    deal.assignedSalesPerson?.name,
+                },
+                representativeId: safeSalesmanId,
+              }
+        )
+      );
+
+      toast({
+        title: "Salesman updated",
+        description: result.message || "Deal salesman has been updated.",
+      });
+      setChangeSalesmanDeal(null);
+      setSelectedSalesmanId("");
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Update failed",
+        description: error?.message || "Could not update deal salesman.",
+      });
+    } finally {
+      setIsChangingSalesman(false);
+    }
+  }, [changeSalesmanDeal, customerId, salesmen, selectedSalesmanId, toast]);
 
   // ================= LOADING STATE =================
   if (loading) {
@@ -602,6 +694,7 @@ export default function CustomerDetailPage({
                   customerId={customerId}
                   onDealDelete={handleDeleteDeal}
                   onEditClick={handleEditDeal}
+                  onChangeSalesman={handleOpenChangeSalesman}
                 />
               ))}
             </div>
@@ -634,6 +727,74 @@ export default function CustomerDetailPage({
           onSuccess={handleCustomerUpdate}
         />
       )}
+
+      <Dialog
+        open={Boolean(changeSalesmanDeal)}
+        onOpenChange={(open) => {
+          if (!open) handleCloseChangeSalesman();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Salesman</DialogTitle>
+            <DialogDescription>
+              {changeSalesmanDeal
+                ? `Assign a salesman for "${getDealTitle(changeSalesmanDeal)}".`
+                : "Assign a salesman for this deal."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Salesman</p>
+            <Select
+              value={selectedSalesmanId}
+              onValueChange={setSelectedSalesmanId}
+            >
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={
+                    salesmen.length > 0
+                      ? "Select salesman"
+                      : "Loading salesmen..."
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {salesmen.map((salesman) => (
+                  <SelectItem key={salesman.id} value={salesman.id}>
+                    {salesman.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleCloseChangeSalesman}
+              disabled={isChangingSalesman}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleConfirmChangeSalesman()}
+              disabled={
+                isChangingSalesman ||
+                !selectedSalesmanId ||
+                salesmen.length === 0
+              }
+            >
+              {isChangingSalesman && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

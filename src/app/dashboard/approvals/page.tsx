@@ -35,8 +35,15 @@ import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Loader2,
   CheckCircle2,
+  XCircle,
   Clock,
   CreditCard,
   FileText,
@@ -65,6 +72,10 @@ import {
   confirmPaymentReceived,
   approveQuotationAction,
 } from "./actions";
+import {
+  reviewInboundExcessApprovalAction,
+  type InboundExcessApproval,
+} from "../inbound/actions";
 import { useSearchParams } from "next/navigation";
 
 /* ─── Types ─────────────────────────────────────────── */
@@ -674,6 +685,297 @@ function PaymentConfirmationTab({ onCountChange }: { onCountChange?: (n: number)
   );
 }
 
+function ExcessReceiptApprovalTab({
+  onCountChange,
+}: {
+  onCountChange?: (count: number) => void;
+}) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [approvals, setApprovals] = useState<InboundExcessApproval[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const normalizedRole = String((user as any)?.role || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]/g, "");
+  const normalizedDesignation = String((user as any)?.designation || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]/g, "");
+  const canReview =
+    normalizedRole === "admin" ||
+    normalizedRole === "md" ||
+    normalizedRole === "management" ||
+    normalizedRole === "managingdirector" ||
+    normalizedDesignation === "md" ||
+    normalizedDesignation === "management" ||
+    normalizedDesignation === "managingdirector";
+
+  useEffect(() => {
+    const approvalsQuery = query(
+      collection(db, "inboundExcessApprovals"),
+      where("status", "==", "pending")
+    );
+
+    return onSnapshot(
+      approvalsQuery,
+      async (snapshot) => {
+        const rows = (
+          await Promise.all(
+            snapshot.docs.map(async (approvalDoc) => {
+              const approval = {
+                id: approvalDoc.id,
+                ...(approvalDoc.data() as Omit<InboundExcessApproval, "id">),
+              };
+              if (
+                approval.orderId &&
+                approval.smName &&
+                approval.purchaseRate !== undefined
+              ) {
+                return approval;
+              }
+
+              const inboundSnap = await getDoc(doc(db, "inbounds", approval.inboundId));
+              const inbound = inboundSnap.exists() ? inboundSnap.data() : null;
+              const item = Array.isArray(inbound?.items)
+                ? inbound.items[approval.itemIndex]
+                : null;
+              const rateCandidates = [
+                item?.purchaseRate,
+                item?.zohoRate,
+                item?.rate,
+                item?.stockDetail?.purchaseRate,
+                item?.stockDetail?.costPriceRs,
+                item?.stockDetail?.rate,
+              ];
+              const purchaseRate = rateCandidates
+                .map((value) => Number(value))
+                .find((value) => Number.isFinite(value) && value >= 0);
+              const orderId = String(
+                inbound?.orderSnapshot?.orderNo ||
+                  inbound?.orderSnapshot?.id ||
+                  inbound?.dealSnapshot?.orderId ||
+                  inbound?.dealId ||
+                  approval.dealId ||
+                  ""
+              ).trim();
+              let smName = String(
+                inbound?.assignedSalesman?.name ||
+                  inbound?.salesman ||
+                  inbound?.orderSnapshot?.salesPerson ||
+                  ""
+              ).trim();
+
+              if (!smName && orderId) {
+                const orderSnap = await getDoc(doc(db, "orders", orderId));
+                if (orderSnap.exists()) {
+                  const order = orderSnap.data();
+                  smName = String(
+                    order?.salesPerson ||
+                      order?.assignedSalesman?.name ||
+                      order?.createdBy?.name ||
+                      ""
+                  ).trim();
+                }
+              }
+
+              return {
+                ...approval,
+                orderId: approval.orderId || orderId || undefined,
+                smName: approval.smName || smName || undefined,
+                purchaseRate: approval.purchaseRate ?? purchaseRate,
+              };
+            })
+          )
+        )
+          .sort(
+            (left, right) =>
+              new Date(right.requestedAt || 0).getTime() -
+              new Date(left.requestedAt || 0).getTime()
+          );
+        setApprovals(rows);
+        onCountChange?.(rows.length);
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Excess receipt approval listener failed:", error);
+        setApprovals([]);
+        onCountChange?.(0);
+        setLoading(false);
+      }
+    );
+  }, [onCountChange]);
+
+  const review = async (
+    approvalId: string,
+    decision: "approved" | "rejected"
+  ) => {
+    if (!user?.id) return;
+    setReviewingId(approvalId);
+    try {
+      const result = await reviewInboundExcessApprovalAction(approvalId, decision, {
+        id: user.id,
+        name: user.name || "Management",
+      });
+      toast({
+        title: result.success
+          ? decision === "approved"
+            ? "Excess receipt accepted"
+            : "Excess receipt rejected"
+          : "Review failed",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+      });
+    } finally {
+      setReviewingId(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-3 p-5">
+        <Skeleton className="h-12 w-full" />
+        <Skeleton className="h-12 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow className="bg-[#F8F6F1] hover:bg-[#F8F6F1]">
+          <TableHead>PO / Item</TableHead>
+          <TableHead>Order ID</TableHead>
+          <TableHead>SM Name</TableHead>
+          <TableHead>Vendor</TableHead>
+          <TableHead>Purchase Rate / Mtr</TableHead>
+          <TableHead>PO Quantity</TableHead>
+          <TableHead>Receive Now</TableHead>
+          <TableHead>Excess</TableHead>
+          <TableHead>Requested By</TableHead>
+          <TableHead className="text-right">Decision</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {approvals.length === 0 ? (
+          <TableRow>
+            <TableCell colSpan={10}>
+              <EmptyState message="No excess receipt approvals are pending." />
+            </TableCell>
+          </TableRow>
+        ) : (
+          approvals.map((approval) => (
+            <TableRow key={approval.id}>
+              <TableCell>
+                <p className="font-semibold text-[#1C1C1A]">{approval.poNumber}</p>
+                <p className="text-xs text-muted-foreground">{approval.itemName}</p>
+              </TableCell>
+              <TableCell className="font-mono text-sm font-medium">
+                {approval.orderId || approval.dealId || "Not available"}
+              </TableCell>
+              <TableCell>
+                <p className="max-w-48 truncate font-medium text-[#1C1C1A]">
+                  {approval.smName || "SM not available"}
+                </p>
+              </TableCell>
+              <TableCell>
+                <p className="max-w-56 truncate font-medium text-[#1C1C1A]">
+                  {approval.vendorName || "Vendor not available"}
+                </p>
+              </TableCell>
+              <TableCell className="font-medium">
+                {approval.purchaseRate !== undefined
+                  ? `₹${Number(approval.purchaseRate).toLocaleString("en-IN", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })} / ${String(approval.unit).toLowerCase() === "mtr" ? "Mtr" : approval.unit}`
+                  : "Not available"}
+              </TableCell>
+              <TableCell>
+                {approval.expectedQty} {approval.unit}
+              </TableCell>
+              <TableCell className="font-medium">
+                {approval.requestedQty} {approval.unit}
+              </TableCell>
+              <TableCell>
+                <Badge className="border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50">
+                  +{approval.excessQty} {approval.unit}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                <p className="text-sm">{approval.requestedBy?.name || "User"}</p>
+                <p className="text-xs text-muted-foreground">
+                  {approval.requestedAt
+                    ? format(new Date(approval.requestedAt), "dd MMM yyyy, hh:mm a")
+                    : "Time unavailable"}
+                </p>
+              </TableCell>
+              <TableCell>
+                <TooltipProvider delayDuration={150}>
+                  <div className="flex justify-end gap-2">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-9 w-9 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                            disabled={!canReview || reviewingId === approval.id}
+                            onClick={() => void review(approval.id, "rejected")}
+                            aria-label={`Reject excess receipt for PO ${approval.poNumber}`}
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-64">
+                        <p className="font-semibold">Reject excess receipt</p>
+                        <p className="text-xs">
+                          PO {approval.poNumber}: reject {approval.requestedQty} {approval.unit}.
+                          Stock receipt will remain blocked.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex">
+                          <Button
+                            size="icon"
+                            className="h-9 w-9 bg-[#1A7A6A] text-white hover:bg-[#135E50]"
+                            disabled={!canReview || reviewingId === approval.id}
+                            onClick={() => void review(approval.id, "approved")}
+                            aria-label={`Approve excess receipt for PO ${approval.poNumber}`}
+                          >
+                            {reviewingId === approval.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-64">
+                        <p className="font-semibold">Accept / OK</p>
+                        <p className="text-xs">
+                          Allow {approval.requestedQty} {approval.unit} against PO quantity{" "}
+                          {approval.expectedQty} {approval.unit}, including +{approval.excessQty}{" "}
+                          {approval.unit} excess.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </TooltipProvider>
+              </TableCell>
+            </TableRow>
+          ))
+        )}
+      </TableBody>
+    </Table>
+  );
+}
+
 /* ─── Tab count badge ────────────────────────────────── */
 
 function TabCount({
@@ -699,14 +1001,23 @@ function TabCount({
 
 /* ─── Page ───────────────────────────────────────────── */
 
-type TabValue = "quotations" | "orders" | "payment-confirmation";
+type TabValue =
+  | "quotations"
+  | "orders"
+  | "payment-confirmation"
+  | "excess-receipts";
 
 export default function ApprovalsPage() {
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab") as TabValue | null;
 
   const resolve = (t: TabValue | null): TabValue => {
-    if (t === "quotations" || t === "orders" || t === "payment-confirmation")
+    if (
+      t === "quotations" ||
+      t === "orders" ||
+      t === "payment-confirmation" ||
+      t === "excess-receipts"
+    )
       return t;
     return "orders";
   };
@@ -715,6 +1026,7 @@ export default function ApprovalsPage() {
   const [quotationCount, setQuotationCount] = useState(0);
   const [orderCount, setOrderCount] = useState(0);
   const [paymentCount, setPaymentCount] = useState(0);
+  const [excessReceiptCount, setExcessReceiptCount] = useState(0);
 
   useEffect(() => {
     setActiveTab(resolve(tabParam));
@@ -754,6 +1066,11 @@ export default function ApprovalsPage() {
               <span className="text-sm font-semibold text-[#1C1C1A]">{paymentCount}</span>
               <span className="text-xs text-muted-foreground">Payments</span>
             </div>
+            <div className="flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-1.5">
+              <Package className="h-3.5 w-3.5 text-amber-700" />
+              <span className="text-sm font-semibold text-[#1C1C1A]">{excessReceiptCount}</span>
+              <span className="text-xs text-muted-foreground">Excess Receipts</span>
+            </div>
           </div>
         </div>
       </header>
@@ -764,7 +1081,7 @@ export default function ApprovalsPage() {
         onValueChange={(v) => setActiveTab(v as TabValue)}
         className="w-full"
       >
-        <TabsList className="bg-[#F0EDE6] border border-[#E2DDD5] rounded-xl p-1 h-auto mb-6 w-full max-w-xl">
+        <TabsList className="bg-[#F0EDE6] border border-[#E2DDD5] rounded-xl p-1 h-auto mb-6 w-full max-w-3xl">
           <TabsTrigger
             value="quotations"
             className="flex-1 rounded-lg text-xs font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-[#1C1C1A] text-muted-foreground transition-all"
@@ -788,6 +1105,14 @@ export default function ApprovalsPage() {
             <CreditCard className="h-3.5 w-3.5 mr-1.5" />
             Payments
             <TabCount count={paymentCount} variant="teal" />
+          </TabsTrigger>
+          <TabsTrigger
+            value="excess-receipts"
+            className="flex-1 rounded-lg text-xs font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-[#1C1C1A] text-muted-foreground transition-all"
+          >
+            <Package className="h-3.5 w-3.5 mr-1.5" />
+            Excess Receipts
+            <TabCount count={excessReceiptCount} />
           </TabsTrigger>
         </TabsList>
 
@@ -832,6 +1157,20 @@ export default function ApprovalsPage() {
           <Card className="border border-[#E2DDD5] rounded-2xl shadow-none overflow-hidden bg-white">
             <CardContent className="p-0">
               <PaymentConfirmationTab onCountChange={setPaymentCount} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="excess-receipts" className="mt-0 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="inline-block h-0.5 w-6 bg-amber-500 rounded-full" />
+            <p className="text-[11px] uppercase tracking-widest font-medium text-[#8A8A84]">
+              MD Approval for Quantity Above PO
+            </p>
+          </div>
+          <Card className="border border-[#E2DDD5] rounded-2xl shadow-none overflow-hidden bg-white">
+            <CardContent className="p-0">
+              <ExcessReceiptApprovalTab onCountChange={setExcessReceiptCount} />
             </CardContent>
           </Card>
         </TabsContent>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { Activity, ArrowRight, ClipboardList, Eye, UserPlus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +47,7 @@ type TimesheetsTabProps = Pick<
 export function TimesheetsTab({ timesheetsLoading, filteredEmployees, filteredTodayRows, onOpenEmployeeDialog }: TimesheetsTabProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [trackingFilter, setTrackingFilter] = useState<"all" | "on" | "off">("all");
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const timesheetRowsById = new Map(filteredTodayRows.map((row) => [row.user.id, row]));
   const visibleRows = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase();
@@ -147,66 +148,125 @@ export function TimesheetsTab({ timesheetsLoading, filteredEmployees, filteredTo
               </TableRow>
             </TableHeader>
             <TableBody>
-              {visibleRows.map(({ employee, tracked, row }) => (
-                <TableRow key={employee.id}>
-                  <TableCell>
-                    <div>
-                      <p className="font-medium">{employee.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {roleLabel(employee)}
-                        {employee.department ? ` / ${employee.department}` : ""}
-                      </p>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={
-                        tracked
-                          ? "border-violet-200 bg-violet-50 text-violet-700"
-                          : "border-slate-200 bg-slate-50 text-slate-600"
-                      }
-                    >
-                      {tracked ? "On" : "Off"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={
-                        !tracked
-                          ? "border-slate-200 bg-slate-50 text-slate-600"
-                          : row?.status === "submitted"
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                            : "border-amber-200 bg-amber-50 text-amber-700"
-                      }
-                    >
-                      {!tracked ? "not tracked" : row?.status || "pending"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{tracked ? row?.dutyLabel || `${employee.timesheetDutyStart || "--:--"} - ${employee.timesheetDutyEnd || "--:--"}` : "-"}</TableCell>
-                  <TableCell>
-                    {!tracked
-                      ? "Off"
-                      : row?.status === "submitted"
-                        ? `${row.filledSlots}/${row.totalSlots || 0} slots`
-                        : "Waiting"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{tracked ? updatedTimeLabel(row?.updatedAt) : "-"}</TableCell>
-                  <TableCell className="max-w-xs text-sm text-muted-foreground">{tracked ? row?.remark || "-" : "-"}</TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      title={`Manage ${employee.name}`}
-                      onClick={() => onOpenEmployeeDialog(employee)}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {visibleRows.map(({ employee, tracked, row }) => {
+                const isExpanded = expandedUserId === employee.id;
+                const hourRows = row?.perHour || [];
+                return (
+                  <Fragment key={employee.id}>
+                    <TableRow>
+                      <TableCell>
+                        <div>
+                          <p className="font-medium">{employee.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {roleLabel(employee)}
+                            {employee.department ? ` / ${employee.department}` : ""}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={
+                            tracked
+                              ? "border-violet-200 bg-violet-50 text-violet-700"
+                              : "border-slate-200 bg-slate-50 text-slate-600"
+                          }
+                        >
+                          {tracked ? "On" : "Off"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={
+                            !tracked
+                              ? "border-slate-200 bg-slate-50 text-slate-600"
+                              : row?.status === "submitted"
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : "border-amber-200 bg-amber-50 text-amber-700"
+                          }
+                        >
+                          {!tracked ? "not tracked" : row?.status || "pending"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{tracked ? row?.dutyLabel || `${employee.timesheetDutyStart || "--:--"} - ${employee.timesheetDutyEnd || "--:--"}` : "-"}</TableCell>
+                      <TableCell>
+                        {!tracked
+                          ? "Off"
+                          : row
+                            ? `${row.filledSlots}/${row.totalSlots || 0} filled, ${row.lockedSlots || 0} locked`
+                            : "Waiting"}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{tracked ? updatedTimeLabel(row?.updatedAt) : "-"}</TableCell>
+                      <TableCell className="max-w-xs text-sm text-muted-foreground">{tracked ? row?.remark || "-" : "-"}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            title={`View timesheet details for ${employee.name}`}
+                            disabled={!tracked || !row}
+                            onClick={() => setExpandedUserId(isExpanded ? null : employee.id)}
+                          >
+                            <ClipboardList className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            title={`Manage ${employee.name}`}
+                            onClick={() => onOpenEmployeeDialog(employee)}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                    {isExpanded && (
+                      <TableRow>
+                        <TableCell colSpan={8} className="bg-slate-50">
+                          <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-sm font-semibold text-slate-900">Hourly details</p>
+                              <p className="text-xs text-slate-500">
+                                {hourRows.length ? `${hourRows.length} slots` : "No hourly rows saved yet"}
+                              </p>
+                            </div>
+                            {hourRows.length ? (
+                              <div className="grid gap-2 md:grid-cols-2">
+                                {hourRows.map((hour) => {
+                                  const isLocked = Boolean(hour.lockedAt || hour.autoSubmittedAt);
+                                  return (
+                                    <div key={`${hour.slotStart}-${hour.slotEnd}`} className="rounded-lg border border-slate-200 p-2.5">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <p className="text-xs font-semibold text-slate-800">{hour.slotLabel}</p>
+                                        <Badge variant="outline" className={isLocked ? "border-slate-200 bg-slate-100 text-slate-700" : "border-amber-200 bg-amber-50 text-amber-700"}>
+                                          {isLocked ? "Fixed" : "Open"}
+                                        </Badge>
+                                      </div>
+                                      <p className="mt-2 min-h-10 whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-xs text-slate-700">
+                                        {hour.workDetail || "No update entered"}
+                                      </p>
+                                      <div className="mt-2 space-y-0.5 text-[11px] text-slate-500">
+                                        <p>{hour.updatedBy?.name ? `Updated by ${hour.updatedBy.name}` : "No updater recorded"}</p>
+                                        <p>{hour.updatedAt ? `Updated ${updatedTimeLabel(hour.updatedAt)}` : "Update time not recorded"}</p>
+                                        <p>{hour.autoSubmittedAt ? `Auto submitted ${updatedTimeLabel(hour.autoSubmittedAt)}` : hour.lockedAt ? `Locked ${updatedTimeLabel(hour.lockedAt)}` : "Not locked yet"}</p>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">No hourly update document is available for this employee today.</p>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
+                );
+              })}
             </TableBody>
           </Table>
         ) : (

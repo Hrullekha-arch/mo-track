@@ -450,10 +450,19 @@ const resolveOrderProgress = (
   };
 };
 
-const sortStageCounts = (counts: Map<string, number>): MecaStageCount[] =>
+const O2D_STEP_ORDER = new Map(O2D_PROCESS_CONFIG.map((s, i) => [s.step, i]));
+
+const sortStageCounts = (counts: Map<string, number>, byProcess = false): MecaStageCount[] =>
   Array.from(counts.entries())
     .map(([step, count]) => ({ step, count }))
-    .sort((a, b) => b.count - a.count || a.step.localeCompare(b.step));
+    .sort((a, b) => {
+      if (byProcess) {
+        const ai = O2D_STEP_ORDER.get(a.step) ?? 999;
+        const bi = O2D_STEP_ORDER.get(b.step) ?? 999;
+        return ai - bi;
+      }
+      return b.count - a.count || a.step.localeCompare(b.step);
+    });
 
 const getOrdersSnapshot = async (from?: string, to?: string) => {
   const base = adminDb.collection("orders") as FirebaseFirestore.Query<FirebaseFirestore.DocumentData>;
@@ -873,7 +882,7 @@ export async function getMecaData(filters: MecaFilters = {}): Promise<MecaRespon
       salesmanOptions: sortedSalesmanOptions,
       salesmen: salesmanMetrics,
       summary,
-      inProcessByStep: sortStageCounts(inProcessByStepMap),
+      inProcessByStep: sortStageCounts(inProcessByStepMap, true),
       inProcessOrders: filteredInProcessOrders,
       convertedOrders: filteredConvertedOrders,
     };

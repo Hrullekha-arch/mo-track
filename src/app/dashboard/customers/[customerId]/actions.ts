@@ -1,6 +1,4 @@
 "use server";
-
-import { db } from "@/lib/firebase";
 import { adminDb } from "@/lib/firebase-admin";
 
 // ================= DELETE COLLECTION =================

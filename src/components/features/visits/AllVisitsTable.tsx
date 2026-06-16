@@ -46,6 +46,7 @@ import { useToast } from "@/hooks/use-toast";
 import { runTransaction, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
+import { canAssignInstallerSlots } from "@/lib/visit-assignment-access";
 import CompanyVisitDialog from "@/components/features/customer/CompanyVisitDialog";
 import RegisterComplaintDialog from "@/components/features/visits/RegisterComplaintDialog";
 
@@ -135,6 +136,9 @@ export default function AllVisitsTable({
   onDelete,
 }: AllVisitsTableProps) {
   const { user } = useAuth();
+  const canAssignVisits = canAssignInstallerSlots(user);
+  const isAdmin = String(user?.role || "").trim().toLowerCase() === "admin";
+  const showGeneralVisitActions = isAdmin || !canAssignVisits;
   const { toast } = useToast();
   const [dateFrom, setDateFrom] = React.useState("");
   const [dateTo, setDateTo] = React.useState("");
@@ -473,14 +477,25 @@ export default function AllVisitsTable({
                       <DropdownMenu modal={false}>
                         <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0 rounded-lg hover:bg-slate-100"><MoreHorizontal className="h-4 w-4 text-slate-500" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="rounded-xl shadow-lg border-slate-200 w-44">
-                          <DropdownMenuItem onClick={() => onViewDetails(visit)} className="rounded-lg text-sm"><Eye className="mr-2 h-3.5 w-3.5" /> View Details</DropdownMenuItem>
-                          <DropdownMenuItem className="rounded-lg text-sm" onSelect={() => { window.setTimeout(() => onAssign(visit), 0); }}><UserCheck className="mr-2 h-3.5 w-3.5" /> {getVisitAssigneeId(visit) ? "Re-assign" : "Assign"}</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => onEdit(visit)} className="rounded-lg text-sm"><Edit className="mr-2 h-3.5 w-3.5" /> Edit Visit</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => onShare(visit)} className="rounded-lg text-sm"><Share2 className="mr-2 h-3.5 w-3.5" /> Share Link</DropdownMenuItem>
-                          {visit.status !== "completed" && <DropdownMenuItem className="rounded-lg text-sm" onSelect={e => { e.preventDefault(); openCompleteVisitDialog(visit); }}><CheckCircle2 className="mr-2 h-3.5 w-3.5 text-emerald-600" /> Complete Visit</DropdownMenuItem>}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-red-600 focus:text-red-700 rounded-lg text-sm" onSelect={e => { e.preventDefault(); setConfirmDelete(visit); }}><Trash2 className="mr-2 h-3.5 w-3.5" /> Delete</DropdownMenuItem>
-                          {getVisitAssigneeId(visit) && <DropdownMenuItem className="text-red-600 focus:text-red-700 rounded-lg text-sm" onSelect={e => { e.preventDefault(); setConfirmUnassign(visit); }}><UserX className="mr-2 h-3.5 w-3.5" /> Unassign</DropdownMenuItem>}
+                          {showGeneralVisitActions && (
+                            <DropdownMenuItem onClick={() => onViewDetails(visit)} className="rounded-lg text-sm"><Eye className="mr-2 h-3.5 w-3.5" /> View Details</DropdownMenuItem>
+                          )}
+                          {canAssignVisits && (
+                            <DropdownMenuItem className="rounded-lg text-sm" onSelect={() => { window.setTimeout(() => onAssign(visit), 0); }}>
+                              <UserCheck className="mr-2 h-3.5 w-3.5" />
+                              {getVisitAssigneeId(visit) ? "Re-assign Installer + Slots" : "Assign Installer + Slots"}
+                            </DropdownMenuItem>
+                          )}
+                          {showGeneralVisitActions && (
+                            <>
+                              <DropdownMenuItem onClick={() => onEdit(visit)} className="rounded-lg text-sm"><Edit className="mr-2 h-3.5 w-3.5" /> Edit Visit</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => onShare(visit)} className="rounded-lg text-sm"><Share2 className="mr-2 h-3.5 w-3.5" /> Share Link</DropdownMenuItem>
+                              {visit.status !== "completed" && <DropdownMenuItem className="rounded-lg text-sm" onSelect={e => { e.preventDefault(); openCompleteVisitDialog(visit); }}><CheckCircle2 className="mr-2 h-3.5 w-3.5 text-emerald-600" /> Complete Visit</DropdownMenuItem>}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-red-600 focus:text-red-700 rounded-lg text-sm" onSelect={e => { e.preventDefault(); setConfirmDelete(visit); }}><Trash2 className="mr-2 h-3.5 w-3.5" /> Delete</DropdownMenuItem>
+                              {getVisitAssigneeId(visit) && <DropdownMenuItem className="text-red-600 focus:text-red-700 rounded-lg text-sm" onSelect={e => { e.preventDefault(); setConfirmUnassign(visit); }}><UserX className="mr-2 h-3.5 w-3.5" /> Unassign</DropdownMenuItem>}
+                            </>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>

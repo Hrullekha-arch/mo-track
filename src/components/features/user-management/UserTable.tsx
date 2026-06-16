@@ -22,7 +22,8 @@ interface UserTableProps {
   description: string;
 }
 
-const formatDayOff = (dayOff?: User["dayOff"]) => {
+const formatDayOff = (user: User) => {
+  const dayOff = (user.dayOff || user.weekOff)?.trim().toLowerCase();
   if (!dayOff) return "-";
   return dayOff.charAt(0).toUpperCase() + dayOff.slice(1);
 };
@@ -64,16 +65,19 @@ export function UserTable({ users, title, description }: UserTableProps) {
           <TableRow>
             <TableHead>Name</TableHead>
             <TableHead>Role</TableHead>
+            <TableHead>Status</TableHead>
             <TableHead>Designation</TableHead>
             <TableHead>Salesman Code</TableHead>
-            <TableHead>Day Off</TableHead>
+            <TableHead>Day Off / Week Off</TableHead>
             {!isEmployee && <TableHead className="text-right">Actions</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
           {users.length > 0 ? (
-            users.map((user) => (
-            <TableRow key={user.id}>
+            users.map((user) => {
+              const isActive = user.isActive !== false;
+              return (
+            <TableRow key={user.id} className={isActive ? undefined : "opacity-60"}>
               <TableCell>
                 <div className="flex items-center gap-4">
                   <Avatar>
@@ -92,6 +96,11 @@ export function UserTable({ users, title, description }: UserTableProps) {
                 </Badge>
               </TableCell>
               <TableCell>
+                <Badge variant={isActive ? "secondary" : "outline"}>
+                  {isActive ? "Active" : "Inactive"}
+                </Badge>
+              </TableCell>
+              <TableCell>
                 {user.designation ? (
                   <span className="text-sm text-muted-foreground">{user.designation}</span>
                 ) : (
@@ -107,7 +116,7 @@ export function UserTable({ users, title, description }: UserTableProps) {
               </TableCell>
               <TableCell>
                 <span className="text-sm text-muted-foreground">
-                  {user.role === "installer" ? formatDayOff(user.dayOff) : "-"}
+                  {formatDayOff(user)}
                 </span>
               </TableCell>
               {!isEmployee && (
@@ -128,10 +137,10 @@ export function UserTable({ users, title, description }: UserTableProps) {
                 </TableCell>
               )}
             </TableRow>
-          ))
+          )})
         ) : (
             <TableRow>
-                <TableCell colSpan={isEmployee ? 5 : 6} className="h-24 text-center">
+                <TableCell colSpan={isEmployee ? 6 : 7} className="h-24 text-center">
                     No users found in this category.
                 </TableCell>
             </TableRow>

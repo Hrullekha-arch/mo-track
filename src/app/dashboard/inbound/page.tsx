@@ -1,34 +1,37 @@
-
+// app/dashboard/inbound/page.tsx
 "use client";
 
 import { useState } from "react";
-import { InboundTable } from '@/components/features/purchase/InboundTable';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { InboundTable } from "@/components/features/purchase/InboundTable";
 
 export default function InboundPage() {
-    const [mode, setMode] = useState<"pending" | "completed">("pending");
+  const [mode, setMode] = useState<"pending" | "completed">("pending");
 
-    return (
-        <div className="space-y-4 p-4 md:p-6 lg:p-8">
-            <header className="mb-8">
-                <h1 className="text-3xl font-bold tracking-tight">Inbound Materials</h1>
-                <p className="text-muted-foreground">
-                    A log of all materials for which a Purchase Order has been generated.
-                </p>
-            </header>
-            
-            <Tabs
-                value={mode}
-                onValueChange={(value) => setMode(value as "pending" | "completed")}
-                className="w-full"
-            >
-                <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="pending">Pending Inbound</TabsTrigger>
-                    <TabsTrigger value="completed">Completed Inbound</TabsTrigger>
-                </TabsList>
-            </Tabs>
+  return (
+    <div className="space-y-6 p-4 md:p-6 lg:p-8">
+      {/* Header */}
+      <header>
+        <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Inbound Materials</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Track and manage incoming purchase orders and material deliveries.
+        </p>
+      </header>
 
-            <InboundTable mode={mode} />
-        </div>
-    );
+      {/* Tab Switcher */}
+      <Tabs value={mode} onValueChange={(v) => setMode(v as "pending" | "completed")}>
+        <TabsList className="grid w-full max-w-xs grid-cols-2">
+          <TabsTrigger value="pending">Pending</TabsTrigger>
+          <TabsTrigger value="completed">Completed</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {/* 
+        🔑 key={mode} forces a clean unmount/remount when switching tabs.
+        This guarantees the simplified InboundTable resets its state 
+        and fetches fresh data without stale filters or pagination.
+      */}
+      <InboundTable key={mode} mode={mode} />
+    </div>
+  );
 }

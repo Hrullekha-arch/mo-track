@@ -6,7 +6,6 @@ import {
   collectionGroup,
   where,
   orderBy,
-  limit,
   doc,
   getDoc,
   type QueryDocumentSnapshot,
@@ -20,17 +19,23 @@ import { EnrichedDealVisit } from "@/types/visits";
 const customerCache = new Map<string, Customer>();
 const dealCache = new Map<string, Deal>();
 
-// Helper to get date range for queries
+const VISITS_LOOKBACK_YEARS = 10;
+const VISITS_LOOKAHEAD_YEARS = 10;
+
+const toDateOnly = (value: Date) => value.toISOString().split("T")[0];
+
+// Helper to get a broad query range so client-side date filters work across history.
 function getDateRange() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const weekAgo = new Date(today);
-  weekAgo.setDate(weekAgo.getDate() - 7);
-  const monthAhead = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const fromDate = new Date(today);
+  fromDate.setFullYear(fromDate.getFullYear() - VISITS_LOOKBACK_YEARS);
+  const toDate = new Date(today);
+  toDate.setFullYear(toDate.getFullYear() + VISITS_LOOKAHEAD_YEARS);
 
   return {
-    from: weekAgo.toISOString().split("T")[0],
-    to: monthAhead.toISOString().split("T")[0],
+    from: toDateOnly(fromDate),
+    to: toDateOnly(toDate),
   };
 }
 
@@ -144,8 +149,7 @@ export function useVisitsData() {
         collectionGroup(db, "visits"),
         where("slotDate", ">=", dateRange.from),
         where("slotDate", "<=", dateRange.to),
-        orderBy("slotDate", "desc"),
-        limit(500)
+        orderBy("slotDate", "desc")
       ),
       async (snap) => {
         slotDateDocs = snap.docs;
@@ -163,8 +167,7 @@ export function useVisitsData() {
         collectionGroup(db, "visits"),
         where("dueDate", ">=", dateRange.from),
         where("dueDate", "<=", dateRange.to),
-        orderBy("dueDate", "desc"),
-        limit(500)
+        orderBy("dueDate", "desc")
       ),
       async (snap) => {
         dueDateDocs = snap.docs;

@@ -15,6 +15,7 @@ import {
   ArrowLeft,
   Search,
   Loader2,
+  Pencil,
   Trash2,
   ShoppingCart,
   Package,
@@ -47,6 +48,7 @@ import {
 import {
   CreatePoDialog,
   DeletePoDialog,
+  EditPoDialog,
   StatCard,
   VendorVerificationDialog,
 } from "./dialogs";
@@ -73,6 +75,7 @@ export default function PendingPOPage() {
   const [loading, setLoading] = React.useState(true);
   const [isVerificationOpen, setIsVerificationOpen] = React.useState(false);
   const [isCreatePoOpen, setIsCreatePoOpen] = React.useState(false);
+  const [isEditPoOpen, setIsEditPoOpen] = React.useState(false);
   const [isDeletePoOpen, setIsDeletePoOpen] = React.useState(false);
   const [isNewVendor, setIsNewVendor] = React.useState(false);
   const [isDeletingPo, setIsDeletingPo] = React.useState(false);
@@ -423,6 +426,15 @@ const handleDeleteSelected = async () => {
                     <Button
                       variant="outline"
                       size="sm"
+                      className="gap-2"
+                      onClick={() => setIsEditPoOpen(true)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                      Edit PO
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       className="gap-2 border-red-200 text-red-700 hover:bg-red-50"
                       onClick={() => setIsDeletePoOpen(true)}
                     >
@@ -573,6 +585,15 @@ const handleDeleteSelected = async () => {
           onClose={() => setIsDeletePoOpen(false)}
           onConfirm={handleDeletePo}
           isDeleting={isDeletingPo}
+        />
+        <EditPoDialog
+          isOpen={isEditPoOpen}
+          onClose={() => setIsEditPoOpen(false)}
+          creator={user ? { id: user.id, name: user.name } : null}
+          onSuccess={() => {
+            void fetchData();
+            setRowSelection({});
+          }}
         />
       </TooltipProvider>
     </>

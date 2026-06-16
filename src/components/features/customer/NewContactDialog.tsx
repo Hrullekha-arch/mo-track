@@ -9,6 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Combobox,
+  type ComboboxOption,
+} from "@/components/ui/combobox";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
@@ -19,6 +23,84 @@ import { Customer } from "@/lib/types";
 import { addCustomerAction, updateCustomerAction } from "@/app/dashboard/customers/actions";
 import { useDebounce } from "use-debounce";
 
+const OTHER_STATE_VALUE = "__OTHER__";
+
+const INDIA_STATE_OPTIONS = [
+  "Andaman and Nicobar Islands",
+  "Andhra Pradesh",
+  "Arunachal Pradesh",
+  "Assam",
+  "Bihar",
+  "Chandigarh",
+  "Chhattisgarh",
+  "Dadra and Nagar Haveli and Daman and Diu",
+  "Delhi",
+  "Goa",
+  "Gujarat",
+  "Haryana",
+  "Himachal Pradesh",
+  "Jammu and Kashmir",
+  "Jharkhand",
+  "Karnataka",
+  "Kerala",
+  "Ladakh",
+  "Lakshadweep",
+  "Madhya Pradesh",
+  "Maharashtra",
+  "Manipur",
+  "Meghalaya",
+  "Mizoram",
+  "Nagaland",
+  "Odisha",
+  "Puducherry",
+  "Punjab",
+  "Rajasthan",
+  "Sikkim",
+  "Tamil Nadu",
+  "Telangana",
+  "Tripura",
+  "Uttar Pradesh",
+  "Uttarakhand",
+  "West Bengal",
+] as const;
+
+const STATE_COMBOBOX_OPTIONS: ComboboxOption[] = [
+  ...INDIA_STATE_OPTIONS.map((state) => ({ value: state, label: state })),
+  { value: OTHER_STATE_VALUE, label: "Other" },
+];
+
+const normalizeStateKey = (value: unknown) =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]/g, "");
+
+const STATE_ALIASES: Record<string, string> = {
+  nctofdelhi: "Delhi",
+  nationalcapitalterritoryofdelhi: "Delhi",
+  orissa: "Odisha",
+  pondicherry: "Puducherry",
+  uttaranchal: "Uttarakhand",
+};
+
+const resolveKnownState = (value: unknown): string | undefined => {
+  const key = normalizeStateKey(value);
+  if (!key) return undefined;
+  const alias = STATE_ALIASES[key];
+  if (alias) return alias;
+  return INDIA_STATE_OPTIONS.find((state) => normalizeStateKey(state) === key);
+};
+
+const getStateFormValues = (value: unknown) => {
+  const state = String(value ?? "").trim();
+  const knownState = resolveKnownState(state);
+  return knownState
+    ? { state: knownState, customState: "" }
+    : state
+      ? { state: OTHER_STATE_VALUE, customState: state }
+      : { state: "", customState: "" };
+};
 
 const contactSchema = z
   .object({
@@ -29,7 +111,8 @@ const contactSchema = z
     addressLine1: z.string().optional(),
     addressLine2: z.string().optional(),
     city: z.string().optional(),
-    state: z.string().optional(),
+    state: z.string().min(1, "State is required."),
+    customState: z.string().optional(),
     gstin: z.string().optional(),
     panNo: z.string().optional(),
     referenceName: z.string().optional(),
@@ -42,6 +125,16 @@ const contactSchema = z
     billingGstin: z.string().optional(),
   })
   .superRefine((values, ctx) => {
+    if (
+      values.state === OTHER_STATE_VALUE &&
+      !String(values.customState || "").trim()
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["customState"],
+        message: "Please enter the state or region.",
+      });
+    }
     if (!values.useDifferentBillingDetails) return;
     if (!String(values.billingName || "").trim()) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["billingName"], message: "Billing name is required." });
@@ -127,6 +220,7 @@ function CustomerDialog({ isOpen, onClose, onSuccess, mode = "create", customer 
         addressLine2: "",
         city: "",
         state: "",
+        customState: "",
         gstin: "",
         panNo: "",
         referenceName: "",
@@ -141,12 +235,18 @@ function CustomerDialog({ isOpen, onClose, onSuccess, mode = "create", customer 
   });
 
   const pinCodeValue = form.watch("pinCode");
+  const cityValue = form.watch("city");
+  const stateValue = form.watch("state");
+  const customStateValue = form.watch("customState");
   const [debouncedPinCode] = useDebounce(pinCodeValue, 800);
   const useDifferentBillingDetails = form.watch("useDifferentBillingDetails");
 
   useEffect(() => {
     if (mode !== "edit" || !customer) return;
     const defaults = resolveDefaultBillingValues(customer);
+    const stateDefaults = getStateFormValues(
+      customer.billingAddress?.state || customer.state || ""
+    );
     form.reset({
       name: customer.name || "",
       phone: customer.phone || customer.mobileNo || "",
@@ -155,7 +255,8 @@ function CustomerDialog({ isOpen, onClose, onSuccess, mode = "create", customer 
       addressLine1: customer.billingAddress?.line1 || customer.addressPinCode || "",
       addressLine2: customer.billingAddress?.line2 || customer.landmark || "",
       city: customer.billingAddress?.city || customer.city || "",
-      state: customer.billingAddress?.state || customer.state || "",
+      state: stateDefaults.state,
+      customState: stateDefaults.customState,
       gstin: customer.gstin || "",
       panNo: customer.panNo || "",
       referenceName: customer.referenceName || "",
@@ -209,8 +310,14 @@ function CustomerDialog({ isOpen, onClose, onSuccess, mode = "create", customer 
               const state = addressComponents.find((c: any) => c.types.includes("administrative_area_level_1"))?.long_name || "";
               console.log(`[PINCODE_DEBUG] Extracted City: '${city}', State: '${state}'`);
 
-              form.setValue('city', city);
-              form.setValue('state', state);
+              const stateSelection = getStateFormValues(state);
+              form.setValue("city", city, { shouldValidate: true });
+              form.setValue("state", stateSelection.state, {
+                shouldValidate: true,
+              });
+              form.setValue("customState", stateSelection.customState, {
+                shouldValidate: true,
+              });
             } else {
                  console.log("[PINCODE_DEBUG] No result in details data.");
             }
@@ -243,6 +350,10 @@ function CustomerDialog({ isOpen, onClose, onSuccess, mode = "create", customer 
     }
     setLoading(true);
     try {
+        const resolvedState =
+          data.state === OTHER_STATE_VALUE
+            ? String(data.customState || "").trim()
+            : String(data.state || "").trim();
         const billingDetailsPayload = data.useDifferentBillingDetails
           ? {
               billingName: String(data.billingName || "").trim(),
@@ -263,14 +374,14 @@ function CustomerDialog({ isOpen, onClose, onSuccess, mode = "create", customer 
             line1: data.addressLine1,
             line2: data.addressLine2,
             city: data.city,
-            state: data.state,
+            state: resolvedState,
             pincode: data.pinCode,
           },
           shippingAddress: {
             line1: data.addressLine1,
             line2: data.addressLine2,
             city: data.city,
-            state: data.state,
+            state: resolvedState,
             pincode: data.pinCode,
           },
           assignedSalesPerson: data.salesSupport
@@ -282,7 +393,7 @@ function CustomerDialog({ isOpen, onClose, onSuccess, mode = "create", customer 
           sourceOfCustomer: data.sourceOfCustomer,
           pinCode: data.pinCode,
           city: data.city,
-          state: data.state,
+          state: resolvedState,
           billingDetails: billingDetailsPayload,
         };
 
@@ -389,15 +500,70 @@ function CustomerDialog({ isOpen, onClose, onSuccess, mode = "create", customer 
                                     <FormControl><Input {...field} maxLength={6} /></FormControl>
                                     {isFetchingLocation && <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin" />}
                                 </div>
+                                {String(pinCodeValue || "").length === 6 && (cityValue || stateValue) && (
+                                  <p className="text-xs text-emerald-700">
+                                    Auto-found from PIN:{" "}
+                                    {[
+                                      cityValue,
+                                      stateValue === OTHER_STATE_VALUE
+                                        ? customStateValue
+                                        : stateValue,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(", ")}
+                                  </p>
+                                )}
                                 <FormMessage />
                             </FormItem>
                         )} />
                         <FormField control={form.control} name="city" render={({ field }) => (
                             <FormItem><CustomFormLabel>City</CustomFormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
                         )} />
-                        <FormField control={form.control} name="state" render={({ field }) => (
-                            <FormItem><FormLabel>State</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+                        <FormField control={form.control} name="state" render={({ field, fieldState }) => (
+                            <FormItem>
+                              <FormLabel>
+                                State <span className="text-destructive">*</span>
+                              </FormLabel>
+                              <Combobox
+                                options={STATE_COMBOBOX_OPTIONS}
+                                value={field.value}
+                                onSelect={(value) => {
+                                  field.onChange(value);
+                                  if (value !== OTHER_STATE_VALUE) {
+                                    form.setValue("customState", "");
+                                  }
+                                }}
+                                placeholder="Select or search state"
+                                searchPlaceholder="Search state..."
+                                emptyPlaceholder="No state found."
+                                required
+                                aria-invalid={fieldState.invalid}
+                                contentClassName="max-h-72"
+                              />
+                              <FormMessage />
+                            </FormItem>
                         )} />
+                        {stateValue === OTHER_STATE_VALUE && (
+                          <FormField
+                            control={form.control}
+                            name="customState"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>
+                                  Write State / Region{" "}
+                                  <span className="text-destructive">*</span>
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    placeholder="Enter state or region"
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        )}
                     </div>
                 </div>
 

@@ -80,7 +80,12 @@ export async function updateAccountPreferencesAction(params: {
   try {
     const { userId, ...rest } = params;
     if (!userId) return { success: false, message: 'Missing user.' };
-    await adminDb.collection('users').doc(userId).set(rest, { merge: true });
+    const normalizedDayOff = rest.weekOff?.trim().toLowerCase();
+    const preferences = {
+      ...rest,
+      ...(normalizedDayOff ? { dayOff: normalizedDayOff } : {}),
+    };
+    await adminDb.collection('users').doc(userId).set(preferences, { merge: true });
     return { success: true, message: 'Preferences updated.' };
   } catch (error: any) {
     console.error('Error updating account preferences:', error);
@@ -218,4 +223,3 @@ export async function getPendingHandoversForUserAction(toOwnerId: string) {
     .get();
   return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as any[];
 }
-

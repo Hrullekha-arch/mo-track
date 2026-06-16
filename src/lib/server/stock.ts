@@ -11,12 +11,33 @@ export type PaginatedStockResult = {
 };
 
 export async function getStockPaginated(
-  lastDocId?: string
+  lastDocId?: string,
+  options?: { includeCount?: boolean }
 ): Promise<PaginatedStockResult> {
   try {
     let query = adminDb
       .collection("stocks")
-      .orderBy("bcn")
+      .select(
+        "bcn",
+        "name",
+        "itemName",
+        "category",
+        "categoryGroup",
+        "unit",
+        "totalQty",
+        "availableQty",
+        "reservedQty",
+        "damagedQty",
+        "cutQty",
+        "supplierCompanyName",
+        "rrpWithGstRs",
+        "gstPercent",
+        "hsnOrSac",
+        "hsnCode",
+        "isActive",
+        "zohoItemId",
+        "zohoId"
+      )
       .limit(PAGE_SIZE);
 
     if (lastDocId) {
@@ -42,9 +63,9 @@ export async function getStockPaginated(
         ? snapshot.docs[snapshot.docs.length - 1].id
         : null;
 
-    // Count separately (fast, metadata only)
-    const totalSnapshot = await adminDb.collection("stocks").count().get();
-    const totalCount = totalSnapshot.data().count;
+    const totalCount = options?.includeCount
+      ? (await adminDb.collection("stocks").count().get()).data().count
+      : 0;
 
     return {
       items,

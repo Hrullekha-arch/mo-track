@@ -3,7 +3,7 @@
 'use server'
 
 import { adminDb, adminStorage } from '@/lib/firebase-admin';
-import { Deal, DealProduct, DealProductsDoc, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, OrderType, Order, O2DStatus, Selection, Receipt } from '@/lib/types';
+import { Deal, DealProduct, DealProductsDoc, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, OrderType, Order, O2DStatus, Selection, Receipt, Invoice } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
 
 import { getMilestonesForOrder } from '@/lib/constants';
@@ -15,6 +15,10 @@ import { CpdFormValues } from '@/components/features/customer/CpdForm';
 import { getNextSequenceValue } from '@/lib/id-sequence';
 import { upsertVasStockItemsAction } from '@/app/dashboard/inventory/actions';
 import { upsertSalesmanIncentiveOrderEntry } from '@/lib/server/salesman-incentive';
+import {
+  buildOrderPricingFromQuotation,
+  buildOrderPricingUpdateFromQuotation,
+} from '@/lib/quotation-order-pricing';
 
 
 // This function sends an SMS using the Fast2SMS API.
@@ -349,7 +353,11 @@ export async function updateDealProducts(
 }
 
 
-type QuotationFormWithMeta = QuotationFormValues & { createdBy?: string };
+type QuotationFormWithMeta = QuotationFormValues & {
+  createdBy?: string;
+  selectedCpdId?: string;
+  status?: Quotation["status"];
+};
 
 export async function createQuotationAction(
   customerId: string,
@@ -564,6 +572,263 @@ export async function createQuotationAction(
   }
 }
 
+export async function updateConvertedQuotationAction(
+  customerId: string,
+  dealId: string,
+  quotationId: string,
+  values: QuotationFormWithMeta,
+  totalAmount: number,
+  actor?: { id?: string; name?: string; role?: string }
+): Promise<{ success: boolean; message: string; quotation?: Quotation }> {
+  try {
+    const dealRef = adminDb
+      .collection("customers")
+      .doc(customerId)
+      .collection("deals")
+      .doc(dealId);
+    const quotationRef = dealRef.collection("quotations").doc(quotationId);
+    const initialQuotationSnap = await quotationRef.get();
+
+    if (!initialQuotationSnap.exists) {
+      return { success: false, message: "Quotation not found." };
+    }
+
+    const initialQuotation = {
+      id: initialQuotationSnap.id,
+      ...initialQuotationSnap.data(),
+    } as Quotation;
+    if (initialQuotation.status !== "Converted to Order") {
+      return {
+        success: false,
+        message: "Only a converted quotation can use linked-order correction.",
+      };
+    }
+
+    let orderRef = initialQuotation.orderNo
+      ? adminDb.collection("orders").doc(initialQuotation.orderNo)
+      : adminDb.collection("orders").doc(`MOTRACK-${initialQuotation.quotationNo}`);
+    let orderSnap = await orderRef.get();
+    if (!orderSnap.exists) {
+      const orderQuery = await adminDb
+        .collection("orders")
+        .where("quotationId", "==", quotationId)
+        .limit(1)
+        .get();
+      if (orderQuery.empty) {
+        return {
+          success: false,
+          message: "The linked order could not be found for this quotation.",
+        };
+      }
+      orderRef = orderQuery.docs[0].ref;
+      orderSnap = orderQuery.docs[0];
+    }
+
+    const initialOrder = orderSnap.data() as Order;
+    let dealOrderRefToUpdate = String(initialOrder.dealOrderDocId || "").trim()
+      ? dealRef
+          .collection("orders")
+          .doc(String(initialOrder.dealOrderDocId).trim())
+      : undefined;
+    if (!dealOrderRefToUpdate) {
+      const dealOrderQuery = await dealRef
+        .collection("orders")
+        .where("orderId", "==", orderRef.id)
+        .limit(1)
+        .get();
+      if (!dealOrderQuery.empty) {
+        dealOrderRefToUpdate = dealOrderQuery.docs[0].ref;
+      } else {
+        const legacyDealOrderQuery = await dealRef
+          .collection("orders")
+          .where("orderNo", "==", orderRef.id)
+          .limit(1)
+          .get();
+        if (!legacyDealOrderQuery.empty) {
+          dealOrderRefToUpdate = legacyDealOrderQuery.docs[0].ref;
+        }
+      }
+    }
+
+    const vasRowsForStock = (Array.isArray(values.vasDetails)
+      ? values.vasDetails
+      : []
+    )
+      .map((vas: any) => ({
+        vasName: String(vas?.vasName || "").trim(),
+        rate: Number(vas?.rate) || 0,
+        gstPercent: Number(vas?.gstPercent) || 0,
+        hsnCode: String(vas?.hsnCode || "").trim() || undefined,
+      }))
+      .filter((vas) => vas.vasName);
+    if (vasRowsForStock.length > 0) {
+      const syncResult = await upsertVasStockItemsAction(vasRowsForStock);
+      if (!syncResult.success) {
+        return {
+          success: false,
+          message: syncResult.message || "Failed to sync VAS stock catalog.",
+        };
+      }
+    }
+
+    const updatedQuotation = await adminDb.runTransaction(async (transaction) => {
+      const invoiceQuery = adminDb
+        .collection("invoices")
+        .where("orderId", "==", orderRef.id)
+        .limit(1);
+      const invoiceOrderNoQuery = adminDb
+        .collection("invoices")
+        .where("orderNo", "==", orderRef.id)
+        .limit(1);
+      const [
+        currentQuotationSnap,
+        currentOrderSnap,
+        invoiceSnap,
+        invoiceOrderNoSnap,
+      ] =
+        await Promise.all([
+          transaction.get(quotationRef),
+          transaction.get(orderRef),
+          transaction.get(invoiceQuery),
+          transaction.get(invoiceOrderNoQuery),
+        ]);
+
+      if (!currentQuotationSnap.exists) {
+        throw new Error("Quotation not found.");
+      }
+      if (!currentOrderSnap.exists) {
+        throw new Error("Linked order not found.");
+      }
+
+      const currentQuotation = {
+        id: currentQuotationSnap.id,
+        ...currentQuotationSnap.data(),
+      } as Quotation;
+      const currentOrder = {
+        id: currentOrderSnap.id,
+        ...currentOrderSnap.data(),
+      } as Order;
+
+      if (currentQuotation.status !== "Converted to Order") {
+        throw new Error("Quotation is no longer converted to an order.");
+      }
+
+      const recordedInvoices = Array.isArray(currentOrder.invoicing?.invoices)
+        ? currentOrder.invoicing.invoices
+        : [];
+      if (
+        !invoiceSnap.empty ||
+        !invoiceOrderNoSnap.empty ||
+        recordedInvoices.length > 0
+      ) {
+        throw new Error(
+          "This order already has an invoice. Void/cancel the invoice before changing its converted quotation."
+        );
+      }
+
+      const now = new Date().toISOString();
+      const nextQuotation = stripUndefinedDeep({
+        ...currentQuotation,
+        ...values,
+        id: currentQuotation.id,
+        quotationNo: currentQuotation.quotationNo,
+        status: currentQuotation.status,
+        orderNo: currentQuotation.orderNo || orderRef.id,
+        createdAt: currentQuotation.createdAt,
+        createdBy: currentQuotation.createdBy,
+        totalAmount,
+        updatedAt: now,
+        updatedBy: stripUndefined({
+          id: actor?.id,
+          name: actor?.name,
+          role: actor?.role,
+        }),
+      }) as Quotation;
+
+      const pricingUpdate = buildOrderPricingUpdateFromQuotation(
+        currentOrder,
+        nextQuotation
+      );
+      if (!pricingUpdate.ok) {
+        throw new Error(pricingUpdate.message);
+      }
+
+      const calculatedTotal = Number(
+        pricingUpdate.patch.overallSummary?.grandTotal
+      );
+      if (
+        !Number.isFinite(calculatedTotal) ||
+        Math.abs(calculatedTotal - totalAmount) > 0.05
+      ) {
+        throw new Error(
+          `Quotation total Rs. ${totalAmount.toFixed(2)} does not match its item total Rs. ${
+            Number.isFinite(calculatedTotal) ? calculatedTotal.toFixed(2) : "0.00"
+          }.`
+        );
+      }
+
+      const orderUpdates = Array.isArray(currentOrder.updates)
+        ? [...currentOrder.updates]
+        : [];
+      orderUpdates.push(
+        stripUndefinedDeep({
+          updatedAt: now,
+          updatedBy: stripUndefined({ id: actor?.id, name: actor?.name }),
+          action: "PRICING_SYNCED_FROM_QUOTATION",
+          message: `Pricing synchronized after quotation ${currentQuotation.quotationNo} was edited.`,
+        })
+      );
+
+      transaction.set(quotationRef, nextQuotation);
+      transaction.update(
+        orderRef,
+        stripUndefinedDeep({
+          ...pricingUpdate.patch,
+          quotationNo: nextQuotation.quotationNo,
+          quotationId: nextQuotation.id,
+          quotationSnapshotMeta: {
+            ...(currentOrder.quotationSnapshotMeta || {}),
+            correctedAt: now,
+            correctedBy: stripUndefined({
+              id: actor?.id,
+              name: actor?.name,
+              role: actor?.role,
+            }),
+          },
+          updates: orderUpdates,
+          updatedAt: now,
+        })
+      );
+
+      if (dealOrderRefToUpdate) {
+        transaction.set(
+          dealOrderRefToUpdate,
+          {
+            overallSummary: pricingUpdate.patch.overallSummary,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+      }
+
+      return nextQuotation;
+    });
+
+    return {
+      success: true,
+      message:
+        "Converted quotation and linked order were updated. Invoice verification will now use the corrected values.",
+      quotation: JSON.parse(JSON.stringify(updatedQuotation)),
+    };
+  } catch (error: any) {
+    console.error("Error updating converted quotation:", error);
+    return {
+      success: false,
+      message: error?.message || "Failed to update converted quotation.",
+    };
+  }
+}
+
 const coerceNumber = (value: unknown, fallback = 0) => {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
@@ -576,45 +841,17 @@ const toIsoString = (value?: string | Date | null) => {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
 };
 
-const resolveOrderItemType = (item: any) => {
-  const raw = String(item?.type || item?.productType || item?.bcnType || "").trim().toUpperCase();
-  if (raw.includes("HARDWARE")) return "HARDWARE";
-  if (raw.includes("CHANNEL")) return "CHANNEL";
-  if (raw.includes("ACCESSORY")) return "ACCESSORY";
-  if (raw.includes("VAS")) return "VAS";
-  return "FABRIC";
-};
-
-const resolveOrderItemUnit = (itemType: string, item: any) => {
-  const unit = String(item?.unit || item?.stockUnit || "").trim().toUpperCase();
-  if (unit) return unit;
-  if (itemType === "FABRIC") return "MTR";
-  return "PCS";
-};
-
-const summarizeOrderItems = (items: Array<{ taxableAmount?: number; gstAmount?: number; totalAmount?: number }>) => {
-  return items.reduce(
-    (acc, item) => {
-      acc.subTotal += coerceNumber(item.taxableAmount);
-      acc.gstTotal += coerceNumber(item.gstAmount);
-      acc.grandTotal += coerceNumber(item.totalAmount);
-      return acc;
-    },
-    { subTotal: 0, gstTotal: 0, grandTotal: 0 }
-  );
-};
-
 export async function createDealOrderAction(
   customerId: string,
   dealId: string,
-  quotation: Quotation,
+  quotationInput: Quotation,
   creator: { id: string; name: string },
   orderType: OrderType
 ): Promise<{ success: boolean; message: string; order?: Order }> {
   try {
     const customerRef = adminDb.collection('customers').doc(customerId);
     const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
-    const quotationRef = dealRef.collection('quotations').doc(quotation.id);
+    const quotationRef = dealRef.collection('quotations').doc(quotationInput.id);
 
     const [customerSnap, dealSnap, currentQuotationSnap] = await Promise.all([
       customerRef.get(),
@@ -622,7 +859,16 @@ export async function createDealOrderAction(
       quotationRef.get()
     ]);
 
-    if (currentQuotationSnap.exists && currentQuotationSnap.data()?.status === 'Converted to Order') {
+    if (!currentQuotationSnap.exists) {
+      return { success: false, message: 'Quotation not found.' };
+    }
+
+    const quotation = {
+      id: currentQuotationSnap.id,
+      ...currentQuotationSnap.data(),
+    } as Quotation;
+
+    if (quotation.status === 'Converted to Order') {
       return { success: false, message: 'This quotation has already been converted to an order.' };
     }
 
@@ -659,143 +905,26 @@ export async function createDealOrderAction(
 
     const now = new Date().toISOString();
 
-    const rawNormalItems = Array.isArray((quotation as any).sections?.NORMAL?.items)
-      ? (quotation as any).sections.NORMAL.items
-      : (quotation.items || []);
-    const rawVasItems = Array.isArray((quotation as any).sections?.VAS?.items)
-      ? (quotation as any).sections.VAS.items
-      : (quotation.vasDetails || []);
-
-    const normalItems = rawNormalItems.map((item: any) => {
-      const itemType = resolveOrderItemType(item);
-      const qty = coerceNumber(item.qty ?? item.quantity);
-      const gst = coerceNumber(item.gst ?? item.gstPercent);
-      const discountPercent = coerceNumber(item.discountPercent ?? item.discount, 0);
-      const gstMode = String(item.gstMode ?? item.gstType ?? "").toUpperCase() === "EXCL" ? "EXCL" : "INCL";
-
-      const inputRate = coerceNumber(item.rate ?? item.originalMrp ?? item.mrp ?? item.unitPrice);
-      let exclusiveRate = coerceNumber(item.exclusiveRate, Number.NaN);
-      if (!Number.isFinite(exclusiveRate)) {
-        if (gstMode === "INCL" && gst > 0 && Number.isFinite(inputRate)) {
-          exclusiveRate = inputRate / (1 + gst / 100);
-        } else if (Number.isFinite(inputRate)) {
-          exclusiveRate = inputRate;
-        } else {
-          exclusiveRate = 0;
-        }
-      }
-
-      let grossRate = inputRate;
-      if (!Number.isFinite(grossRate) || grossRate === 0) {
-        if (gstMode === "INCL" && gst > 0) {
-          grossRate = exclusiveRate * (1 + gst / 100);
-        } else {
-          grossRate = exclusiveRate;
-        }
-      }
-
-      const grossAmount = grossRate * qty;
-      const discountAmount = grossAmount * (discountPercent / 100);
-      const amountAfterDiscount = grossAmount - discountAmount;
-
-      let taxableAmount = 0;
-      let gstAmount = 0;
-      let totalAmount = 0;
-      if (gstMode === "EXCL") {
-        taxableAmount = amountAfterDiscount;
-        gstAmount = taxableAmount * (gst / 100);
-        totalAmount = taxableAmount + gstAmount;
-      } else {
-        taxableAmount = gst > 0 ? amountAfterDiscount / (1 + gst / 100) : amountAfterDiscount;
-        gstAmount = amountAfterDiscount - taxableAmount;
-        totalAmount = amountAfterDiscount;
-      }
-
-      return stripUndefinedDeep({
-        roomName: toTrimmedString(item.roomName ?? item.room),
-        type: itemType,
-        category: toTrimmedString(item.category || item.subCategory),
-        itemId: toTrimmedString(item.itemId),
-        bcn: toTrimmedString(item.bcn ?? item.collectionBrand),
-        description: toTrimmedString(item.description || item.salesDescription || item.collectionBrand),
-        unit: resolveOrderItemUnit(itemType, item),
-        rate: exclusiveRate,
-        exclusiveRate,
-        qty,
-        gst,
-        gstMode,
-        discountPercent,
-        hsn: toTrimmedString(item.hsn ?? item.hsnCode),
-        group: toTrimmedString(item.group),
-        taxableAmount,
-        gstAmount,
-        totalAmount,
-        allocation: {
-          status: "PENDING",
-          lengths: [],
-          lots: [],
-        },
-      });
-    });
-
-    const vasItems = rawVasItems.map((vas: any) => {
-      const qty = coerceNumber(vas.qty ?? vas.quantity);
-      const gst = coerceNumber(vas.gst ?? vas.gstPercent);
-      const discountPercent = coerceNumber(vas.discountPercent ?? vas.discount, 0);
-      const gstMode = String(vas.gstMode ?? vas.gstType ?? "").toUpperCase() === "EXCL" ? "EXCL" : "INCL";
-      const inputRate = coerceNumber(vas.rate ?? vas.originalMrp ?? vas.mrp ?? vas.unitPrice);
-      const exclusiveRate =
-        gstMode === "INCL" && gst > 0 ? inputRate / (1 + gst / 100) : inputRate;
-      const grossRate = gstMode === "INCL" && gst > 0 ? inputRate : exclusiveRate;
-      const grossAmount = grossRate * qty;
-      const discountAmount = grossAmount * (discountPercent / 100);
-      const amountAfterDiscount = grossAmount - discountAmount;
-
-      let taxableAmount = 0;
-      let gstAmount = 0;
-      let totalAmount = 0;
-      if (gstMode === "EXCL") {
-        taxableAmount = amountAfterDiscount;
-        gstAmount = taxableAmount * (gst / 100);
-        totalAmount = taxableAmount + gstAmount;
-      } else {
-        taxableAmount = gst > 0 ? amountAfterDiscount / (1 + gst / 100) : amountAfterDiscount;
-        gstAmount = amountAfterDiscount - taxableAmount;
-        totalAmount = amountAfterDiscount;
-      }
-
-      return stripUndefinedDeep({
-        roomName: toTrimmedString(vas.roomName ?? vas.room),
-        type: "VAS",
-        description: toTrimmedString(vas.description ?? vas.vasName),
-        unit: resolveOrderItemUnit("VAS", vas),
-        rate: exclusiveRate,
-        exclusiveRate,
-        qty,
-        gst,
-        gstMode,
-        discountPercent,
-        hsn: toTrimmedString(vas.hsn ?? vas.hsnCode),
-        group: toTrimmedString(vas.group),
-        taxableAmount,
-        gstAmount,
-        totalAmount,
-      });
-    });
-
-    const normalSummary = summarizeOrderItems(normalItems);
-    const vasSummary = summarizeOrderItems(vasItems);
-
-    const sections = {
-      NORMAL: { items: normalItems, summary: normalSummary },
-      VAS: { items: vasItems, summary: vasSummary },
-    };
-
-    const overallSummary = {
-      goodsTotal: normalSummary.grandTotal,
-      vasTotal: vasSummary.grandTotal,
-      grandTotal: normalSummary.grandTotal + vasSummary.grandTotal,
-    };
+    const {
+      rawNormalItems,
+      rawVasItems,
+      normalItems,
+      vasItems,
+      sections,
+      overallSummary,
+    } = buildOrderPricingFromQuotation(quotation);
+    const quotationTotal = coerceNumber(quotation.totalAmount, Number.NaN);
+    if (
+      Number.isFinite(quotationTotal) &&
+      Math.abs(overallSummary.grandTotal - quotationTotal) > 1
+    ) {
+      return {
+        success: false,
+        message:
+          `Quotation pricing is inconsistent. Item total Rs. ${overallSummary.grandTotal.toFixed(2)} ` +
+          `does not match quotation total Rs. ${quotationTotal.toFixed(2)}. Please correct the quotation before conversion.`,
+      };
+    }
 
     const workflowMilestones = buildWorkflowMilestones(orderType, creator);
 
@@ -1510,6 +1639,69 @@ export async function getOrdersForDeal(customerId: string, dealId: string): Prom
         console.error("Error fetching orders:", error);
         return [];
     }
+}
+
+export async function getInvoicesForDeal(
+  customerId: string,
+  dealId: string
+): Promise<Invoice[]> {
+  try {
+    const ordersSnapshot = await adminDb
+      .collection("customers")
+      .doc(customerId)
+      .collection("deals")
+      .doc(dealId)
+      .collection("orders")
+      .get();
+
+    const orderIds = Array.from(
+      new Set(
+        ordersSnapshot.docs
+          .flatMap((document) => {
+            const data = document.data() as Partial<DealOrder>;
+            return [data.orderId, data.orderNo]
+              .map((value) => String(value || "").trim())
+              .filter(Boolean);
+          })
+      )
+    );
+    if (orderIds.length === 0) return [];
+
+    const invoiceDocuments: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+    for (let index = 0; index < orderIds.length; index += 30) {
+      const orderIdChunk = orderIds.slice(index, index + 30);
+      const snapshot = await adminDb
+        .collection("invoices")
+        .where("orderId", "in", orderIdChunk)
+        .get();
+      invoiceDocuments.push(...snapshot.docs);
+    }
+
+    const invoices = invoiceDocuments
+      .map((document) => {
+        const data = document.data() as Record<string, any>;
+        const rawCreatedAt = data.createdAt;
+        const createdAt =
+          rawCreatedAt && typeof rawCreatedAt.toDate === "function"
+            ? rawCreatedAt.toDate().toISOString()
+            : rawCreatedAt;
+        return {
+          ...data,
+          id: document.id,
+          createdAt,
+        } as Invoice;
+      })
+      .sort(
+        (left, right) =>
+          new Date(String(right.createdAt || 0)).getTime() -
+          new Date(String(left.createdAt || 0)).getTime()
+      );
+
+    return JSON.parse(JSON.stringify(invoices));
+  } catch (error) {
+    console.error("Error fetching invoices for deal:", error);
+    return [];
+  }
 }
 
 

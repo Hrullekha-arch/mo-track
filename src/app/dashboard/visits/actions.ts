@@ -1,11 +1,40 @@
 
 'use server';
 
-import { adminDb, adminStorage } from '@/lib/firebase-admin';
+import { adminAuth, adminDb, adminStorage } from '@/lib/firebase-admin';
 import { DealVisit } from '@/lib/types';
+import { canAssignInstallerSlots } from '@/lib/visit-assignment-access';
 import admin from "firebase-admin";
 
 const SIGNED_URL_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const base64Marker = "base64,";
+
+const normalizeBase64 = (value: string) => {
+    if (!value) return "";
+    const markerIndex = value.indexOf(base64Marker);
+    return markerIndex >= 0 ? value.slice(markerIndex + base64Marker.length) : value;
+};
+
+const sanitizeFileName = (value: string) =>
+    (value || "file").replace(/[^\w.-]/g, "_");
+
+const stripUndefinedDeep = (value: any): any => {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    if (Array.isArray(value)) {
+        return value
+            .map((entry) => stripUndefinedDeep(entry))
+            .filter((entry) => entry !== undefined);
+    }
+    if (typeof value === "object") {
+        return Object.fromEntries(
+            Object.entries(value)
+                .map(([key, entry]) => [key, stripUndefinedDeep(entry)])
+                .filter(([, entry]) => entry !== undefined)
+        );
+    }
+    return value;
+};
 
 const parseStorageObjectFromUrl = (rawUrl: string) => {
     try {
@@ -82,6 +111,62 @@ export async function getFreshMeasurementPdfUrlAction(url: string): Promise<stri
     } catch (error) {
         console.warn("Failed to refresh measurement PDF URL:", error);
         return raw;
+    }
+}
+
+export async function uploadComplaintPhotoAction(input: {
+    fileName: string;
+    mimeType: string;
+    base64Data: string;
+    folder?: string;
+}): Promise<{ success: boolean; message: string; url?: string }> {
+    try {
+        if (!adminStorage) {
+            return {
+                success: false,
+                message: "Firebase Admin Storage is not initialized.",
+            };
+        }
+
+        const bucketName = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+        if (!bucketName) {
+            return {
+                success: false,
+                message: "Firebase storage bucket is not configured.",
+            };
+        }
+
+        const cleanBase64 = normalizeBase64(String(input?.base64Data || ""));
+        if (!cleanBase64) {
+            return { success: false, message: "Empty photo payload." };
+        }
+
+        const folder = String(input?.folder || "companyVisits/complaints")
+            .replace(/^\/+|\/+$/g, "")
+            .replace(/[^\w./-]/g, "_");
+        const safeName = sanitizeFileName(String(input?.fileName || "complaint-photo.jpg"));
+        const mimeType = String(input?.mimeType || "image/jpeg").trim() || "image/jpeg";
+        const filePath = `${folder}/${Date.now()}_${safeName}`;
+        const bucket = adminStorage.bucket(bucketName);
+        const file = bucket.file(filePath);
+
+        await file.save(Buffer.from(cleanBase64, "base64"), {
+            metadata: { contentType: mimeType },
+            resumable: false,
+        });
+
+        const [url] = await file.getSignedUrl({
+            action: "read",
+            expires: Date.now() + SIGNED_URL_TTL_MS,
+        });
+
+        return { success: true, message: "Photo uploaded.", url };
+    } catch (error: any) {
+        console.error("Error uploading complaint photo:", error);
+        return {
+            success: false,
+            message: error?.message || "Failed to upload complaint photo.",
+        };
     }
 }
 
@@ -186,12 +271,14 @@ const slotSortWeight = (slotId: string) => {
 };
 
 export async function assignVisitAction(input: {
+    idToken: string;
     visitId: string;
     customerId: string;
     dealDocId: string;
     installerId: string;
     slots: AssignVisitSlotInput[];
 }): Promise<{ success: boolean; message: string }> {
+    const idToken = String(input?.idToken || "").trim();
     const visitId = String(input?.visitId || "").trim();
     const customerId = String(input?.customerId || "").trim();
     const dealDocId = String(input?.dealDocId || "").trim();
@@ -208,11 +295,27 @@ export async function assignVisitAction(input: {
         }))
         .filter((slot) => slot.slotDate && slot.slotId);
 
+    if (!idToken) {
+        return { success: false, message: "Authentication is required to assign a visit." };
+    }
     if (!visitId || !customerId || !dealDocId || !installerId) {
         return { success: false, message: "Missing required fields for assignment." };
     }
     if (!cleanedSlots.length) {
         return { success: false, message: "Please select at least one slot." };
+    }
+
+    try {
+        const decoded = await adminAuth.verifyIdToken(idToken);
+        const actorSnap = await adminDb.collection("users").doc(decoded.uid).get();
+        if (!actorSnap.exists || !canAssignInstallerSlots(actorSnap.data())) {
+            return {
+                success: false,
+                message: "Only Admin, Allocator, PC, EA, Data Analytics, and IT users can assign visits.",
+            };
+        }
+    } catch {
+        return { success: false, message: "Your session is invalid or expired." };
     }
 
     const slotDate = cleanedSlots[0].slotDate;
@@ -548,6 +651,20 @@ export type ComplaintCustomerSearchResult = {
     source?: 'customers' | 'walkin';
 };
 
+const cleanComplaintCustomerResult = (row: ComplaintCustomerSearchResult): ComplaintCustomerSearchResult =>
+    stripUndefinedDeep({
+        id: String(row.id || '').trim(),
+        name: String(row.name || '').trim(),
+        phone: String(row.phone || '').trim() || undefined,
+        mobileNo: String(row.mobileNo || '').trim() || undefined,
+        email: String(row.email || '').trim() || undefined,
+        address: String(row.address || '').trim() || undefined,
+        billingAddress: String(row.billingAddress || '').trim() || undefined,
+        pincode: String(row.pincode || '').trim() || undefined,
+        customerCode: String(row.customerCode || '').trim() || undefined,
+        source: row.source,
+    });
+
 type ComplaintSearchDebugMeta = {
     traceId?: string;
     source?: string;
@@ -565,6 +682,7 @@ type ComplaintSearchDebugInfo = {
     matchedCount: number;
     returnedCount: number;
     fetchElapsedMs?: number;
+    cacheHit?: boolean;
 };
 
 import { createHash } from 'crypto';
@@ -762,7 +880,10 @@ async function executeTargetedQueries(
     return allCustomers;
 }
 
-function mapCustomerDocs(snapshot: FirebaseFirestore.QuerySnapshot, source: string): ComplaintCustomerSearchResult[] {
+function mapCustomerDocs(
+    snapshot: FirebaseFirestore.QuerySnapshot,
+    source: ComplaintCustomerSearchResult['source']
+): ComplaintCustomerSearchResult[] {
     return snapshot.docs.map((doc: any) => {
         const data = doc.data() as any;
         const firstName = String(data?.firstName || '').trim();
@@ -789,7 +910,7 @@ function mapCustomerDocs(snapshot: FirebaseFirestore.QuerySnapshot, source: stri
         const pincode = String(data?.billingAddress?.pincode || data?.pinCode || '').trim();
         const customerCode = String(data?.customerCode || data?.customerId || '').trim();
 
-        return {
+        return cleanComplaintCustomerResult({
             id: doc.id,
             name,
             phone: phone || undefined,
@@ -800,11 +921,14 @@ function mapCustomerDocs(snapshot: FirebaseFirestore.QuerySnapshot, source: stri
             pincode: pincode || undefined,
             customerCode: customerCode || undefined,
             source,
-        };
+        });
     });
 }
 
-function mapWalkinDocs(snapshot: FirebaseFirestore.QuerySnapshot, source: string): ComplaintCustomerSearchResult[] {
+function mapWalkinDocs(
+    snapshot: FirebaseFirestore.QuerySnapshot,
+    source: ComplaintCustomerSearchResult['source']
+): ComplaintCustomerSearchResult[] {
     return snapshot.docs.map((doc: any) => {
         const data = doc.data() as any;
         const firstName = String(data?.firstName || '').trim();
@@ -836,7 +960,7 @@ function mapWalkinDocs(snapshot: FirebaseFirestore.QuerySnapshot, source: string
         const pincode = String(data?.billingAddress?.pincode || data?.pinCode || data?.pincode || '').trim();
         const customerCode = String(data?.customerCode || data?.customerId || data?.walkinId || '').trim();
 
-        return {
+        return cleanComplaintCustomerResult({
             id: doc.id,
             name,
             phone: phone || undefined,
@@ -847,7 +971,7 @@ function mapWalkinDocs(snapshot: FirebaseFirestore.QuerySnapshot, source: string
             pincode: pincode || undefined,
             customerCode: customerCode || undefined,
             source,
-        };
+        });
     });
 }
 
@@ -965,6 +1089,7 @@ export async function searchCustomersForComplaintAction(
         const cached = await searchCache.get(cacheKey);
         
         if (cached) {
+            const safeCached = cached.map(cleanComplaintCustomerResult);
             const debug: ComplaintSearchDebugInfo = {
                 traceId,
                 source,
@@ -973,16 +1098,16 @@ export async function searchCustomersForComplaintAction(
                 normalizedDigitsLength: normalizedDigits.length,
                 customersScanned: 0,
                 walkinsScanned: 0,
-                candidateCount: cached.length,
-                matchedCount: cached.length,
-                returnedCount: cached.length,
+                candidateCount: safeCached.length,
+                matchedCount: safeCached.length,
+                returnedCount: safeCached.length,
                 cacheHit: true,
             };
             console.info(`[complaint-search][${traceId}] cache-hit`, debug);
             return {
                 success: true,
-                message: cached.length ? 'Customers found.' : 'Customer not found.',
-                customers: cached,
+                message: safeCached.length ? 'Customers found.' : 'Customer not found.',
+                customers: safeCached,
                 debug,
             };
         }
@@ -999,7 +1124,8 @@ export async function searchCustomersForComplaintAction(
         });
 
         // Rank and deduplicate results
-        const deduped = rankAndDeduplicate(customers, normalized, normalizedDigits);
+        const deduped = rankAndDeduplicate(customers, normalized, normalizedDigits)
+            .map(cleanComplaintCustomerResult);
 
         // Cache results (5 minute TTL)
         await searchCache.set(cacheKey, deduped, 300);
@@ -1067,7 +1193,7 @@ export async function createComplaintCompanyVisitAction(input: {
     createdBy?: { id?: string; name?: string; email?: string };
 }): Promise<{ success: boolean; message: string; id?: string }> {
     try {
-        const customer = input?.customer;
+        const customer = cleanComplaintCustomerResult(input?.customer || ({} as ComplaintCustomerSearchResult));
         const complaintType = String(input?.complaintType || '').trim();
         const visitDate = String(input?.visitDate || '').trim();
         const customerAddress = String(input?.customerAddress || '').trim();
@@ -1132,7 +1258,7 @@ export async function createComplaintCompanyVisitAction(input: {
         const nowIso = new Date().toISOString();
         const docRef = adminDb.collection('companyVisits').doc();
 
-        await docRef.set({
+        const payload = stripUndefinedDeep({
             createdAt: nowIso,
             updatedAt: nowIso,
             category: 'complaint_visit',
@@ -1174,7 +1300,7 @@ export async function createComplaintCompanyVisitAction(input: {
                 pincode: String(customerData?.billingAddress?.pincode || customerData?.pinCode || customer.pincode || ''),
                 customerCode: resolvedCustomerCode,
                 billingAddress: customerData?.billingAddress || null,
-                raw: customerData || null,
+                raw: customerData ? stripUndefinedDeep(customerData) : null,
             },
             createdBy: {
                 id: String(input?.createdBy?.id || '').trim() || 'system',
@@ -1183,6 +1309,8 @@ export async function createComplaintCompanyVisitAction(input: {
             },
             source: 'all_visits_register_complaint',
         });
+
+        await docRef.set(payload);
 
         return { success: true, message: 'Complaint registered successfully.', id: docRef.id };
     } catch (error: any) {

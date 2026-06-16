@@ -7,6 +7,9 @@ const DEFAULT_SHEET_NAME = "Sheet2";
 const DEFAULT_PURCHASE_SHEET_NAME = "Purchase";
 const SYNC_ROUTE_VERSION = "2026-03-06-order-sheet2-v5";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
 const getSheetsClient = async () => {
   const serviceAccountKey =
     process.env.GOOGLE_SERVICE_ACCOUNT_KEY || process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
