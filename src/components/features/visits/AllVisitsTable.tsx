@@ -359,25 +359,23 @@ export default function AllVisitsTable({
             <h2 className="font-semibold text-slate-900">All Visits</h2>
             <p className="text-sm text-slate-500 mt-0.5">{filteredVisits.length} visits shown · defaults to today</p>
           </div>
-          {!isCrmDesignation && (
-            <div className="flex items-center gap-2">
-              <Button size="sm" variant="outline" onClick={() => handleSyncSheet()} disabled={isSyncingSheet}
-                className="rounded-lg text-xs h-8 border-slate-200">
-                {isSyncingSheet ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <CalendarSync className="mr-1.5 h-3 w-3" />}
-                Sync Sheet
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setRegisterComplaintDialog(true)}
-                className="rounded-lg text-xs h-8 border-slate-200">
-                <AlertCircle className="mr-1.5 h-3 w-3" />
-                Register Complaint
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setCompanyVisitDialog(true)}
-                className="rounded-lg text-xs h-8 border-slate-200">
-                <ArrowLeftRight className="mr-1.5 h-3 w-3" />
-                Company Tracker
-              </Button>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => handleSyncSheet()} disabled={isSyncingSheet}
+              className="rounded-lg text-xs h-8 border-slate-200">
+              {isSyncingSheet ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <CalendarSync className="mr-1.5 h-3 w-3" />}
+              Sync Sheet
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setRegisterComplaintDialog(true)}
+              className="rounded-lg text-xs h-8 border-slate-200">
+              <AlertCircle className="mr-1.5 h-3 w-3" />
+              Register Complaint
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setCompanyVisitDialog(true)}
+              className="rounded-lg text-xs h-8 border-slate-200">
+              <ArrowLeftRight className="mr-1.5 h-3 w-3" />
+              Company Tracker
+            </Button>
+          </div>
         </div>
 
         {/* Filters */}
