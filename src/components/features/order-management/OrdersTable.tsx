@@ -895,7 +895,11 @@ export function OrdersTable() {
   const { toast } = useToast();
   const { user, role } = useAuth();
 
-  const isAuthorized = role === "admin" || role === "employee";
+  const normalizedRole = String(role || user?.role || "").trim().toLowerCase();
+  const isAuthorized =
+    normalizedRole === "admin" ||
+    normalizedRole === "employee" ||
+    (normalizedRole === "pc" && user?.isActive !== false);
 
   // ── FIX: Build query that always shows today's orders by default
   //         and correctly applies all filter combinations ─────────────────────

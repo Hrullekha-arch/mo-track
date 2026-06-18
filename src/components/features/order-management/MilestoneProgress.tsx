@@ -15,6 +15,7 @@ interface MilestoneProgressProps {
   milestones: Milestone[];
   onMilestoneChange?: (milestoneId: number, completed: boolean) => void;
   role?: UserRole | null; // Keep for prop-drilling, but useAuth is preferred
+  disabled?: boolean;
 }
 
 const milestoneIcons: { [key: number]: React.ElementType } = {
@@ -28,14 +29,16 @@ const milestoneIcons: { [key: number]: React.ElementType } = {
   8: Wrench,
 };
 
-export function MilestoneProgress({ milestones, onMilestoneChange }: MilestoneProgressProps) {
-  const { role: userRole } = useAuth();
+export function MilestoneProgress({ milestones, onMilestoneChange, disabled = false }: MilestoneProgressProps) {
+  const { role: userRole, user } = useAuth();
+  const isPcUser = userRole === 'PC' || (userRole === 'employee' && user?.designation === 'PC');
   
   const completedCount = milestones.filter(m => m.completed).length;
   const progressPercentage = (completedCount / milestones.length) * 100;
 
   const canEditMilestone = (milestoneId: number) => {
     if (userRole === 'admin') return true;
+    if (isPcUser) return true;
     if (userRole === 'employee' && milestoneId <= 5) return true; // Employees handle up to Ready for Delivery
     if (userRole === 'installer' && milestoneId > 5) return true; 
     return false;
@@ -61,8 +64,8 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
             let canBeTicked;
             if (userRole === 'admin') {
                 canBeTicked = true; // Admin can always tick/untick
-            } else if (userRole === 'employee') {
-                // Employee can only tick forward, not revert.
+            } else if (userRole === 'employee' || isPcUser) {
+                // Employees and PC users can only move the workflow forward.
                 canBeTicked = !isCompleted && prevMilestoneCompleted;
             } else {
                 canBeTicked = !isCompleted && prevMilestoneCompleted;
@@ -97,7 +100,7 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
                                 id={`milestone-${milestone.id}`}
                                 checked={isCompleted}
                                 className="h-5 w-5"
-                                disabled={!canBeTicked}
+                                disabled={disabled || !canBeTicked}
                                 // We use onCheckedChange on the trigger so it doesn't fire the change, only opens the dialog
                                 onCheckedChange={() => { /* This is the fix: do nothing here, let the dialog handle it */ }}
                             />
@@ -124,7 +127,7 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
                         <TooltipTrigger asChild>
                            <div className="flex items-center gap-2">
                              <p className={cn("text-xs", isCompleted ? "text-green-600" : "text-muted-foreground")}>
-                                Completed on {new Date(milestone.completedAt).toLocaleString()}
+                                Completed by {milestone.completedBy || 'System'} on {new Date(milestone.completedAt).toLocaleString()}
                               </p>
                               {milestone.location && (
                                 <MapPin className="h-3 w-3 text-muted-foreground" />

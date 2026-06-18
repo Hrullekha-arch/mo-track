@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LeaveWidget } from "@/components/features/dashboard/LeaveWidget";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
@@ -877,6 +878,10 @@ export default function HrDashboardClientPage() {
             </Button>
           </div>
         </div>
+      </div>
+
+      <div className="ml-auto w-full max-w-xl">
+        <LeaveWidget />
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

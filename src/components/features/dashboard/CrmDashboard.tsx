@@ -19,6 +19,7 @@ import {
 import { db } from "@/lib/firebase";
 import { Customer, Deal, DealVisit, InboundRequest, Milestone, Order, PurchaseRequest } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
+import { LeaveWidget } from "@/components/features/dashboard/LeaveWidget";
 import Link from "next/link";
 import { differenceInCalendarDays, format, formatDistanceToNow, isToday } from "date-fns";
 
@@ -3270,7 +3271,10 @@ export default function CrmDashboard({ dashboardType }: { dashboardType: "CRM" |
   if (dashboardType === "PC") {
     const isPcReadOnly = user.role === "PC" || user.designation === "PC";
     return (
-      <div className="h-full p-4 md:p-6 lg:p-8">
+      <div className="h-full space-y-6 p-4 md:p-6 lg:p-8">
+        <div className="ml-auto w-full max-w-xl">
+          <LeaveWidget />
+        </div>
         <PcControlRoom readOnly={isPcReadOnly} />
       </div>
     );
@@ -3300,6 +3304,12 @@ export default function CrmDashboard({ dashboardType }: { dashboardType: "CRM" |
       description: "Open customer records, deals, and communication data.",
       href: "/dashboard/customers",
       icon: FileSignature,
+    },
+    {
+      title: "Apply Leave",
+      description: "View leave balance and submit a leave request.",
+      href: "/dashboard/leave",
+      icon: Calendar,
     },
   ] as const;
 
@@ -3343,7 +3353,7 @@ export default function CrmDashboard({ dashboardType }: { dashboardType: "CRM" |
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         {crmQuickActions.map((action) => (
           <Link key={action.href} href={action.href} className="group block">
             <Card className="h-full border-slate-200 transition-all hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-md">

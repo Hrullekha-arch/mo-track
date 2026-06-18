@@ -4,6 +4,9 @@
 import { FileText, ShoppingCart, CheckCircle, Package, RotateCcw, Wrench, Zap } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+
+const ALLOCATE_ORDER_PERMISSION = "/dashboard/orders";
 
 const actions = [
   {
@@ -52,6 +55,14 @@ const actions = [
 
 export default function OrderFlowDashboard() {
   const router = useRouter();
+  const { user } = useAuth();
+  const normalizedRole = String(user?.role || "").trim().toLowerCase();
+  const canAllocateOrders =
+    normalizedRole === "admin" ||
+    (normalizedRole === "pc" && user?.isActive !== false);
+  const visibleActions = actions.filter(
+    (item) => item.path !== ALLOCATE_ORDER_PERMISSION || canAllocateOrders
+  );
 
   return (
     <div className="p-8">
@@ -65,7 +76,7 @@ export default function OrderFlowDashboard() {
 
       {/* Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {actions.map((item) => (
+        {visibleActions.map((item) => (
           <Card
             key={item.title}
             onClick={() => router.push(item.path)}

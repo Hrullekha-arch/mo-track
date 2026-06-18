@@ -24,6 +24,7 @@ import { useAuth } from "@/context/AuthContext";
 import { PurchaseRequestTable } from "@/components/features/purchase/PurchaseRequestTable";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { LucideIcon } from "lucide-react";
+import { LeaveWidget } from "@/components/features/dashboard/LeaveWidget";
 
 const ACTIVE_PURCHASE_STATUSES: PurchaseRequest["status"][] = [
   "Pending Approval",
@@ -274,6 +275,10 @@ export default function PurchasePage() {
           </div>
         </CardContent>
       </Card>
+
+      <div className="ml-auto w-full max-w-xl">
+        <LeaveWidget />
+      </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         {quickActions.map((action) => (

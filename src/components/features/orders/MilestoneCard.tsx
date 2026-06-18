@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Order } from "@/lib/types";
+import { Order, UserRole } from "@/lib/types";
 import {
   Card,
   CardContent,
@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 interface MilestoneCardProps {
   order: Order;
   milestones: ReturnType<typeof getNormalizedOrderMilestones>;
-  role?: string | null;
+  role?: UserRole | null;
   className?: string;
 }
 
@@ -40,7 +40,7 @@ export default function MilestoneCard({
   const [isUpdating, setIsUpdating] = React.useState(false);
 
   const canEditMilestones = React.useMemo(() => {
-    return role === "admin" || role === "employee";
+    return role === "admin" || role === "employee" || role === "PC";
   }, [role]);
 
   const completedCount = React.useMemo(() => {
@@ -51,6 +51,17 @@ export default function MilestoneCard({
     if (!milestones.length) return 0;
     return Math.round((completedCount / milestones.length) * 100);
   }, [milestones, completedCount]);
+
+  const lastUpdatedAt = React.useMemo(() => {
+    return milestones.reduce<string | null>((latest, milestone) => {
+      if (!milestone.completedAt) return latest;
+      if (!latest) return milestone.completedAt;
+      return new Date(milestone.completedAt).getTime() >
+        new Date(latest).getTime()
+        ? milestone.completedAt
+        : latest;
+    }, null);
+  }, [milestones]);
 
   const handleMilestoneChange = React.useCallback(
     async (milestoneId: number, completed: boolean) => {
@@ -224,11 +235,11 @@ export default function MilestoneCard({
             </div>
           )}
 
-          {order.workflow?.updatedAt && (
+          {lastUpdatedAt && (
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Last Updated</span>
               <span className="font-medium">
-                {new Date(order.workflow.updatedAt).toLocaleDateString(
+                {new Date(lastUpdatedAt).toLocaleDateString(
                   "en-IN",
                   {
                     day: "numeric",
@@ -279,8 +290,8 @@ export default function MilestoneCard({
             </p>
           ) : (
             <p>
-              Milestone updates require admin or employee permissions. Contact
-              your administrator for access.
+              Milestone updates require admin, employee, or PC permissions.
+              Contact your administrator for access.
             </p>
           )}
         </div>

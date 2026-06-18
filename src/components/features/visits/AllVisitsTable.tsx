@@ -46,7 +46,7 @@ import { useToast } from "@/hooks/use-toast";
 import { runTransaction, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
-import { canAssignInstallerSlots, canManageGeneralVisitActions } from "@/lib/visit-assignment-access";
+import { canAssignInstallerSlots } from "@/lib/visit-assignment-access";
 import CompanyVisitDialog from "@/components/features/customer/CompanyVisitDialog";
 import RegisterComplaintDialog from "@/components/features/visits/RegisterComplaintDialog";
 
@@ -136,9 +136,12 @@ export default function AllVisitsTable({
   onDelete,
 }: AllVisitsTableProps) {
   const { user } = useAuth();
+  const isCrmDesignation =
+    String(user?.designation || "").trim().toLowerCase() === "crm";
   const canAssignVisits = canAssignInstallerSlots(user);
-  const isAdmin = String(user?.role || "").trim().toLowerCase() === "admin";
-  const showGeneralVisitActions = isAdmin || canManageGeneralVisitActions(user) || !canAssignVisits;
+  const canEditVisits = canAssignVisits || isCrmDesignation;
+  // CRM can edit visit details, but cannot assign, delete, or unassign visits.
+  const canManageVisitRecords = canAssignVisits;
   const { toast } = useToast();
   const [dateFrom, setDateFrom] = React.useState("");
   const [dateTo, setDateTo] = React.useState("");
@@ -240,8 +243,14 @@ export default function AllVisitsTable({
     (installers || []).map(u => ({ id: u.id, name: u.name })).sort((a, b) => a.name.localeCompare(b.name)),
     [installers]
   );
-  const typeOptions = React.useMemo(() => [...new Set(visits.map(v => v.typeOfVisit).filter(Boolean))].sort(), [visits]);
-  const statusOptions = React.useMemo(() => [...new Set(visits.map(v => v.status).filter(Boolean))].sort(), [visits]);
+  const typeOptions = React.useMemo(
+    () => [...new Set(visits.map(v => v.typeOfVisit).filter((value): value is string => Boolean(value)))].sort(),
+    [visits]
+  );
+  const statusOptions = React.useMemo(
+    () => [...new Set(visits.map(v => v.status).filter((value): value is string => Boolean(value)))].sort(),
+    [visits]
+  );
 
   const filteredVisits = React.useMemo(() => {
     const queryText = searchQuery.trim().toLowerCase();
@@ -350,23 +359,25 @@ export default function AllVisitsTable({
             <h2 className="font-semibold text-slate-900">All Visits</h2>
             <p className="text-sm text-slate-500 mt-0.5">{filteredVisits.length} visits shown · defaults to today</p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => handleSyncSheet()} disabled={isSyncingSheet}
-              className="rounded-lg text-xs h-8 border-slate-200">
-              {isSyncingSheet ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <CalendarSync className="mr-1.5 h-3 w-3" />}
-              Sync Sheet
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setRegisterComplaintDialog(true)}
-              className="rounded-lg text-xs h-8 border-slate-200">
-              <AlertCircle className="mr-1.5 h-3 w-3" />
-              Register Complaint
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setCompanyVisitDialog(true)}
-              className="rounded-lg text-xs h-8 border-slate-200">
-              <ArrowLeftRight className="mr-1.5 h-3 w-3" />
-              Company Tracker
-            </Button>
-          </div>
+          {!isCrmDesignation && (
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => handleSyncSheet()} disabled={isSyncingSheet}
+                className="rounded-lg text-xs h-8 border-slate-200">
+                {isSyncingSheet ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <CalendarSync className="mr-1.5 h-3 w-3" />}
+                Sync Sheet
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setRegisterComplaintDialog(true)}
+                className="rounded-lg text-xs h-8 border-slate-200">
+                <AlertCircle className="mr-1.5 h-3 w-3" />
+                Register Complaint
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setCompanyVisitDialog(true)}
+                className="rounded-lg text-xs h-8 border-slate-200">
+                <ArrowLeftRight className="mr-1.5 h-3 w-3" />
+                Company Tracker
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Filters */}
@@ -461,7 +472,7 @@ export default function AllVisitsTable({
                             onClick={e => { 
                               e.stopPropagation(); 
                               setPreviewPdf({ 
-                                url: visit.measurementPdfUrl, 
+                                url: String(visit.measurementPdfUrl),
                                 fileName: `${visit.dealId || "deal"}-measurement.pdf`, 
                                 dealId: visit.dealId 
                               }); 
@@ -477,20 +488,20 @@ export default function AllVisitsTable({
                       <DropdownMenu modal={false}>
                         <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0 rounded-lg hover:bg-slate-100"><MoreHorizontal className="h-4 w-4 text-slate-500" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="rounded-xl shadow-lg border-slate-200 w-44">
-                          {showGeneralVisitActions && (
-                            <DropdownMenuItem onClick={() => onViewDetails(visit)} className="rounded-lg text-sm"><Eye className="mr-2 h-3.5 w-3.5" /> View Details</DropdownMenuItem>
-                          )}
+                          <DropdownMenuItem onClick={() => onViewDetails(visit)} className="rounded-lg text-sm"><Eye className="mr-2 h-3.5 w-3.5" /> View Details</DropdownMenuItem>
                           {canAssignVisits && (
                             <DropdownMenuItem className="rounded-lg text-sm" onSelect={() => { window.setTimeout(() => onAssign(visit), 0); }}>
                               <UserCheck className="mr-2 h-3.5 w-3.5" />
                               {getVisitAssigneeId(visit) ? "Re-assign Installer + Slots" : "Assign Installer + Slots"}
                             </DropdownMenuItem>
                           )}
-                          {showGeneralVisitActions && (
+                          <DropdownMenuItem onClick={() => onShare(visit)} className="rounded-lg text-sm"><Share2 className="mr-2 h-3.5 w-3.5" /> Share Link</DropdownMenuItem>
+                          {visit.status !== "completed" && <DropdownMenuItem className="rounded-lg text-sm" onSelect={e => { e.preventDefault(); openCompleteVisitDialog(visit); }}><CheckCircle2 className="mr-2 h-3.5 w-3.5 text-emerald-600" /> Complete Visit</DropdownMenuItem>}
+                          {canEditVisits && (
+                            <DropdownMenuItem onClick={() => onEdit(visit)} className="rounded-lg text-sm"><Edit className="mr-2 h-3.5 w-3.5" /> Edit Visit</DropdownMenuItem>
+                          )}
+                          {canManageVisitRecords && (
                             <>
-                              <DropdownMenuItem onClick={() => onEdit(visit)} className="rounded-lg text-sm"><Edit className="mr-2 h-3.5 w-3.5" /> Edit Visit</DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => onShare(visit)} className="rounded-lg text-sm"><Share2 className="mr-2 h-3.5 w-3.5" /> Share Link</DropdownMenuItem>
-                              {visit.status !== "completed" && <DropdownMenuItem className="rounded-lg text-sm" onSelect={e => { e.preventDefault(); openCompleteVisitDialog(visit); }}><CheckCircle2 className="mr-2 h-3.5 w-3.5 text-emerald-600" /> Complete Visit</DropdownMenuItem>}
                               <DropdownMenuSeparator />
                               <DropdownMenuItem className="text-red-600 focus:text-red-700 rounded-lg text-sm" onSelect={e => { e.preventDefault(); setConfirmDelete(visit); }}><Trash2 className="mr-2 h-3.5 w-3.5" /> Delete</DropdownMenuItem>
                               {getVisitAssigneeId(visit) && <DropdownMenuItem className="text-red-600 focus:text-red-700 rounded-lg text-sm" onSelect={e => { e.preventDefault(); setConfirmUnassign(visit); }}><UserX className="mr-2 h-3.5 w-3.5" /> Unassign</DropdownMenuItem>}

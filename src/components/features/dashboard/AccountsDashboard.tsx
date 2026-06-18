@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
+import { LeaveWidget } from "@/components/features/dashboard/LeaveWidget";
 import { format, formatDistanceToNow } from "date-fns";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PrintableQuotationProfessional } from "@/components/features/order-management/PrintableQuotationProfessional";
@@ -363,6 +364,10 @@ export function AccountsDashboard() {
             </div>
           </CardContent>
         </Card>
+
+        <div className="ml-auto w-full max-w-xl">
+          <LeaveWidget />
+        </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
           <Link href="/dashboard/approvals" className="group block">

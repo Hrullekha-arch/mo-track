@@ -2,7 +2,7 @@
 
 'use server'
 
-import { adminDb } from '@/lib/firebase-admin';
+import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { Order, OrderWorkflowStatus, Stock, StockTransaction, O2DStatus, FabricDetail, PurchaseRequest } from '@/lib/types';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import {
@@ -251,7 +251,7 @@ export async function getAvailableStockLengths(stockId: string): Promise<{ succe
 
 
 export async function allocateStockToAction(
-    { orderId, stockId, bcn, allocations, itemName, rate, userId, userName }: 
+    { orderId, stockId, bcn, allocations, itemName, rate, userId, userName, authToken }:
     { 
         orderId: string, 
         stockId?: string,
@@ -260,10 +260,33 @@ export async function allocateStockToAction(
         itemName: string, 
         rate: number, 
         userId: string, 
-        userName: string 
+        userName: string,
+        authToken: string
     }
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<{ success: boolean; message: string; bcn?: string }> {
     try {
+      const actorId = String(userId || "").trim();
+      const token = String(authToken || "").trim();
+      if (!actorId || !token) {
+        return { success: false, message: "User access could not be verified." };
+      }
+      const decodedToken = await adminAuth.verifyIdToken(token);
+      if (decodedToken.uid !== actorId) {
+        return { success: false, message: "Authenticated user does not match the allocation request." };
+      }
+      const actorSnapshot = await adminDb.collection("users").doc(actorId).get();
+      const actor = actorSnapshot.data() || {};
+      const actorRole = String(actor.role || "").trim().toLowerCase();
+      const canAllocate =
+        actor.isActive !== false &&
+        (actorRole === "admin" || actorRole === "pc");
+      if (!canAllocate) {
+        return {
+          success: false,
+          message: "Allocate Order access is not assigned to this PC user.",
+        };
+      }
+
       const stockRef = await resolveStockRefForAllocation(stockId, bcn);
       await adminDb.runTransaction(async (transaction) => {
         const EPSILON = 0.0001;
@@ -667,7 +690,7 @@ export async function allocateStockToAction(
         });
       });
   
-      return { success: true, message: 'Stock reserved successfully.' };
+      return { success: true, message: 'Stock reserved successfully.', bcn };
   
     } catch (error: any) {
       console.error("Error in allocateStockToAction:", error);

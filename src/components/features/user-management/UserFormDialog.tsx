@@ -23,6 +23,13 @@ import { navItems } from "@/components/shared/AppShell";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
+const ALLOCATE_ORDER_PERMISSION = "/dashboard/orders";
+const SALES_MODULE_PERMISSION = "/dashboard/Sales";
+const PC_ALL_SALES_PERMISSIONS = [
+  SALES_MODULE_PERMISSION,
+  ALLOCATE_ORDER_PERMISSION,
+];
+
 const parseTimeToMinutes = (value?: string) => {
   if (!value || !/^\d{2}:\d{2}$/.test(value)) return null;
   const [hour, minute] = value.split(":").map(Number);
@@ -50,21 +57,13 @@ const formSchema = z.object({
   role: z.enum(['admin', 'employee', 'installer', 'salesman', 'Accounts', 'Hr', 'Purchase', 'PC', 'IT', 'Data Analytics'], { required_error: "Role is required" }),
   isActive: z.boolean().optional(),
   store: z.string().optional(),
-  designation: z.enum(['CRM', 'Allocators', 'PC', 'EA', 'salesmanager', 'Recruiter', 'MIS & Data Analytics', 'Software Developer']).optional(),
+  designation: z.enum(['CRM', 'Allocators', 'PC', 'EA', 'salesmanager', 'Recruiter', 'MIS & Data Analytics', 'Software Developer', 'ERP Development & Sr. Data Analytics/MIS']).optional(),
   salesmanCode: z.string().optional(),
   dayOff: z.enum(WEEKDAYS).optional(),
   permissions: z.array(z.string()).optional(),
   timesheetEnabled: z.boolean().optional(),
   timesheetDutyStart: z.string().optional(),
   timesheetDutyEnd: z.string().optional(),
-}).refine(data => {
-    if (data.role === 'employee' && !data.designation) {
-        return false;
-    }
-    return true;
-}, {
-    message: "Designation is required for employees",
-    path: ["designation"],
 }).superRefine((data, ctx) => {
     const isTimesheetRoleAllowed = data.role !== "admin" && data.role !== "installer";
     if (data.timesheetEnabled && !isTimesheetRoleAllowed) {
@@ -179,11 +178,17 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
   }, [user, isOpen, form]);
 
   useEffect(() => {
-      if (role !== 'employee') {
-          form.setValue('designation', undefined);
-      }
       if (role !== 'salesman') {
           form.setValue('salesmanCode', '');
+      }
+      if (role !== "PC") {
+          const permissions = form.getValues("permissions") || [];
+          if (permissions.includes(ALLOCATE_ORDER_PERMISSION)) {
+              form.setValue(
+                  "permissions",
+                  permissions.filter((permission) => permission !== ALLOCATE_ORDER_PERMISSION)
+              );
+          }
       }
       if (role === 'admin' || role === 'installer') {
           form.setValue("timesheetEnabled", false);
@@ -249,7 +254,25 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setLoading(true);
     try {
-      const normalizedDesignation = values.role === "employee" ? (values.designation || null) : null;
+      if (!isEditing && values.role === "admin") {
+        form.setError("role", {
+          message: "Admin access cannot be assigned from this form.",
+        });
+        throw new Error("Admin access cannot be assigned from this form.");
+      }
+      const requestedPermissions = values.permissions || [];
+      const hasAllocateOrderPermission = requestedPermissions.includes(ALLOCATE_ORDER_PERMISSION);
+      if (hasAllocateOrderPermission && values.role !== "PC") {
+        form.setError("permissions", {
+          message: "Allocate Order access can only be assigned to a PC role user.",
+        });
+        throw new Error("Allocate Order access can only be assigned to a PC role user.");
+      }
+      const normalizedPermissions =
+        values.role === "PC"
+          ? requestedPermissions
+          : requestedPermissions.filter((permission) => permission !== ALLOCATE_ORDER_PERMISSION);
+      const normalizedDesignation = values.designation || null;
       const normalizedSalesmanCode = values.role === "salesman" ? (values.salesmanCode || null) : null;
       const normalizedDayOff = values.dayOff || null;
       const isTimesheetApplicable = values.role !== "admin" && values.role !== "installer";
@@ -270,7 +293,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
             salesmanCode: normalizedSalesmanCode,
             dayOff: normalizedDayOff,
             weekOff: formatWeekOff(normalizedDayOff),
-            permissions: values.permissions || [],
+            permissions: normalizedPermissions,
             timesheetEnabled: normalizedTimesheetEnabled,
             timesheetDutyStart: normalizedTimesheetStart,
             timesheetDutyEnd: normalizedTimesheetEnd,
@@ -294,7 +317,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                 role: values.role,
                 isActive: values.isActive !== false,
                 store: values.store,
-                permissions: values.permissions || [],
+                permissions: normalizedPermissions,
                 timesheetEnabled: normalizedTimesheetEnabled,
             };
             if (normalizedDesignation) {
@@ -408,7 +431,9 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                             <SelectTrigger><SelectValue placeholder="Select a role" /></SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                            <SelectItem value="admin">Admin</SelectItem>
+                            {isEditing && user?.role === "admin" ? (
+                              <SelectItem value="admin">Admin</SelectItem>
+                            ) : null}
                             <SelectItem value="employee">Employee</SelectItem>
                             <SelectItem value="installer">Installer</SelectItem>
                             <SelectItem value="salesman">Salesman</SelectItem>
@@ -469,33 +494,34 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                 </FormItem>
                 )}
             />
-             {role === 'employee' && (
-                <FormField
-                    control={form.control}
-                    name="designation"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Designation</FormLabel>
-                             <Select onValueChange={field.onChange} value={field.value}>
-                                <FormControl>
-                                    <SelectTrigger><SelectValue placeholder="Select a designation" /></SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                    <SelectItem value="CRM">CRM</SelectItem>
-                                    <SelectItem value="Allocators">Allocators</SelectItem>
-                                    <SelectItem value="PC">PC</SelectItem>
-                                    <SelectItem value="EA">EA</SelectItem>
-                                    <SelectItem value="salesmanager">Sales Manager</SelectItem>
-                                    <SelectItem value="Recruiter">Recruiter</SelectItem>
-                                    <SelectItem value="MIS & Data Analytics">MIS &amp; Data Analytics</SelectItem>
-                                    <SelectItem value="Software Developer">Software Developer</SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-             )}
+            <FormField
+                control={form.control}
+                name="designation"
+                render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Designation</FormLabel>
+                         <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                                <SelectTrigger><SelectValue placeholder="Select a designation" /></SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                                <SelectItem value="CRM">CRM</SelectItem>
+                                <SelectItem value="Allocators">Allocators</SelectItem>
+                                <SelectItem value="PC">PC</SelectItem>
+                                <SelectItem value="EA">EA</SelectItem>
+                                <SelectItem value="salesmanager">Sales Manager</SelectItem>
+                                <SelectItem value="Recruiter">Recruiter</SelectItem>
+                                <SelectItem value="MIS & Data Analytics">MIS &amp; Data Analytics</SelectItem>
+                                <SelectItem value="Software Developer">Software Developer</SelectItem>
+                                <SelectItem value="ERP Development & Sr. Data Analytics/MIS">
+                                  ERP Development &amp; Sr. Data Analytics/MIS
+                                </SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <FormMessage />
+                    </FormItem>
+                )}
+            />
             {role === 'salesman' && (
               <FormField
                 control={form.control}
@@ -648,8 +674,90 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                                     </FormItem>
                                     )
                                 }}
-                            />
+                             />
                          ))}
+                         {role === "PC" ? (
+                            <>
+                                <FormField
+                                    control={form.control}
+                                    name="permissions"
+                                    render={({ field }) => {
+                                        const permissions = field.value || [];
+                                        const hasAllSalesComponents = PC_ALL_SALES_PERMISSIONS.every(
+                                            (permission) => permissions.includes(permission)
+                                        );
+                                        return (
+                                            <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                                                <FormControl>
+                                                    <Checkbox
+                                                        checked={hasAllSalesComponents}
+                                                        onCheckedChange={(checked) =>
+                                                            checked
+                                                                ? field.onChange(
+                                                                    Array.from(
+                                                                        new Set([
+                                                                            ...permissions,
+                                                                            ...PC_ALL_SALES_PERMISSIONS,
+                                                                        ])
+                                                                    )
+                                                                )
+                                                                : field.onChange(
+                                                                    permissions.filter(
+                                                                        (permission) =>
+                                                                            !PC_ALL_SALES_PERMISSIONS.includes(permission)
+                                                                    )
+                                                                )
+                                                        }
+                                                    />
+                                                </FormControl>
+                                                <div className="space-y-1 leading-none">
+                                                    <FormLabel className="font-normal">All Sales Components</FormLabel>
+                                                    <FormDescription>
+                                                        Shows every Order Management component, including Allocate Order.
+                                                    </FormDescription>
+                                                </div>
+                                            </FormItem>
+                                        );
+                                    }}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="permissions"
+                                    render={({ field }) => (
+                                        <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                                            <FormControl>
+                                                <Checkbox
+                                                    checked={field.value?.includes(ALLOCATE_ORDER_PERMISSION)}
+                                                    onCheckedChange={(checked) =>
+                                                        checked
+                                                            ? field.onChange(
+                                                                Array.from(
+                                                                    new Set([
+                                                                        ...(field.value || []),
+                                                                        SALES_MODULE_PERMISSION,
+                                                                        ALLOCATE_ORDER_PERMISSION,
+                                                                    ])
+                                                                )
+                                                            )
+                                                            : field.onChange(
+                                                                (field.value || []).filter(
+                                                                    (value) => value !== ALLOCATE_ORDER_PERMISSION
+                                                                )
+                                                            )
+                                                    }
+                                                />
+                                            </FormControl>
+                                            <div className="space-y-1 leading-none">
+                                                <FormLabel className="font-normal">Allocate Order</FormLabel>
+                                                <FormDescription>
+                                                    Assign or remove Allocate Order access for this PC user.
+                                                </FormDescription>
+                                            </div>
+                                        </FormItem>
+                                    )}
+                                />
+                            </>
+                         ) : null}
                         </div>
                         <FormMessage />
                     </FormItem>

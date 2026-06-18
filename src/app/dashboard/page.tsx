@@ -1472,6 +1472,10 @@ const  SalesmanDashboardV2 =() => {
             </div>
           </div>
 
+          <div className="ml-auto w-full max-w-xl">
+            <LeaveWidget />
+          </div>
+
           {/* ── Quick Actions + Stats ── */}
           <div className="space-y-2">
             <div className="flex gap-2 flex-wrap">
@@ -2388,6 +2392,10 @@ const AllocatorDashboard = () => {
           </div>
         </CardContent>
       </Card>
+
+      <div className="ml-auto w-full max-w-xl">
+        <LeaveWidget />
+      </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {quickActions.map((action) => (

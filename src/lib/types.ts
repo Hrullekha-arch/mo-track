@@ -100,7 +100,7 @@ export interface User {
   role: UserRole;
   isActive?: boolean;
   avatarUrl?: string;
-  designation?: 'CRM' | 'Allocators' | 'PC' | 'EA' | 'salesmanager' | 'Recruiter' | 'MIS & Data Analytics' | 'Software Developer';
+  designation?: 'CRM' | 'Allocators' | 'PC' | 'EA' | 'salesmanager' | 'Recruiter' | 'MIS & Data Analytics' | 'Software Developer' | 'ERP Development & Sr. Data Analytics/MIS';
   salesmanCode?: string;
   permissions?: string[]; // Array of allowed module keys
   store?: string;

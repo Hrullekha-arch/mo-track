@@ -554,7 +554,7 @@ export default function OrderDetailPage({ params: paramsPromise }: { params: Pro
         return () => unsubscribe();
     }, [orderId, refreshKey]);
     
-    const canEditMilestones = (role === 'admin' || role === 'employee');
+    const canEditMilestones = (role === 'admin' || role === 'employee' || role === 'PC');
 
     const handleMilestoneChange = async (milestoneId: number, completed: boolean) => {
         if (!order) return;

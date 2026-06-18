@@ -65,7 +65,7 @@ export default function AllocateDialog({
   >([]);
   const [loadingLengths, setLoadingLengths] = React.useState(false);
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, firebaseUser } = useAuth();
   const requiredQty = getItemQty(item);
 
   const form = useForm<AllocationFormValues>({
@@ -139,7 +139,7 @@ export default function AllocateDialog({
   };
 
   const onSubmit = async (data: AllocationFormValues) => {
-    if (!user) {
+    if (!user || !firebaseUser) {
       toast({ variant: "destructive", title: "Not authenticated" });
       return;
     }
@@ -178,6 +178,7 @@ export default function AllocateDialog({
         rate,
         userId: user.id,
         userName: user.name,
+        authToken: await firebaseUser.getIdToken(),
       });
 
       if (result.success) {
