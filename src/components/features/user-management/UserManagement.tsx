@@ -15,6 +15,7 @@ import { UserFormDialog } from './UserFormDialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SalesmanCrmAssignments } from './SalesmanCrmAssignments';
 import { UserTable } from './UserTable';
+import { isAllocatorDesignation } from '@/lib/user-access';
 
 export function UserManagement() {
   const [users, setUsers] = useState<User[]>([]);
@@ -77,7 +78,7 @@ export function UserManagement() {
     const purchase = filteredUsers.filter(u => u.role === 'Purchase');
 
     const crm = employees.filter(e => e.designation === 'CRM');
-    const allocators = employees.filter(e => e.designation === 'Allocators');
+    const allocators = employees.filter(e => isAllocatorDesignation(e.designation));
     const pc = filteredUsers.filter(u => u.role === 'PC' || (u.role === 'employee' && u.designation === 'PC'));
 
     return { admins, employees, installers, salesmen, accounts, hr, purchase, crm, allocators, pc };

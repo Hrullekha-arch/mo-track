@@ -110,7 +110,7 @@ const MetricCard = ({
 
   return (
     <Card
-      className={`${toneClass} cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md ${blink ? "animate-pulse ring-1 ring-amber-300" : ""}`}
+      className={`${toneClass} h-full cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md ${blink ? "animate-pulse ring-1 ring-amber-300" : ""}`}
       onClick={() => router.push(link)}
     >
       <CardContent className="p-4">
@@ -365,10 +365,6 @@ export function AccountsDashboard() {
           </CardContent>
         </Card>
 
-        <div className="ml-auto w-full max-w-xl">
-          <LeaveWidget />
-        </div>
-
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
           <Link href="/dashboard/approvals" className="group block">
             <Card className="h-full border-slate-200 transition-all hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-md">
@@ -432,7 +428,7 @@ export function AccountsDashboard() {
           </Link>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {dashboardItems.map((item) => (
             <MetricCard
               key={item.title}
@@ -446,6 +442,7 @@ export function AccountsDashboard() {
               blink={item.blink}
             />
           ))}
+          <LeaveWidget compact />
         </div>
 
         <TimesheetPanel />

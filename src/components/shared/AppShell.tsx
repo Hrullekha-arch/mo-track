@@ -35,6 +35,7 @@ import {
   BadgePercent,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isAllocatorDesignation } from "@/lib/user-access";
 import Image from "next/image";
 import { Separator } from "../ui/separator";
 import { useTheme } from "next-themes";
@@ -107,8 +108,7 @@ function SidebarNav({ className }: { className?: string }) {
       normalizedDesignation === "md" ||
       normalizedDesignation === "management" ||
       normalizedDesignation === "managingdirector";
-    const isAllocator =
-      normalizedDesignation === "allocators" || normalizedDesignation === "allocator";
+    const isAllocator = isAllocatorDesignation(normalizedDesignation);
 
     return navItems
       .filter((item) => {
@@ -123,8 +123,13 @@ function SidebarNav({ className }: { className?: string }) {
         if (isHeadSalesManager && item.href === "/dashboard/complain-approval") return true;
         // MD and management users review excess inbound receipts here.
         if (isManagement && item.href === "/dashboard/approvals") return true;
-        // Allocators should always have access to inbound.
-        if (isAllocator && item.href === "/dashboard/inbound") return true;
+        // Allocators always use the Sales workflow and inbound desk.
+        if (
+          isAllocator &&
+          (item.href === "/dashboard/Sales" || item.href === "/dashboard/inbound")
+        ) {
+          return true;
+        }
         // For other roles, check the permissions array.
         return user.permissions?.includes(item.href);
       })
@@ -336,8 +341,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .trim()
       .toLowerCase()
       .replace(/[\s_-]/g, "");
-    const isAllocator =
-      normalizedDesignation === "allocators" || normalizedDesignation === "allocator";
+    const isAllocator = isAllocatorDesignation(normalizedDesignation);
 
     return navItems
       .filter((item) => {
@@ -346,7 +350,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         if (isHrRole && item.href === "/dashboard") {
           return true;
         }
-        if (isAllocator && item.href === "/dashboard/inbound") return true;
+        if (
+          isAllocator &&
+          (item.href === "/dashboard/Sales" || item.href === "/dashboard/inbound")
+        ) {
+          return true;
+        }
         return user.permissions?.includes(item.href);
       })
       .map((item) => (isHrRole && item.href === "/dashboard" ? { ...item, href: "/dashboard/hr" } : item));

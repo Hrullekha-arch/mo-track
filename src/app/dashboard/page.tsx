@@ -2,6 +2,7 @@
 "use client";
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { isAllocatorDesignation } from "@/lib/user-access";
 import {
   FileSignature,
   ShoppingCart,
@@ -380,8 +381,8 @@ function StatCard({
 
 function QuickAction({ title, href, icon: Icon }: { title: string; href: string; icon: React.ElementType; accent?: string }) {
   return (
-    <Link href={href} className="group flex-1 min-w-[72px]">
-      <div className="flex flex-col items-center gap-1.5 rounded-xl border border-slate-200 bg-white p-3 text-center transition-all hover:border-orange-200 hover:bg-orange-50 group-hover:-translate-y-0.5 group-hover:shadow-sm">
+    <Link href={href} className="group h-full min-w-[72px]">
+      <div className="flex h-full flex-col items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white p-3 text-center transition-all hover:border-orange-200 hover:bg-orange-50 group-hover:-translate-y-0.5 group-hover:shadow-sm">
         <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center group-hover:bg-orange-100 transition-colors">
           <Icon className="h-4 w-4 text-slate-600 group-hover:text-orange-600 transition-colors" />
         </div>
@@ -1472,13 +1473,9 @@ const  SalesmanDashboardV2 =() => {
             </div>
           </div>
 
-          <div className="ml-auto w-full max-w-xl">
-            <LeaveWidget />
-          </div>
-
           {/* ── Quick Actions + Stats ── */}
           <div className="space-y-2">
-            <div className="flex gap-2 flex-wrap">
+            <div className="grid grid-cols-1 items-stretch gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
               {[
                 { title: "Customers", href: "/dashboard/customers", icon: Users },
                 { title: "Walk-in", href: "/dashboard/walk-in", icon: UserPlus },
@@ -1487,6 +1484,7 @@ const  SalesmanDashboardV2 =() => {
               ].map((a) => (
                 <QuickAction key={a.href} {...a} />
               ))}
+              <LeaveWidget compact />
             </div>
             <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
               <StatCard label="Critical" value={criticalCount} loading={loading} icon={AlertTriangle} accent="border-red-200" />
@@ -2393,10 +2391,6 @@ const AllocatorDashboard = () => {
         </CardContent>
       </Card>
 
-      <div className="ml-auto w-full max-w-xl">
-        <LeaveWidget />
-      </div>
-
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {quickActions.map((action) => (
           <Link key={action.href} href={action.href} className="group block">
@@ -2413,11 +2407,12 @@ const AllocatorDashboard = () => {
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Ready Orders</p><p className="text-2xl font-bold text-emerald-700">{loading ? "..." : readyForAllocation.length}</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Partial Stock</p><p className="text-2xl font-bold text-amber-700">{loading ? "..." : partialStock.length}</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Waiting Material</p><p className="text-2xl font-bold text-red-700">{loading ? "..." : waitingMaterial.length}</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Active Inbound</p><p className="text-2xl font-bold">{loading ? "..." : inbounds.filter((i) => normalizeText(i.status) === "active").length}</p></CardContent></Card>
+        <LeaveWidget compact />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
@@ -3111,7 +3106,7 @@ export default function DashboardPage() {
     }
 
     const normalizedDesignation = String(user?.designation || "").trim().toLowerCase();
-    if (normalizedDesignation === "allocators" || normalizedDesignation === "allocator") {
+    if (isAllocatorDesignation(normalizedDesignation)) {
         return <AllocatorDashboard />;
     }
 

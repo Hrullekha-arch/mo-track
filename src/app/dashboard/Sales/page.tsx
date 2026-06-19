@@ -5,6 +5,7 @@ import { FileText, ShoppingCart, CheckCircle, Package, RotateCcw, Wrench, Zap } 
 import { Card, CardContent } from "@/components/ui/card";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { canAllocateOrders } from "@/lib/user-access";
 
 const ALLOCATE_ORDER_PERMISSION = "/dashboard/orders";
 
@@ -56,12 +57,9 @@ const actions = [
 export default function OrderFlowDashboard() {
   const router = useRouter();
   const { user } = useAuth();
-  const normalizedRole = String(user?.role || "").trim().toLowerCase();
-  const canAllocateOrders =
-    normalizedRole === "admin" ||
-    (normalizedRole === "pc" && user?.isActive !== false);
+  const hasAllocateOrderAccess = canAllocateOrders(user);
   const visibleActions = actions.filter(
-    (item) => item.path !== ALLOCATE_ORDER_PERMISSION || canAllocateOrders
+    (item) => item.path !== ALLOCATE_ORDER_PERMISSION || hasAllocateOrderAccess
   );
 
   return (

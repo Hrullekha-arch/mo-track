@@ -45,6 +45,10 @@ type LeaveFormState = {
   reason: string;
 };
 
+type LeaveWidgetProps = {
+  compact?: boolean;
+};
+
 const calcDays = (from: string, to: string) => {
   const a = new Date(from);
   const b = new Date(to);
@@ -52,7 +56,7 @@ const calcDays = (from: string, to: string) => {
   return Math.floor((b.getTime() - a.getTime()) / 86400000) + 1;
 };
 
-export function LeaveWidget() {
+export function LeaveWidget({ compact = false }: LeaveWidgetProps) {
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -135,12 +139,12 @@ export function LeaveWidget() {
   };
 
   return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50/80 shadow-sm">
-      <div className="px-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 py-3">
+    <div className={`rounded-lg border border-amber-200 bg-amber-50/80 shadow-sm ${compact ? "h-full w-full" : ""}`}>
+      <div className={compact ? "px-3" : "px-4"}>
+        <div className={`flex flex-wrap items-center justify-between py-3 ${compact ? "gap-2" : "gap-3"}`}>
           <button
             type="button"
-            className="flex items-center gap-2 text-sm font-medium text-amber-800 hover:text-amber-900"
+            className={`flex items-center text-sm font-medium text-amber-800 hover:text-amber-900 ${compact ? "w-full gap-1.5" : "gap-2"}`}
             onClick={() => setOpen((prev) => !prev)}
           >
             <CalendarDays className="h-4 w-4 text-amber-600" />
@@ -156,15 +160,15 @@ export function LeaveWidget() {
             {open ? <ChevronUp className="h-3.5 w-3.5 text-amber-500" /> : <ChevronDown className="h-3.5 w-3.5 text-amber-500" />}
           </button>
 
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 text-xs text-amber-700">
-              <div className="h-1.5 w-24 overflow-hidden rounded-full bg-amber-200">
+          <div className={`flex items-center ${compact ? "w-full justify-between gap-2" : "gap-3"}`}>
+            <div className="flex min-w-0 items-center gap-2 text-xs text-amber-700">
+              <div className={`h-1.5 overflow-hidden rounded-full bg-amber-200 ${compact ? "w-14" : "w-24"}`}>
                 <div
                   className={`h-full rounded-full ${usedPct > 80 ? "bg-red-400" : usedPct > 60 ? "bg-amber-400" : "bg-emerald-400"}`}
                   style={{ width: `${usedPct}%` }}
                 />
               </div>
-              <span>{Math.round(usedPct)}% used - {accrualLabel} {year}</span>
+              <span className={compact ? "truncate" : ""}>{Math.round(usedPct)}% used - {accrualLabel} {year}</span>
             </div>
             <Button
               type="button"
@@ -177,7 +181,7 @@ export function LeaveWidget() {
               }}
             >
               <UserCheck className="h-3.5 w-3.5" />
-              Apply Leave
+              {compact ? "Apply" : "Apply Leave"}
             </Button>
           </div>
         </div>

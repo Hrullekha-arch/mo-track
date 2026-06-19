@@ -9,6 +9,7 @@ import {
   buildWorkflowFromLegacyMilestones,
   getNormalizedOrderMilestones,
 } from '@/lib/order-workflow';
+import { canAllocateOrders } from '@/lib/user-access';
 
 const sanitizeBcnDocId = (value: string) =>
   String(value ?? '').trim().replace(/\//g, '-');
@@ -276,14 +277,11 @@ export async function allocateStockToAction(
       }
       const actorSnapshot = await adminDb.collection("users").doc(actorId).get();
       const actor = actorSnapshot.data() || {};
-      const actorRole = String(actor.role || "").trim().toLowerCase();
-      const canAllocate =
-        actor.isActive !== false &&
-        (actorRole === "admin" || actorRole === "pc");
+      const canAllocate = canAllocateOrders(actor);
       if (!canAllocate) {
         return {
           success: false,
-          message: "Allocate Order access is not assigned to this PC user.",
+          message: "Allocate Order access is not assigned to this user.",
         };
       }
 
