@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LeaveWidget } from "@/components/features/dashboard/LeaveWidget";
+import { LuxuryWelcomeCard } from "@/components/features/dashboard/LuxuryWelcomeCard";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
@@ -816,15 +817,9 @@ export default function HrDashboardClientPage() {
 
   return (
     <div className="container mx-auto space-y-4 p-3 md:p-4 lg:p-5">
-      <div className="relative overflow-hidden rounded-xl bg-[linear-gradient(135deg,_#0b1f33_0%,_#17324d_54%,_#1f4b5d_100%)] text-white shadow-lg shadow-slate-900/10">
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-sky-400/10 blur-3xl" />
-          <div className="absolute -bottom-8 right-40 h-44 w-44 rounded-full bg-emerald-300/10 blur-3xl" />
-          <div className="absolute left-1/3 top-0 h-px w-1/2 bg-gradient-to-r from-transparent via-white/12 to-transparent" />
-        </div>
-
-        <div className="relative z-10 flex flex-col gap-4 p-5 md:p-6 xl:flex-row xl:items-center xl:gap-8">
-          <div className="flex-1 space-y-2.5">
+      <LuxuryWelcomeCard roleLabel="People Operations - HR & Payroll Desk">
+        <div>
+          <div className="hidden">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/6 px-3 py-1">
               <div className="h-1.5 w-1.5 rounded-full bg-teal-300" />
               <span className="text-[10px] font-bold uppercase tracking-[0.36em] text-slate-200">People Operations</span>
@@ -840,7 +835,7 @@ export default function HrDashboardClientPage() {
           <div className="grid grid-cols-2 gap-2 xl:w-[360px]">
             <Button
               type="button"
-              className="col-span-2 h-10 justify-start gap-3 rounded-lg border-0 bg-[#1f6f78] px-4 text-white shadow-none hover:bg-[#255f6e]"
+              className="col-span-2 h-10 justify-start gap-3 rounded-lg border border-[#d6b86a]/35 bg-white/[0.09] px-4 text-white shadow-none hover:bg-white/[0.15]"
               onClick={() => employee.openCreateManualEmployeeDialog()}
             >
               <UserPlus className="h-4 w-4 shrink-0" />
@@ -848,7 +843,7 @@ export default function HrDashboardClientPage() {
             </Button>
             <Button
               type="button"
-              className="h-9 justify-start gap-2 rounded-lg border border-white/12 bg-white/7 px-3.5 text-white hover:bg-white/14"
+              className="h-9 justify-start gap-2 rounded-lg border border-[#d6b86a]/30 bg-white/[0.06] px-3.5 text-white hover:bg-white/[0.12]"
               onClick={() => void payroll.generatePendingPayroll()}
               disabled={payroll.bulkGenerating || payrollLoading}
             >
@@ -857,7 +852,7 @@ export default function HrDashboardClientPage() {
             </Button>
             <Button
               type="button"
-              className="h-9 justify-start gap-2 rounded-lg border border-white/12 bg-white/7 px-3.5 text-white hover:bg-white/14"
+              className="h-9 justify-start gap-2 rounded-lg border border-[#d6b86a]/30 bg-white/[0.06] px-3.5 text-white hover:bg-white/[0.12]"
               onClick={() => void payroll.downloadMonthlySalarySlips()}
               disabled={payroll.downloadingMonthSlips || payrollLoading}
             >
@@ -866,7 +861,7 @@ export default function HrDashboardClientPage() {
             </Button>
             <Button
               asChild
-              className="col-span-2 h-8 justify-between rounded-lg border border-white/12 bg-transparent px-3.5 text-slate-300 hover:bg-white/8 hover:text-white"
+              className="col-span-2 h-8 justify-between rounded-lg border border-[#d6b86a]/30 bg-transparent px-3.5 text-amber-50/80 hover:bg-white/[0.08] hover:text-white"
             >
               <Link href="/dashboard/users">
                 <span className="flex items-center gap-2 text-xs font-medium">
@@ -878,13 +873,9 @@ export default function HrDashboardClientPage() {
             </Button>
           </div>
         </div>
-      </div>
+      </LuxuryWelcomeCard>
 
-      <div className="ml-auto w-full max-w-xl">
-        <LeaveWidget />
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <button
           type="button"
           onClick={() => showTab("employees")}
@@ -965,6 +956,10 @@ export default function HrDashboardClientPage() {
           </div>
           <p className="mt-3 pl-3 text-[11px] font-medium text-slate-400 transition-colors group-hover:text-amber-600">View details →</p>
         </button>
+
+        <div className="h-full [&>div]:h-full">
+          <LeaveWidget compact />
+        </div>
       </div>
 
       <div ref={tabsRef}>

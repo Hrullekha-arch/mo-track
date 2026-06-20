@@ -139,7 +139,7 @@ export function LeaveWidget({ compact = false }: LeaveWidgetProps) {
   };
 
   return (
-    <div className={`rounded-lg border border-amber-200 bg-amber-50/80 shadow-sm ${compact ? "h-full w-full" : ""}`}>
+    <div className={`rounded-lg border border-amber-200 bg-amber-50/80 shadow-sm ${compact ? "w-full" : ""}`}>
       <div className={compact ? "px-3" : "px-4"}>
         <div className={`flex flex-wrap items-center justify-between py-3 ${compact ? "gap-2" : "gap-3"}`}>
           <button

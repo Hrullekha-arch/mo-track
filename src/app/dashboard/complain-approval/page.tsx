@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { format } from "date-fns";
+import { useSearchParams } from "next/navigation";
 import {
   BadgeIndianRupee,
   CalendarDays,
@@ -64,6 +65,7 @@ type ComplaintVisitRow = {
   customerEmail?: string;
   customerCode?: string;
   customerAddress?: string;
+  createdBy?: string;
   complaintType?: string;
   complaintSubType?: string;
   workNote?: string;
@@ -344,13 +346,16 @@ function StatCard({ label, value, accent }: { label: string; value: number; acce
 export default function ComplainApprovalPage() {
   const { user, role } = useAuth();
   const { toast } = useToast();
+  const searchParams = useSearchParams();
+  const requestedComplaintId = searchParams.get("complaint") || "";
 
   const normalizedRole = normalizeKey(user?.role || role || "");
   const normalizedDesignation = normalizeKey((user as any)?.designation || "");
   const hasAccess =
     normalizedRole === "admin" ||
     normalizedRole === "headsalesmanager" ||
-    normalizedDesignation === "headsalesmanager";
+    normalizedDesignation === "headsalesmanager" ||
+    normalizedDesignation === "ea";
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -423,8 +428,14 @@ export default function ComplainApprovalPage() {
 
   React.useEffect(() => {
     if (!complaints.length) { setSelectedId(""); return; }
-    if (!selectedId || !complaints.some((r) => r.id === selectedId)) setSelectedId(complaints[0].id);
-  }, [complaints, selectedId]);
+    if (requestedComplaintId && complaints.some((row) => row.id === requestedComplaintId)) {
+      setSelectedId(requestedComplaintId);
+      return;
+    }
+    setSelectedId((current) =>
+      current && complaints.some((row) => row.id === current) ? current : complaints[0].id
+    );
+  }, [complaints, requestedComplaintId]);
 
   const selectedComplaint = React.useMemo(() => complaints.find((r) => r.id === selectedId) || null, [complaints, selectedId]);
 
@@ -492,8 +503,9 @@ export default function ComplainApprovalPage() {
           </div>
           <h2 className="text-lg font-semibold text-slate-900">Access Restricted</h2>
           <p className="mt-2 text-sm text-slate-500">
-            Only <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">admin</code> and{" "}
-            <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">headsalesmanager</code> users can access this page.
+            Only <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">admin</code>,{" "}
+            <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">headsalesmanager</code>, and{" "}
+            <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">EA</code> users can access this page.
           </p>
         </div>
       </div>

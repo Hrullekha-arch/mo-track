@@ -20,11 +20,13 @@ import { db } from "@/lib/firebase";
 import { Customer, Deal, DealVisit, InboundRequest, Milestone, Order, PurchaseRequest } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
 import { LeaveWidget } from "@/components/features/dashboard/LeaveWidget";
+import { LuxuryWelcomeCard } from "@/components/features/dashboard/LuxuryWelcomeCard";
 import Link from "next/link";
 import { differenceInCalendarDays, format, formatDistanceToNow, isToday } from "date-fns";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -37,6 +39,7 @@ import {
   Clock3,
   FileSignature,
   ListOrdered,
+  Loader2,
   Search,
   ShoppingCart,
   Truck,
@@ -46,10 +49,14 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MilestoneProgress } from "@/components/features/order-management/MilestoneProgress";
 import { Progress } from "@/components/ui/progress";
-import { getNormalizedOrderMilestones } from "@/lib/order-workflow";
+import {
+  applyOrderMilestoneChange,
+  getNormalizedOrderMilestones,
+} from "@/lib/order-workflow";
 import { useRouter } from "next/navigation";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { updateOrderMilestoneAction } from "@/app/dashboard/orders/[orderId]/milestone-actions";
 
 interface EnrichedVisit extends DealVisit {
   customerName: string;
@@ -58,6 +65,15 @@ interface EnrichedVisit extends DealVisit {
 }
 
 type OrderRisk = "critical" | "watch" | "stable";
+type PcKpiDetailKey =
+  | "live"
+  | "critical"
+  | "watch"
+  | "po-pending"
+  | "inbound-pending"
+  | "po-completed"
+  | "approval-pending"
+  | "stock-pending";
 
 interface OrderMonitorRow {
   order: Order;
@@ -1606,12 +1622,14 @@ const PcKpiCard = ({
   description,
   icon: Icon,
   tone,
+  onClick,
 }: {
   title: string;
   value: number | string;
   description: string;
   icon: LucideIcon;
   tone: "neutral" | "attention" | "critical" | "good";
+  onClick?: () => void;
 }) => {
   const toneClass =
     tone === "critical"
@@ -1623,7 +1641,22 @@ const PcKpiCard = ({
       : "border-slate-200 bg-white";
 
   return (
-    <Card className={toneClass}>
+    <Card
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      className={`${toneClass} ${
+        onClick
+          ? "cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          : ""
+      }`}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (onClick && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+    >
       <CardContent className="p-4">
         <div className="mb-2 flex items-center justify-between">
           <p className="text-sm font-medium text-muted-foreground">{title}</p>
@@ -1631,6 +1664,11 @@ const PcKpiCard = ({
         </div>
         <p className="text-3xl font-bold tracking-tight">{value}</p>
         <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+        {onClick && (
+          <p className="mt-3 flex items-center gap-1 text-[11px] font-semibold text-slate-600">
+            View details <ArrowRight className="h-3 w-3" />
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -1733,8 +1771,11 @@ const OrderMovementPanel = ({
 };
 
 const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
+  const { firebaseUser } = useAuth();
+  const { toast } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
   const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
+  const [pendingStockItems, setPendingStockItems] = useState<any[]>([]);
   const [pendingStockVerificationCount, setPendingStockVerificationCount] = useState(0);
   const [loadingOrders, setLoadingOrders] = useState(true);
   const [loadingPurchase, setLoadingPurchase] = useState(true);
@@ -1747,6 +1788,8 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
   const [detailsError, setDetailsError] = useState("");
   const [detailsData, setDetailsData] = useState<OrderSearchDetails | null>(null);
   const [detailsMatches, setDetailsMatches] = useState<Order[]>([]);
+  const [updatingFinalMilestone, setUpdatingFinalMilestone] = useState<number | null>(null);
+  const [selectedKpi, setSelectedKpi] = useState<PcKpiDetailKey | null>(null);
 
   const scoreOrderMatch = (orderItem: Order, normalizedTerm: string) => {
     const crmOrderNo = String(orderItem.crmOrderNo || "").toLowerCase();
@@ -2203,6 +2246,65 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
   }, []);
 
   useEffect(() => {
+    if (!selectedOrder) return;
+    const refreshedOrder = orders.find((orderItem) => orderItem.id === selectedOrder.id);
+    if (refreshedOrder && refreshedOrder !== selectedOrder) {
+      setSelectedOrder(refreshedOrder);
+    }
+  }, [orders, selectedOrder?.id]);
+
+  const completePcMilestone = async (milestoneId: number) => {
+    if (!selectedOrder?.id || !firebaseUser) return;
+    setUpdatingFinalMilestone(milestoneId);
+    try {
+      const result = await updateOrderMilestoneAction({
+        orderId: selectedOrder.id,
+        milestoneId,
+        completed: true,
+        authToken: await firebaseUser.getIdToken(),
+      });
+      if (result.success) {
+        const applyCompletedMilestone = (orderItem: Order) => {
+          const updated = applyOrderMilestoneChange(
+            orderItem,
+            milestoneId,
+            true,
+            { id: firebaseUser.uid, name: "PC User" }
+          );
+          return {
+            ...orderItem,
+            milestones: updated.milestones,
+            workflow: updated.workflow,
+          };
+        };
+        setSelectedOrder((current) =>
+          current ? applyCompletedMilestone(current) : current
+        );
+        setOrders((current) =>
+          current.map((orderItem) =>
+            orderItem.id === selectedOrder.id
+              ? applyCompletedMilestone(orderItem)
+              : orderItem
+          )
+        );
+      }
+      toast({
+        title: result.success ? "Milestone completed" : "Update failed",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Update failed",
+        description: error?.message || "Failed to complete milestone.",
+        variant: "destructive",
+      });
+    } finally {
+      setUpdatingFinalMilestone(null);
+    }
+  };
+
+  useEffect(() => {
     const purchaseQuery = query(collection(db, "purchaseRequests"), orderBy("createdAt", "desc"), limit(300));
     const unsubscribe = onSnapshot(
       purchaseQuery,
@@ -2229,6 +2331,9 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
     const unsubscribe = onSnapshot(
       stockVerificationQuery,
       (snapshot) => {
+        setPendingStockItems(
+          snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() }))
+        );
         setPendingStockVerificationCount(snapshot.size);
         setLoadingStockVerification(false);
       },
@@ -2545,21 +2650,54 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
     };
   }, [detailsData]);
 
+  const kpiDetailTitle: Record<PcKpiDetailKey, string> = {
+    live: "Live Orders",
+    critical: "Critical Cases",
+    watch: "Watchlist",
+    "po-pending": "PO Pending",
+    "inbound-pending": "Inbound Pending",
+    "po-completed": "PO Completed",
+    "approval-pending": "Order Approval Pending",
+    "stock-pending": "Stock Verification Pending",
+  };
+
+  const kpiOrderRows = selectedKpi
+    ? selectedKpi === "live"
+      ? openOrders
+      : selectedKpi === "critical"
+      ? openOrders.filter((item) => item.risk === "critical")
+      : selectedKpi === "watch"
+      ? openOrders.filter((item) => item.risk === "watch")
+      : selectedKpi === "approval-pending"
+      ? monitoredOrders.filter(
+          (item) => normalizeStatus(item.order.status) === "pending approval"
+        )
+      : []
+    : [];
+
+  const kpiPurchaseRows = selectedKpi
+    ? selectedKpi === "po-pending"
+      ? purchaseRequests.filter((item) =>
+          PURCHASE_PENDING_STATUSES.has(normalizeStatus(item.status))
+        )
+      : selectedKpi === "inbound-pending"
+      ? purchaseRequests.filter((item) =>
+          PURCHASE_INBOUND_STATUSES.has(normalizeStatus(item.status))
+        )
+      : selectedKpi === "po-completed"
+      ? purchaseRequests.filter((item) =>
+          PURCHASE_COMPLETED_STATUSES.has(normalizeStatus(item.status))
+        )
+      : []
+    : [];
+
   return (
     <>
       <div className="space-y-6">
-        <Card className="border-slate-200 bg-gradient-to-r from-slate-50 via-white to-emerald-50">
-          <CardHeader>
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <CardTitle className="text-2xl">PC Control Room</CardTitle>
-                <CardDescription>
-                  Monitor process flow, catch bottlenecks early, and drive order completion across purchase,
-                  inbound, and delivery milestones.
-                </CardDescription>
-              </div>
+        <LuxuryWelcomeCard roleLabel="PC Control Room">
+            <div className="flex justify-end">
               <Button
-                variant="outline"
+                className="border border-[#d6b86a]/40 bg-white/[0.08] text-amber-50 hover:bg-white/[0.14] hover:text-white"
                 onClick={() => {
                   setDetailsDialogOpen(true);
                   setDetailsError("");
@@ -2568,16 +2706,7 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
                 Get Order Details
               </Button>
             </div>
-          </CardHeader>
-        </Card>
-
-        {readOnly && (
-          <Card className="border-sky-200 bg-sky-50/60">
-            <CardContent className="p-4 text-sm text-sky-900">
-              Read-only mode is enabled for PC users. Editing and deleting actions are disabled here.
-            </CardContent>
-          </Card>
-        )}
+        </LuxuryWelcomeCard>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
           <PcKpiCard
@@ -2586,6 +2715,7 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
             description="Orders still moving through milestones."
             icon={Activity}
             tone="neutral"
+            onClick={() => setSelectedKpi("live")}
           />
           <PcKpiCard
             title="Critical Cases"
@@ -2593,6 +2723,7 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
             description="Need immediate intervention."
             icon={AlertTriangle}
             tone="critical"
+            onClick={() => setSelectedKpi("critical")}
           />
           <PcKpiCard
             title="Watchlist"
@@ -2600,6 +2731,7 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
             description="Slowing down, monitor closely."
             icon={Clock3}
             tone="attention"
+            onClick={() => setSelectedKpi("watch")}
           />
           <PcKpiCard
             title="PO Pending"
@@ -2607,6 +2739,7 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
             description="Waiting for PO closure steps."
             icon={ShoppingCart}
             tone="attention"
+            onClick={() => setSelectedKpi("po-pending")}
           />
           <PcKpiCard
             title="Inbound Pending"
@@ -2614,6 +2747,7 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
             description="PO generated, awaiting material receipt."
             icon={Truck}
             tone="attention"
+            onClick={() => setSelectedKpi("inbound-pending")}
           />
           <PcKpiCard
             title="PO Completed"
@@ -2621,6 +2755,7 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
             description="Closed purchase requests."
             icon={Calendar}
             tone="good"
+            onClick={() => setSelectedKpi("po-completed")}
           />
           <PcKpiCard
             title="Order Approval Pending"
@@ -2628,6 +2763,7 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
             description="Orders waiting for Accounts approval."
             icon={FileSignature}
             tone={pendingOrderApprovalCount > 0 ? "attention" : "good"}
+            onClick={() => setSelectedKpi("approval-pending")}
           />
           <PcKpiCard
             title="Stock Verification Pending"
@@ -2635,6 +2771,7 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
             description="Approved items awaiting stock check."
             icon={ListOrdered}
             tone={pendingStockVerificationCount > 0 ? "attention" : "good"}
+            onClick={() => setSelectedKpi("stock-pending")}
           />
         </div>
 
@@ -2805,6 +2942,8 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
               </CardContent>
             </Card>
 
+            <LeaveWidget compact />
+
             <OrderMovementPanel
               events={movementEvents}
               loading={loading}
@@ -2815,6 +2954,164 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
           </div>
         </div>
       </div>
+
+      <Dialog open={selectedKpi !== null} onOpenChange={(open) => !open && setSelectedKpi(null)}>
+        <DialogContent className="max-h-[90vh] overflow-hidden p-0 sm:max-w-4xl">
+          <DialogHeader className="border-b px-6 py-4">
+            <DialogTitle>{selectedKpi ? kpiDetailTitle[selectedKpi] : "Details"}</DialogTitle>
+            <DialogDescription>
+              Complete records included in this dashboard count.
+            </DialogDescription>
+          </DialogHeader>
+
+          <ScrollArea className="max-h-[72vh]">
+            <div className="space-y-3 p-6">
+              {kpiOrderRows.map((item) => (
+                <div
+                  key={item.order.id}
+                  className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                >
+                  <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold">
+                          {item.order.customerName || "Customer N/A"}
+                        </p>
+                        <Badge variant="outline">Order #{item.order.crmOrderNo || item.order.id}</Badge>
+                        <Badge className={riskBadgeClassMap[item.risk]} variant="outline">
+                          {item.risk}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Deal #{item.order.dealId || "N/A"} · Salesperson:{" "}
+                        {item.order.salesPerson || "N/A"} · Status: {item.order.status || "N/A"}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setSelectedKpi(null);
+                        setSelectedOrder(item.order);
+                      }}
+                    >
+                      View Flow
+                    </Button>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+                    <DetailField label="Progress" value={`${item.progress}%`} />
+                    <DetailField label="Current Step" value={item.currentStep} />
+                    <DetailField label="Next Step" value={item.nextStep} />
+                    <DetailField label="Open Since" value={`${item.ageDays} day(s)`} />
+                  </div>
+                </div>
+              ))}
+
+              {kpiPurchaseRows.map((item) => {
+                const itemCount =
+                  (item.fabricDetails?.length || 0) + (item.furnitureDetails?.length || 0);
+                const linkedOrder = item.dealId ? orderByDealId.get(item.dealId) : undefined;
+                return (
+                  <div
+                    key={item.id}
+                    className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                  >
+                    <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold">{item.customerName || "Customer N/A"}</p>
+                          <Badge variant="outline">{item.status || "Status N/A"}</Badge>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Deal #{item.dealId || "N/A"} · Salesperson: {item.salesman || "N/A"}
+                        </p>
+                      </div>
+                      {linkedOrder && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setSelectedKpi(null);
+                            setSelectedOrder(linkedOrder);
+                          }}
+                        >
+                          View Order Flow
+                        </Button>
+                      )}
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+                      <DetailField label="PR / PO ID" value={item.id} />
+                      <DetailField label="Items" value={itemCount} />
+                      <DetailField label="Vendor" value={item.vendor || item.vendorType} />
+                      <DetailField
+                        label="Expected Delivery"
+                        value={formatDateTimeLabel(item.poDeliveryDate || item.promiseDeliveryDate)}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+
+              {selectedKpi === "stock-pending" &&
+                pendingStockItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 shadow-sm"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold">
+                        {item.customerName ||
+                          item.customerSnapshot?.name ||
+                          item.fabricName ||
+                          item.itemName ||
+                          "Stock Item"}
+                      </p>
+                      <Badge variant="outline">{item.status || "Pending Stock Verification"}</Badge>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+                      <DetailField
+                        label="Order / Deal"
+                        value={
+                          item.crmOrderNo ||
+                          item.orderNo ||
+                          item.orderId ||
+                          item.dealId ||
+                          "N/A"
+                        }
+                      />
+                      <DetailField
+                        label="Item"
+                        value={item.fabricName || item.itemName || item.bcn}
+                      />
+                      <DetailField
+                        label="Quantity"
+                        value={item.quantity || item.qty || item.requiredQty}
+                      />
+                      <DetailField
+                        label="Created At"
+                        value={formatDateTimeLabel(item.createdAt || item.updatedAt)}
+                      />
+                    </div>
+                  </div>
+                ))}
+
+              {kpiOrderRows.length === 0 &&
+                kpiPurchaseRows.length === 0 &&
+                !(selectedKpi === "stock-pending" && pendingStockItems.length > 0) && (
+                  <div className="py-14 text-center">
+                    <CheckCircle className="mx-auto h-10 w-10 text-emerald-500" />
+                    <p className="mt-3 font-semibold">No records found</p>
+                    <p className="text-sm text-muted-foreground">
+                      There are currently no items in this category.
+                    </p>
+                  </div>
+                )}
+            </div>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={detailsDialogOpen}
@@ -3216,17 +3513,144 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
-        <DialogContent>
+      <Dialog open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrder(null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Milestone Progress</DialogTitle>
             <DialogDescription>Current status for order #{selectedOrder?.crmOrderNo}</DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            {selectedOrder && (
-              <MilestoneProgress milestones={getNormalizedOrderMilestones(selectedOrder) as Milestone[]} />
-            )}
-          </div>
+          {selectedOrder && (() => {
+            const milestones = getNormalizedOrderMilestones(selectedOrder) as Milestone[];
+            const outForDelivery = milestones.find((milestone) => {
+              const name = milestone.name.toLowerCase();
+              return name.includes("out for delivery") || name.includes("delivery/installation");
+            });
+            const installationDone = milestones.find((milestone) =>
+              milestone.name.toLowerCase().includes("installation done")
+            );
+            const canCompleteOutForDelivery =
+              Boolean(outForDelivery) &&
+              !outForDelivery?.completed &&
+              milestones
+                .filter((milestone) => milestone.id < (outForDelivery?.id || 0))
+                .every((milestone) => milestone.completed);
+            const canCompleteInstallation =
+              Boolean(installationDone) &&
+              !installationDone?.completed &&
+              Boolean(outForDelivery?.completed);
+
+            return (
+              <>
+                <div className="py-4">
+                  <MilestoneProgress milestones={milestones} />
+                </div>
+
+                {(outForDelivery || installationDone) && (
+                  <div className="space-y-3 rounded-xl border border-sky-200 bg-sky-50/70 p-4">
+                    <div>
+                      <p className="font-semibold text-sky-950">PC Completion Controls</p>
+                      <p className="text-xs text-sky-700">
+                        Complete the final order stages here.
+                      </p>
+                    </div>
+
+                    {outForDelivery && (
+                      <label
+                        htmlFor={`pc-milestone-${outForDelivery.id}`}
+                        className={`flex w-full items-center justify-between rounded-lg border p-3 ${
+                          outForDelivery.completed
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                            : canCompleteOutForDelivery
+                            ? "cursor-pointer border-slate-900 bg-slate-950 text-white"
+                            : "border-slate-200 bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        <span className="flex items-center gap-3 font-medium">
+                          <Checkbox
+                            id={`pc-milestone-${outForDelivery.id}`}
+                            checked={outForDelivery.completed}
+                            disabled={
+                              outForDelivery.completed ||
+                              !canCompleteOutForDelivery ||
+                              updatingFinalMilestone !== null
+                            }
+                            onCheckedChange={(checked) => {
+                              if (checked) void completePcMilestone(outForDelivery.id);
+                            }}
+                            className={
+                              outForDelivery.completed
+                                ? "border-emerald-600 data-[state=checked]:bg-emerald-600"
+                                : "border-white data-[state=checked]:bg-white data-[state=checked]:text-slate-950"
+                            }
+                          />
+                          Out for Delivery/Installation
+                        </span>
+                        <span className="flex items-center gap-2 text-sm font-semibold">
+                          {updatingFinalMilestone === outForDelivery.id && (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          )}
+                          {outForDelivery.completed ? "Completed ✓" : "Tick to complete"}
+                        </span>
+                      </label>
+                    )}
+
+                    {installationDone && (
+                      <label
+                        htmlFor={`pc-milestone-${installationDone.id}`}
+                        className={`flex w-full items-center justify-between rounded-lg border p-3 ${
+                          installationDone.completed
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                            : canCompleteInstallation
+                            ? "cursor-pointer border-slate-900 bg-slate-950 text-white"
+                            : "border-slate-200 bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        <span className="flex items-center gap-3 font-medium">
+                          <Checkbox
+                            id={`pc-milestone-${installationDone.id}`}
+                            checked={installationDone.completed}
+                            disabled={
+                              installationDone.completed ||
+                              !canCompleteInstallation ||
+                              updatingFinalMilestone !== null
+                            }
+                            onCheckedChange={(checked) => {
+                              if (checked) void completePcMilestone(installationDone.id);
+                            }}
+                            className={
+                              installationDone.completed
+                                ? "border-emerald-600 data-[state=checked]:bg-emerald-600"
+                                : "border-white data-[state=checked]:bg-white data-[state=checked]:text-slate-950"
+                            }
+                          />
+                          Installation Done
+                        </span>
+                        <span className="flex items-center gap-2 text-sm font-semibold">
+                          {updatingFinalMilestone === installationDone.id && (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          )}
+                          {installationDone.completed ? "Completed ✓" : "Tick to complete"}
+                        </span>
+                      </label>
+                    )}
+
+                    {!canCompleteOutForDelivery && !outForDelivery?.completed && (
+                      <p className="text-xs text-amber-700">
+                        Complete all earlier milestones before marking the order out for delivery.
+                      </p>
+                    )}
+                    {outForDelivery?.completed &&
+                      installationDone &&
+                      !installationDone.completed && (
+                        <p className="text-xs text-sky-700">
+                          After installation is finished, click Installation Done.
+                        </p>
+                      )}
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </>
@@ -3272,9 +3696,6 @@ export default function CrmDashboard({ dashboardType }: { dashboardType: "CRM" |
     const isPcReadOnly = user.role === "PC" || user.designation === "PC";
     return (
       <div className="h-full space-y-6 p-4 md:p-6 lg:p-8">
-        <div className="ml-auto w-full max-w-xl">
-          <LeaveWidget />
-        </div>
         <PcControlRoom readOnly={isPcReadOnly} />
       </div>
     );
@@ -3315,16 +3736,7 @@ export default function CrmDashboard({ dashboardType }: { dashboardType: "CRM" |
 
   return (
     <div className="space-y-6 p-4 md:p-6 lg:p-8">
-      <Card className="overflow-hidden border-sky-200 bg-gradient-to-r from-sky-50 via-white to-cyan-50">
-        <CardContent className="flex flex-col gap-6 p-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">CRM Command Center</p>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">CRM Home Dashboard</h1>
-            <p className="max-w-3xl text-sm text-slate-600 md:text-base">
-              Monitor assigned pipelines, follow priority milestones, and keep customer movement updates visible in
-              one operational view.
-            </p>
-          </div>
+      <LuxuryWelcomeCard roleLabel="CRM Command Center">
           <div className="grid w-full grid-cols-3 gap-3 lg:w-auto lg:min-w-[22rem] justify-center items-center">
             <div className="flex flex-col gap-2 ">
               <Button
@@ -3338,20 +3750,19 @@ export default function CrmDashboard({ dashboardType }: { dashboardType: "CRM" |
                 View Walk-In
               </Button>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-              <p className="text-xs text-muted-foreground">Assigned Salesmen</p>
-              <p className="mt-1 text-2xl font-bold">{assignedSalesmen.length}</p>
+            <div className="rounded-xl border border-[#d6b86a]/30 bg-white/[0.06] p-3">
+              <p className="text-xs text-amber-100/70">Assigned Salesmen</p>
+              <p className="mt-1 text-2xl font-bold text-white">{assignedSalesmen.length}</p>
             </div>
             
-            <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-              <p className="text-xs text-muted-foreground">Coverage</p>
-              <p className="mt-1 text-2xl font-bold">
+            <div className="rounded-xl border border-[#d6b86a]/30 bg-white/[0.06] p-3">
+              <p className="text-xs text-amber-100/70">Coverage</p>
+              <p className="mt-1 text-2xl font-bold text-white">
                 {assignedSalesmen.length ? "Active" : "No Assignment"}
               </p>
             </div>
           </div>
-        </CardContent>
-      </Card>
+      </LuxuryWelcomeCard>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         {crmQuickActions.map((action) => (

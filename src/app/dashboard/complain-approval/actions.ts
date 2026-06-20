@@ -17,6 +17,7 @@ const hasComplaintApprovalAccess = (role: unknown, designation: unknown) => {
   if (roleKey === 'admin') return true;
   if (roleKey === 'headsalesmanager') return true;
   if (designationKey === 'headsalesmanager') return true;
+  if (designationKey === 'ea') return true;
   return false;
 };
 
@@ -72,7 +73,7 @@ export async function saveComplaintApprovalAction(input: {
     const actorDesignation = String(actorData?.designation || '').trim();
 
     if (!hasComplaintApprovalAccess(actorRole, actorDesignation)) {
-      return { success: false, message: 'Only admin or headsalesmanager can approve complaints.' };
+      return { success: false, message: 'Only admin, headsalesmanager, or EA can approve complaints.' };
     }
 
     const visitRef = adminDb.collection('companyVisits').doc(visitId);

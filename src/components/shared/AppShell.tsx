@@ -101,6 +101,7 @@ function SidebarNav({ className }: { className?: string }) {
       .replace(/[\s_-]/g, "");
     const isHeadSalesManager =
       normalizedRole === "headsalesmanager" || normalizedDesignation === "headsalesmanager";
+    const isEa = normalizedDesignation === "ea";
     const isManagement =
       normalizedRole === "md" ||
       normalizedRole === "management" ||
@@ -121,6 +122,17 @@ function SidebarNav({ className }: { className?: string }) {
         }
         // Headsalesmanager can always access complain approval page.
         if (isHeadSalesManager && item.href === "/dashboard/complain-approval") return true;
+        // EA reviews complaints and can view centralized approval history.
+        if (
+          isEa &&
+          (
+            item.href === "/dashboard/complain-approval" ||
+            item.href === "/dashboard/approvals" ||
+            item.href === "/dashboard/Sales"
+          )
+        ) {
+          return true;
+        }
         // MD and management users review excess inbound receipts here.
         if (isManagement && item.href === "/dashboard/approvals") return true;
         // Allocators always use the Sales workflow and inbound desk.
@@ -342,6 +354,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .toLowerCase()
       .replace(/[\s_-]/g, "");
     const isAllocator = isAllocatorDesignation(normalizedDesignation);
+    const isEa = normalizedDesignation === "ea";
 
     return navItems
       .filter((item) => {
@@ -353,6 +366,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         if (
           isAllocator &&
           (item.href === "/dashboard/Sales" || item.href === "/dashboard/inbound")
+        ) {
+          return true;
+        }
+        if (
+          isEa &&
+          (
+            item.href === "/dashboard/Sales" ||
+            item.href === "/dashboard/approvals" ||
+            item.href === "/dashboard/complain-approval"
+          )
         ) {
           return true;
         }

@@ -43,6 +43,7 @@ import { buildPrintablePayloadFromInvoice } from "@/lib/invoice-utils";
 import { Badge } from "@/components/ui/badge";
 import { useRouter } from "next/navigation";
 import { TimesheetPanel } from "@/components/features/dashboard/TimesheetPanel";
+import { LuxuryWelcomeCard } from "@/components/features/dashboard/LuxuryWelcomeCard";
 
 type CountsState = {
   pendingQuotations: number;
@@ -332,38 +333,26 @@ export function AccountsDashboard() {
   return (
     <>
       <div className="space-y-6 p-4 md:p-6 lg:p-8">
-        <Card className="overflow-hidden border-sky-200 bg-gradient-to-r from-sky-50 via-white to-blue-50">
-          <CardContent className="flex flex-col gap-5 p-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Accounts Control Center</p>
-              <h1 className="text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">
-                Accounts Home Dashboard
-              </h1>
-              <p className="max-w-3xl text-sm text-slate-600 md:text-base">
-                Prioritize approvals, clear payment confirmations, and close invoices faster with a single operational
-                view tailored for the Accounts team.
-              </p>
-            </div>
+        <LuxuryWelcomeCard roleLabel="Accounts Control Center">
             <div className="grid grid-cols-2 gap-3 lg:min-w-[24rem]">
-              <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-                <p className="text-xs text-muted-foreground">Queue Load</p>
+              <div className="rounded-xl border border-[#d6b86a]/30 bg-white/[0.06] p-3">
+                <p className="text-xs text-amber-100/70">Queue Load</p>
                 {loading ? (
                   <Loader2 className="mt-1 h-5 w-5 animate-spin" />
                 ) : (
-                  <p className="mt-1 text-2xl font-bold">{totalQueueLoad}</p>
+                  <p className="mt-1 text-2xl font-bold text-white">{totalQueueLoad}</p>
                 )}
               </div>
-              <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-                <p className="text-xs text-muted-foreground">7 Day Processed Value</p>
+              <div className="rounded-xl border border-[#d6b86a]/30 bg-white/[0.06] p-3">
+                <p className="text-xs text-amber-100/70">7 Day Processed Value</p>
                 {loading ? (
                   <Loader2 className="mt-1 h-5 w-5 animate-spin" />
                 ) : (
-                  <p className="mt-1 text-lg font-bold">{formatCurrency(sevenDayProcessedValue)}</p>
+                  <p className="mt-1 text-lg font-bold text-white">{formatCurrency(sevenDayProcessedValue)}</p>
                 )}
               </div>
             </div>
-          </CardContent>
-        </Card>
+        </LuxuryWelcomeCard>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
           <Link href="/dashboard/approvals" className="group block">

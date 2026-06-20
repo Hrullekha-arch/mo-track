@@ -12,15 +12,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
-import { doc, updateDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 import {
-  applyOrderMilestoneChange,
   getNormalizedOrderMilestones,
 } from "@/lib/order-workflow";
 import { MilestoneProgress } from "@/components/features/order-management/MilestoneProgress";
 import { Flag, Lock, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { updateOrderMilestoneAction } from "@/app/dashboard/orders/[orderId]/milestone-actions";
 
 interface MilestoneCardProps {
   order: Order;
@@ -35,13 +33,17 @@ export default function MilestoneCard({
   role,
   className,
 }: MilestoneCardProps) {
-  const { user } = useAuth();
+  const { user, firebaseUser } = useAuth();
   const { toast } = useToast();
   const [isUpdating, setIsUpdating] = React.useState(false);
+  const isPcUser =
+    role === "PC" ||
+    String(user?.role || "").trim().toLowerCase() === "pc" ||
+    String(user?.designation || "").trim().toLowerCase() === "pc";
 
   const canEditMilestones = React.useMemo(() => {
-    return role === "admin" || role === "employee" || role === "PC";
-  }, [role]);
+    return role === "admin" || role === "employee" || isPcUser;
+  }, [role, isPcUser]);
 
   const completedCount = React.useMemo(() => {
     return milestones.filter((m) => m.completed).length;
@@ -63,6 +65,35 @@ export default function MilestoneCard({
     }, null);
   }, [milestones]);
 
+  const outForDeliveryMilestone = React.useMemo(
+    () =>
+      milestones.find(
+        (milestone) =>
+          milestone.id === 7 ||
+          milestone.name.toLowerCase().includes("out for delivery")
+      ),
+    [milestones]
+  );
+  const installationDoneMilestone = React.useMemo(
+    () =>
+      milestones.find(
+        (milestone) =>
+          milestone.id === 8 ||
+          milestone.name.toLowerCase().includes("installation done")
+      ),
+    [milestones]
+  );
+  const canCompleteOutForDelivery =
+    Boolean(outForDeliveryMilestone) &&
+    !outForDeliveryMilestone?.completed &&
+    milestones
+      .filter((milestone) => milestone.id < (outForDeliveryMilestone?.id || 0))
+      .every((milestone) => milestone.completed);
+  const canCompleteInstallation =
+    Boolean(installationDoneMilestone) &&
+    !installationDoneMilestone?.completed &&
+    Boolean(outForDeliveryMilestone?.completed);
+
   const handleMilestoneChange = React.useCallback(
     async (milestoneId: number, completed: boolean) => {
       if (!canEditMilestones) {
@@ -74,7 +105,7 @@ export default function MilestoneCard({
         return;
       }
 
-      if (!user?.id) {
+      if (!user?.id || !firebaseUser) {
         toast({
           variant: "destructive",
           title: "Authentication Required",
@@ -86,16 +117,13 @@ export default function MilestoneCard({
       setIsUpdating(true);
 
       try {
-        const { milestones: updatedMilestones, workflow } =
-          applyOrderMilestoneChange(order, milestoneId, completed, {
-            id: user.id,
-            name: user.name,
-          });
-
-        await updateDoc(doc(db, "orders", order.id), {
-          milestones: updatedMilestones,
-          workflow,
+        const result = await updateOrderMilestoneAction({
+          orderId: order.id,
+          milestoneId,
+          completed,
+          authToken: await firebaseUser.getIdToken(),
         });
+        if (!result.success) throw new Error(result.message);
 
         toast({
           title: "Milestone Updated",
@@ -113,7 +141,7 @@ export default function MilestoneCard({
         setIsUpdating(false);
       }
     },
-    [order, canEditMilestones, user, toast]
+    [order.id, canEditMilestones, user, firebaseUser, toast]
   );
 
   const handleRefresh = React.useCallback(() => {
@@ -278,6 +306,57 @@ export default function MilestoneCard({
             >
               Complete Next Milestone
             </Button>
+          </div>
+        )}
+
+        {isPcUser && (outForDeliveryMilestone || installationDoneMilestone) && (
+          <div className="mt-4 space-y-2 rounded-lg border border-sky-200 bg-sky-50/60 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-sky-800">
+              PC Completion Controls
+            </p>
+            {outForDeliveryMilestone && (
+              <Button
+                type="button"
+                size="sm"
+                variant={outForDeliveryMilestone.completed ? "outline" : "default"}
+                className="w-full justify-between text-xs"
+                disabled={
+                  isUpdating ||
+                  outForDeliveryMilestone.completed ||
+                  !canCompleteOutForDelivery
+                }
+                onClick={() =>
+                  void handleMilestoneChange(outForDeliveryMilestone.id, true)
+                }
+              >
+                <span>Complete Out for Delivery/Installation</span>
+                <span>{outForDeliveryMilestone.completed ? "Completed" : "Complete"}</span>
+              </Button>
+            )}
+            {installationDoneMilestone && (
+              <Button
+                type="button"
+                size="sm"
+                variant={installationDoneMilestone.completed ? "outline" : "default"}
+                className="w-full justify-between text-xs"
+                disabled={
+                  isUpdating ||
+                  installationDoneMilestone.completed ||
+                  !canCompleteInstallation
+                }
+                onClick={() =>
+                  void handleMilestoneChange(installationDoneMilestone.id, true)
+                }
+              >
+                <span>Complete Installation Done</span>
+                <span>{installationDoneMilestone.completed ? "Completed" : "Complete"}</span>
+              </Button>
+            )}
+            {!canCompleteOutForDelivery && !outForDeliveryMilestone?.completed && (
+              <p className="text-[11px] text-sky-700">
+                Complete the previous milestones before dispatch.
+              </p>
+            )}
           </div>
         )}
 

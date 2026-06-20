@@ -28,7 +28,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 import {
   AlertCircle, ArrowRightLeft, BadgeCheck, CalendarDays,
-  CheckCircle2, ChevronDown, Circle, ClipboardList, CreditCard,
+  CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Circle, ClipboardList, CreditCard,
   Eye, GitBranch, Layers, Loader2, MessageSquarePlus,
   Package, PencilLine, Search, Trash2, UserCheck, Users,
   RefreshCw, Receipt,
@@ -59,6 +59,7 @@ const FABRIC_TYPES     = ["Fabric Selection", "Fabric Changing"];
 const COLLECTION_TYPES = ["Sample Collection", "Fabric Collection"];
 
 const BRANCHES = ["MO GCR BRANCH", "MO MG ROAD"] as const;
+const WALKINS_PER_PAGE = 50;
 type Branch = typeof BRANCHES[number] | "all";
 
 const resolveWalkinStore = (walkin: Partial<Walkin_Customer> & Record<string, any>): string => {
@@ -265,9 +266,10 @@ function ReturnCustomerSection({ customer, isAdmin, onEdit }: { customer: Walkin
 
 // ─── Full Edit Customer Dialog (Admin only) ───────────────────────────────────
 function EditCustomerDialog({
-  customer, open, onClose, onSave,
+  customer, salesmen, open, onClose, onSave,
 }: {
   customer: Walkin_Customer | null;
+  salesmen: User[];
   open: boolean;
   onClose: () => void;
   onSave: (data: Record<string, any>) => Promise<void>;
@@ -284,6 +286,7 @@ function EditCustomerDialog({
   const [lookingFor,   setLookingFor]   = useState("");
   const [status,       setStatus]       = useState("");
   const [store,        setStore]        = useState<(typeof BRANCHES)[number]>(BRANCHES[0]);
+  const [salesmanId,   setSalesmanId]   = useState("unassigned");
   const [inquiryStatus,       setInquiryStatus]       = useState("");
   const [advanceReceived,     setAdvanceReceived]     = useState("");
   const [measurementRequired, setMeasurementRequired] = useState("");
@@ -343,6 +346,7 @@ function EditCustomerDialog({
     setCustomerType(c.customerType || "");
     setLookingFor(Array.isArray(c.lookingFor) ? c.lookingFor.join(", ") : c.lookingFor || "");
     setStatus(c.status || "");
+    setSalesmanId(String(c.salesmanId || "").trim() || "unassigned");
     const nextStore = String(
       c.originStoreName ||
       c.createdByStore ||
@@ -574,6 +578,9 @@ function EditCustomerDialog({
         assignedStoreName: store,
         leadType,
       };
+      const selectedSalesman = salesmen.find((salesman) => salesman.id === salesmanId);
+      patch.salesmanId = selectedSalesman?.id || null;
+      patch.salesmanName = selectedSalesman?.name || null;
       if (isDealCreated) {
         const inquiry = inquiryStatus.trim();
         const msr = measurementRequired.trim();
@@ -941,6 +948,30 @@ function EditCustomerDialog({
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-1.5 rounded-xl border border-indigo-200 bg-indigo-50/60 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <FL>SM Change</FL>
+                  <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-600">
+                    Admin Only
+                  </span>
+                </div>
+                <Select value={salesmanId} onValueChange={setSalesmanId}>
+                  <SelectTrigger className="h-9 rounded-xl border-indigo-200 bg-white text-sm">
+                    <SelectValue placeholder="Select salesman" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl">
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                    {salesmen.map((salesman) => (
+                      <SelectItem key={salesman.id} value={salesman.id}>
+                        {salesman.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-indigo-500">
+                  Change or remove the assigned salesman for this walk-in lead.
+                </p>
+              </div>
               {validationError && (
                 <p className="text-xs font-medium text-rose-600">{validationError}</p>
               )}
@@ -1119,6 +1150,8 @@ export default function WalkinDataPage() {
   const [search,           setSearch]           = useState("");
   const [activeBranch,     setActiveBranch]     = useState<Branch>("all");
   const [activeTab,        setActiveTab]        = useState("all");
+  const [currentPage,      setCurrentPage]      = useState(1);
+  const [statusCardFilter, setStatusCardFilter] = useState<string | null>(null);
 
   // Went-back dialog
   const [wentBackCustomer, setWentBackCustomer] = useState<Walkin_Customer | null>(null);
@@ -1360,7 +1393,12 @@ export default function WalkinDataPage() {
   const getFiltered = (tab: string) =>
     branchFiltered
       .filter(c => tab === "went-back" ? c.status === "went-back" : tab === "completed" ? c.status === "completed" : true)
+      .filter(c => !statusCardFilter || c.status === statusCardFilter)
       .filter(c => { const q = search.toLowerCase(); return !q || `${(c as any).firstName} ${(c as any).familyName} ${(c as any).mobile}`.toLowerCase().includes(q); });
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeBranch, activeTab, search, statusCardFilter]);
 
   const stats = {
     total:     branchFiltered.length,
@@ -1452,7 +1490,7 @@ export default function WalkinDataPage() {
         )}
 
         {/* Admin edit — available for ALL leads, no leadType condition */}
-        {(isAdmin || isSalesmanager || isPC) && (
+        {isAdmin && (
           <Button size="sm" variant="outline"
             className="h-7 gap-1 text-xs border-indigo-200 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg"
             onClick={() => setEditCustomer(c)}>
@@ -1634,7 +1672,15 @@ export default function WalkinDataPage() {
   };
 
   // ── Customer Table ──
-  const CustomerTable = ({ rows }: { rows: Walkin_Customer[] }) => (
+  const CustomerTable = ({ rows }: { rows: Walkin_Customer[] }) => {
+    const totalPages = Math.max(1, Math.ceil(rows.length / WALKINS_PER_PAGE));
+    const safePage = Math.min(currentPage, totalPages);
+    const startIndex = (safePage - 1) * WALKINS_PER_PAGE;
+    const paginatedRows = rows.slice(startIndex, startIndex + WALKINS_PER_PAGE);
+    const shownFrom = rows.length ? startIndex + 1 : 0;
+    const shownTo = Math.min(startIndex + WALKINS_PER_PAGE, rows.length);
+
+    return (
     <div className="rounded-2xl border border-stone-200 overflow-hidden shadow-sm bg-white">
       <Table>
         <TableHeader>
@@ -1649,8 +1695,8 @@ export default function WalkinDataPage() {
             ? Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}><TableCell colSpan={11}><Skeleton className="h-8 w-full rounded-xl" /></TableCell></TableRow>
               ))
-            : rows.length > 0
-              ? rows.map((c, idx) => (
+            : paginatedRows.length > 0
+              ? paginatedRows.map((c, idx) => (
                   <TableRow key={c.id} className={`border-b border-stone-50 last:border-0 hover:bg-stone-50/80 transition-colors ${idx % 2 === 1 ? "bg-stone-50/30" : "bg-white"}`}>
                     <TableCell className="text-[11px] font-mono text-stone-400 whitespace-nowrap">
                       {(c as any).createdAt ? format(new Date((c as any).createdAt), "dd MMM") : "—"}
@@ -1714,55 +1760,98 @@ export default function WalkinDataPage() {
           }
         </TableBody>
       </Table>
+      {rows.length > 0 && (
+        <div className="flex flex-col gap-3 border-t border-stone-200 bg-stone-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-stone-500">
+            Showing <span className="font-semibold text-stone-700">{shownFrom}-{shownTo}</span> of{" "}
+            <span className="font-semibold text-stone-700">{rows.length}</span> leads
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={safePage <= 1}
+              onClick={() => setCurrentPage(Math.max(1, safePage - 1))}
+              className="h-8 rounded-lg"
+            >
+              <ChevronLeft className="mr-1 h-3.5 w-3.5" />
+              Previous
+            </Button>
+            <span className="min-w-24 text-center text-xs font-semibold text-stone-600">
+              Page {safePage} of {totalPages}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={safePage >= totalPages}
+              onClick={() => setCurrentPage(Math.min(totalPages, safePage + 1))}
+              className="h-8 rounded-lg"
+            >
+              Next
+              <ChevronRight className="ml-1 h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
-  );
+    );
+  };
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#f8f9fb]">
       {/* Header */}
-      <div className="bg-white border-b border-stone-100 px-6 py-4 shadow-sm">
-        <div className="flex items-center justify-between">
+      <div className="relative overflow-hidden border-b border-[#d6b86a]/50 bg-[linear-gradient(118deg,#070706_0%,#151108_52%,#372911_100%)] px-5 py-5 text-white shadow-[0_18px_45px_-28px_rgba(139,96,26,0.9)] md:px-7">
+        <div className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-amber-300/15 blur-3xl" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#ffe39a] to-transparent" />
+        <div className="relative z-10">
+        <div className="flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold text-stone-900 tracking-tight">Walk-in Desk</h1>
-            <div className="flex items-center gap-2 mt-0.5">
-              <p className="text-[11px] font-mono text-stone-400 uppercase tracking-wider">CRM · Floor Operations</p>
+            <div className="mb-1.5 flex items-center gap-2">
+              <span className="h-px w-7 bg-[#f7d77d]" />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#f7d77d]">CRM Operations</p>
+            </div>
+            <h1 className="bg-gradient-to-r from-white via-[#fff4cf] to-[#e6c66f] bg-clip-text text-2xl font-bold tracking-tight text-transparent">Walk-in Desk</h1>
+            <div className="mt-1 flex items-center gap-2">
+              <p className="text-xs text-amber-50/70">Manage showroom visitors, handovers, and lead progress.</p>
               {!canSeeAllBranches && userStore && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200">
+                <span className="rounded-full border border-[#d6b86a]/35 bg-white/[0.08] px-2 py-0.5 text-[10px] font-bold text-amber-100">
                   {userStore}
                 </span>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 shadow-sm backdrop-blur-sm">
             <span className="relative flex h-2.5 w-2.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
             </span>
-            <span className="text-[10px] font-mono font-semibold text-emerald-600 tracking-widest">LIVE</span>
+            <span className="text-[10px] font-semibold tracking-[0.16em] text-emerald-200">LIVE</span>
           </div>
         </div>
 
         {/* Branch tabs — admin only */}
         {canSeeAllBranches && (
-          <div className="flex items-center gap-2 mt-4 border-t border-stone-100 pt-3">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 mr-1">Branch</span>
+          <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-[#d6b86a]/20 pt-4">
+            <span className="mr-1 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-100/60">Branch View</span>
             {([
-              { v: "all",            label: "All Branches", count: walkinData.length,                              color: "border-stone-300 bg-stone-50 text-stone-700",   activeColor: "bg-stone-800 text-white border-stone-800" },
-              { v: "MO GCR BRANCH",  label: "MO GCR Branch", count: stats.gcr,                                    color: "border-indigo-200 bg-indigo-50 text-indigo-700", activeColor: "bg-indigo-600 text-white border-indigo-600" },
-              { v: "MO MG ROAD",     label: "MO MG Road",    count: stats.mg,                                     color: "border-violet-200 bg-violet-50 text-violet-700", activeColor: "bg-violet-600 text-white border-violet-600" },
+              { v: "all",            label: "All Branches", count: walkinData.length, color: "border-[#d6b86a]/25 bg-white/[0.055] text-amber-50/80", activeColor: "border-[#f2d47e]/60 bg-[#d6b86a]/20 text-white shadow-md" },
+              { v: "MO GCR BRANCH",  label: "MO GCR Branch", count: stats.gcr, color: "border-[#d6b86a]/25 bg-white/[0.055] text-amber-50/80", activeColor: "border-[#f2d47e]/60 bg-[#d6b86a]/20 text-white shadow-md" },
+              { v: "MO MG ROAD",     label: "MO MG Road", count: stats.mg, color: "border-[#d6b86a]/25 bg-white/[0.055] text-amber-50/80", activeColor: "border-[#f2d47e]/60 bg-[#d6b86a]/20 text-white shadow-md" },
             ] as const).map(({ v, label, count, color, activeColor }) => (
               <button
                 key={v}
                 type="button"
                 onClick={() => setActiveBranch(v as Branch)}
-                className={`flex items-center gap-2 rounded-xl border px-3.5 py-1.5 text-xs font-semibold transition-all ${
-                  activeBranch === v ? activeColor : color + " hover:opacity-80"
+                className={`flex items-center gap-2 rounded-lg border px-3.5 py-2 text-xs font-semibold transition-all ${
+                  activeBranch === v ? activeColor : color + " hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm"
                 }`}
               >
                 {label}
                 <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                  activeBranch === v ? "bg-white/20" : "bg-white/60"
+                  activeBranch === v ? "bg-white/20 text-white" : "bg-black/20 text-amber-100/70"
                 }`}>
                   {count}
                 </span>
@@ -1770,31 +1859,49 @@ export default function WalkinDataPage() {
             ))}
           </div>
         )}
+        </div>
       </div>
 
       {/* Stats bar */}
-      <div className="bg-white border-b border-stone-100 w-full">
-        <div className="grid grid-cols-4 md:grid-cols-7 divide-x divide-stone-100">
+      <div className="border-b border-stone-100 bg-[#f8f9fb] px-4 py-4 md:px-6">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
           {[
-            { label: "Total",        value: stats.total,     color: "text-stone-900" },
-            { label: "Pending",      value: stats.pending,   color: "text-stone-400" },
-            { label: "Attended",     value: stats.attended,  color: "text-sky-600" },
-            { label: "Handed Over",  value: stats.handed,    color: "text-amber-600" },
-            { label: "Deal Created", value: stats.deal,      color: "text-indigo-600" },
-            { label: "Completed",    value: stats.completed, color: "text-teal-600" },
-            { label: "Went Back",    value: stats.wentBack,  color: "text-rose-500" },
-          ].map(({ label, value, color }) => (
-            <div key={label} className="flex flex-col gap-0.5 px-5 py-4 hover:bg-stone-50 transition-colors cursor-default">
+            { label: "Total", value: stats.total, color: "text-slate-900", card: "border-slate-200 bg-gradient-to-br from-white to-slate-100/80", tab: "all", status: null },
+            { label: "Pending", value: stats.pending, color: "text-stone-500", card: "border-stone-200 bg-gradient-to-br from-white to-stone-100/80", tab: "all", status: "Pending" },
+            { label: "Attended", value: stats.attended, color: "text-sky-600", card: "border-sky-200 bg-gradient-to-br from-white to-sky-50", tab: "all", status: "Attended" },
+            { label: "Handed Over", value: stats.handed, color: "text-amber-600", card: "border-amber-200 bg-gradient-to-br from-white to-amber-50", tab: "all", status: "Handed Over" },
+            { label: "Deal Created", value: stats.deal, color: "text-violet-600", card: "border-violet-200 bg-gradient-to-br from-white to-violet-50", tab: "all", status: "Deal Created" },
+            { label: "Completed", value: stats.completed, color: "text-teal-600", card: "border-teal-200 bg-gradient-to-br from-white to-teal-50", tab: "completed", status: null },
+            { label: "Went Back", value: stats.wentBack, color: "text-rose-500", card: "border-rose-200 bg-gradient-to-br from-white to-rose-50", tab: "went-back", status: null },
+          ].map(({ label, value, color, card, tab, status }) => (
+            <button
+              type="button"
+              key={label}
+              onClick={() => {
+                setActiveTab(tab);
+                setStatusCardFilter(status);
+                setCurrentPage(1);
+              }}
+              className={`flex min-h-24 flex-col items-center justify-center gap-1 rounded-xl border px-4 py-4 text-center shadow-sm transition-all hover:-translate-y-1 hover:shadow-md ${card} ${
+                activeTab === tab && statusCardFilter === status ? "ring-2 ring-slate-400/30" : ""
+              }`}
+            >
               <span className={`text-2xl font-bold tracking-tight ${color}`}>{loading ? "—" : value}</span>
               <span className="text-[10px] font-mono text-stone-400 uppercase tracking-widest">{label}</span>
-            </div>
+            </button>
           ))}
         </div>
       </div>
 
       {/* Content */}
       <div className="p-4 md:p-6 w-full">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => {
+            setActiveTab(value);
+            setStatusCardFilter(null);
+          }}
+        >
           <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
             <TabsList className="bg-stone-100 h-9 p-1 rounded-xl gap-0.5">
               {[
@@ -1895,6 +2002,7 @@ export default function WalkinDataPage() {
       {/* ══ Full Edit Customer Dialog (Admin only) ══ */}
       <EditCustomerDialog
         customer={editCustomer}
+        salesmen={salesmen}
         open={!!editCustomer}
         onClose={() => setEditCustomer(null)}
         onSave={handleEditSave}

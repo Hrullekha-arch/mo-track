@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Loader2, Printer, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -250,6 +250,9 @@ export function LetterDialog({
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[96vh] overflow-hidden border-0 bg-slate-100 p-0 sm:max-w-[420px]">
+        <DialogHeader className="sr-only">
+          <DialogTitle>Generate HR Letter</DialogTitle>
+        </DialogHeader>
         <div className="flex items-center justify-between border-b bg-white px-6 py-3.5">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-sm">

@@ -72,6 +72,8 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import CrmDashboard from "@/components/features/dashboard/CrmDashboard";
 import { AccountsDashboard } from "@/components/features/dashboard/AccountsDashboard";
+import { AdminStoreOptions } from "@/components/features/dashboard/AdminStoreOptions";
+import { LuxuryWelcomeCard } from "@/components/features/dashboard/LuxuryWelcomeCard";
 import { LeaveWidget } from "@/components/features/dashboard/LeaveWidget";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -1437,41 +1439,42 @@ const  SalesmanDashboardV2 =() => {
         <div className="max-w-screen-2xl mx-auto p-3 md:p-5 space-y-4">
 
           {/* ── Hero Header ── */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl border border-orange-200/70 bg-gradient-to-r from-orange-50 via-white to-amber-50/60 px-5 py-4 shadow-sm">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-orange-500 mb-0.5">Salesman Command Desk</p>
-              <h1 className="text-xl font-bold tracking-tight text-slate-900">
-                {new Date().getHours() < 12 ? "Good morning" : new Date().getHours() < 17 ? "Good afternoon" : "Good evening"},{" "}
-                <span className="text-orange-600">{user?.name?.split(" ")[0] || "Salesman"}</span>
-              </h1>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center gap-1.5 rounded-xl border border-orange-200 bg-white px-3 py-1.5 text-sm shadow-sm">
-                <span className="h-2 w-2 rounded-full bg-orange-500 animate-pulse" />
-                <span className="font-semibold text-orange-700">{walkinLeads.length}</span>
-                <span className="text-slate-500 text-xs">leads</span>
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm">
-                <ListOrdered className="h-3.5 w-3.5 text-slate-500" />
-                <span className="font-semibold text-slate-800">{activeOrderRows.length}</span>
-                <span className="text-slate-500 text-xs">orders</span>
-              </span>
+          <LuxuryWelcomeCard roleLabel="Salesman Command Desk">
+            <div className="ml-auto flex w-fit flex-wrap justify-end gap-3 lg:-mr-[22px]">
+              <div className="min-w-[7rem] rounded-xl border border-[#d6b86a]/35 bg-white/[0.055] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-[#dfc77f]">Leads</p>
+                <p className="mt-1.5 flex items-center gap-2 font-semibold text-[#fff8df]">
+                  <span className="h-2 w-2 rounded-full bg-orange-500 animate-pulse" />
+                  {walkinLeads.length}
+                </p>
+              </div>
+              <div className="min-w-[7rem] rounded-xl border border-[#d6b86a]/35 bg-white/[0.055] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-[#dfc77f]">Orders</p>
+                <p className="mt-1.5 flex items-center gap-2 font-semibold text-[#fff8df]">
+                  <ListOrdered className="h-3.5 w-3.5 text-amber-200" />
+                  {activeOrderRows.length}
+                </p>
+              </div>
               {timesheetEnabled && (
-                <span className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm shadow-sm">
-                  <Clock3 className="h-3.5 w-3.5 text-emerald-600" />
-                  <span className="font-semibold text-emerald-700">{requiredTimesheetFilledCount}/{requiredTimesheetCount || 0}</span>
-                  <span className="text-emerald-600 text-xs">timesheet</span>
-                </span>
+                <div className="min-w-[7rem] rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-emerald-200/80">Timesheet</p>
+                  <p className="mt-1.5 flex items-center gap-2 font-semibold text-emerald-100">
+                    <Clock3 className="h-3.5 w-3.5" />
+                    {requiredTimesheetFilledCount}/{requiredTimesheetCount || 0}
+                  </p>
+                </div>
               )}
               {criticalCount > 0 && (
-                <span className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-sm shadow-sm">
-                  <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
-                  <span className="font-semibold text-red-700">{criticalCount}</span>
-                  <span className="text-red-600 text-xs">critical</span>
-                </span>
+                <div className="min-w-[7rem] rounded-xl border border-red-400/35 bg-red-400/10 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-red-200/80">Critical</p>
+                  <p className="mt-1.5 flex items-center gap-2 font-semibold text-red-100">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    {criticalCount}
+                  </p>
+                </div>
               )}
             </div>
-          </div>
+          </LuxuryWelcomeCard>
 
           {/* ── Quick Actions + Stats ── */}
           <div className="space-y-2">
@@ -2369,27 +2372,18 @@ const AllocatorDashboard = () => {
 
   return (
     <div className="space-y-6 p-4 md:p-6 lg:p-8">
-      <Card className="overflow-hidden border-cyan-200 bg-gradient-to-r from-cyan-50 via-white to-teal-50">
-        <CardContent className="flex flex-col gap-6 p-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700">Allocator Control Tower</p>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">Allocator Home Dashboard</h1>
-            <p className="max-w-3xl text-sm text-slate-600 md:text-base">
-              Track stock-ready orders and inbound receipts. Allocator can also receive material from inbound desk.
-            </p>
-          </div>
-          <div className="grid w-full grid-cols-2 gap-3 lg:w-auto lg:min-w-[22rem]">
-            <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-              <p className="text-xs text-muted-foreground">Ready For Allocation</p>
-              <p className="mt-1 text-2xl font-bold">{loading ? "..." : readyForAllocation.length}</p>
+      <LuxuryWelcomeCard roleLabel="Allocator Control Tower">
+          <div className="grid w-full grid-cols-2 gap-3 lg:min-w-[22rem]">
+            <div className="rounded-xl border border-[#d6b86a]/30 bg-white/[0.06] p-3">
+              <p className="text-xs text-amber-100/70">Ready For Allocation</p>
+              <p className="mt-1 text-2xl font-bold text-white">{loading ? "..." : readyForAllocation.length}</p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-              <p className="text-xs text-muted-foreground">Received Batches</p>
-              <p className="mt-1 text-2xl font-bold">{loading ? "..." : inboundFeed.length}</p>
+            <div className="rounded-xl border border-[#d6b86a]/30 bg-white/[0.06] p-3">
+              <p className="text-xs text-amber-100/70">Received Batches</p>
+              <p className="mt-1 text-2xl font-bold text-white">{loading ? "..." : inboundFeed.length}</p>
             </div>
           </div>
-        </CardContent>
-      </Card>
+      </LuxuryWelcomeCard>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {quickActions.map((action) => (
@@ -2825,39 +2819,27 @@ const AdminDashboard = () => {
       return (b.count ?? 0) - (a.count ?? 0);
     })
     .slice(0, 5);
-
   return (
-    <div className="container mx-auto space-y-6 p-4 md:p-6 lg:p-8">
-      <Card className="overflow-hidden border-slate-200 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 text-white">
-        <CardContent className="relative p-6 md:p-8">
-          <div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-cyan-500/20 blur-3xl" />
-          <div className="absolute -bottom-12 left-24 h-32 w-32 rounded-full bg-blue-400/20 blur-3xl" />
-          <div className="relative z-10 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl space-y-2">
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-300">Admin Control Room</p>
-              <h1 className="text-3xl font-bold tracking-tight md:text-4xl">Operations Command Dashboard</h1>
-              <p className="text-sm text-slate-200 md:text-base">
-                Track approvals, production movement, inbound flow, and delivery readiness from one place.
-              </p>
-            </div>
+    <div className="w-full space-y-6 p-4 md:p-6 lg:p-8">
+      <LuxuryWelcomeCard roleLabel="Admin Control Room">
             <div className="grid w-full max-w-md grid-cols-2 gap-3 text-sm">
-              <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-3">
-                <p className="text-slate-300">Sheet Sync</p>
-                <p className="mt-1 flex items-center gap-2 font-semibold">
+              <div className="group relative overflow-hidden rounded-xl border border-[#d6b86a]/30 bg-white/[0.045] p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md">
+                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#f7d77d]/60 to-transparent" />
+                <p className="text-[11px] uppercase tracking-[0.16em] text-[#dfc77f]">Sheet Sync</p>
+                <p className="mt-1.5 flex items-center gap-2 font-semibold text-[#fff8df]">
                   {isSheetSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
                   {isSheetSyncing ? "Syncing..." : "Healthy"}
                 </p>
               </div>
-              <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-3">
-                <p className="text-slate-300">Last Sync</p>
-                <p className="mt-1 font-semibold">
+              <div className="relative overflow-hidden rounded-xl border border-[#d6b86a]/30 bg-white/[0.045] p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md">
+                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#f7d77d]/60 to-transparent" />
+                <p className="text-[11px] uppercase tracking-[0.16em] text-[#dfc77f]">Last Sync</p>
+                <p className="mt-1.5 font-semibold text-[#fff8df]">
                   {lastSheetSyncAt ? formatDistanceToNow(lastSheetSyncAt, { addSuffix: true }) : "Waiting..."}
                 </p>
               </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+      </LuxuryWelcomeCard>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -2906,6 +2888,7 @@ const AdminDashboard = () => {
                   loading={loading}
                 />
               ))}
+              <AdminStoreOptions />
             </CardContent>
           </Card>
 

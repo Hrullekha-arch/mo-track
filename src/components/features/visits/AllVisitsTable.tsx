@@ -14,7 +14,7 @@ import { User } from "@/lib/types";
 import {
   Eye, Share2, MoreHorizontal, UserCheck, Edit, Trash2, UserX,
   CheckCircle2, Search, CalendarDays, X, CloudDownload, Loader2,
-  CalendarSync, ArrowLeftRight, AlertCircle
+  CalendarSync, ArrowLeftRight, AlertCircle, ChevronLeft, ChevronRight
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -110,6 +110,8 @@ const getVisitAssigneeId = (visit: EnrichedDealVisit) => {
   return rawAssignee;
 };
 
+const VISITS_PER_PAGE = 50;
+
 type VisitCompletionMode = "Porter" | "Other";
 
 interface AllVisitsTableProps {
@@ -163,6 +165,7 @@ export default function AllVisitsTable({
   const [previewPdf, setPreviewPdf] = React.useState<{ url: string; fileName: string; dealId?: string } | null>(null);
   const [resolvedPreviewUrl, setResolvedPreviewUrl] = React.useState("");
   const [resolvingPreviewUrl, setResolvingPreviewUrl] = React.useState(false);
+  const [currentPage, setCurrentPage] = React.useState(1);
   const syncingRef = React.useRef(false);
 
   // Resolve PDF URL
@@ -296,6 +299,23 @@ export default function AllVisitsTable({
     });
   }, [visits, dateFrom, dateTo, typeFilter, statusFilter, installerFilter, searchQuery, assigneeNameById]);
 
+  const totalPages = Math.max(1, Math.ceil(filteredVisits.length / VISITS_PER_PAGE));
+  const pageStartIndex = (currentPage - 1) * VISITS_PER_PAGE;
+  const paginatedVisits = React.useMemo(
+    () => filteredVisits.slice(pageStartIndex, pageStartIndex + VISITS_PER_PAGE),
+    [filteredVisits, pageStartIndex]
+  );
+  const shownFrom = filteredVisits.length ? pageStartIndex + 1 : 0;
+  const shownTo = Math.min(pageStartIndex + VISITS_PER_PAGE, filteredVisits.length);
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [dateFrom, dateTo, typeFilter, statusFilter, installerFilter, searchQuery]);
+
+  React.useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
+
   const previewUrl = (resolvedPreviewUrl || previewPdf?.url)
     ? `${resolvedPreviewUrl || previewPdf?.url}#toolbar=0&navpanes=0&scrollbar=0`
     : "";
@@ -357,7 +377,9 @@ export default function AllVisitsTable({
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-6 py-5 border-b border-slate-100">
           <div>
             <h2 className="font-semibold text-slate-900">All Visits</h2>
-            <p className="text-sm text-slate-500 mt-0.5">{filteredVisits.length} visits shown · defaults to today</p>
+            <p className="text-sm text-slate-500 mt-0.5">
+              {filteredVisits.length} visits · showing {shownFrom}-{shownTo} · 50 per page
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" onClick={() => handleSyncSheet()} disabled={isSyncingSheet}
@@ -436,7 +458,7 @@ export default function AllVisitsTable({
               {filteredVisits.length === 0 ? (
                 <TableRow><TableCell colSpan={9} className="py-16 text-center text-slate-400 text-sm">No visits match your filters.</TableCell></TableRow>
               ) : (
-                filteredVisits.map(visit => (
+                paginatedVisits.map(visit => (
                   <TableRow key={visit.id} className={cn("border-slate-100 hover:bg-slate-50/60 transition-colors", visit.visitStatus === "Working" && "bg-blue-50/40 hover:bg-blue-50/60")}>
                     <TableCell className="text-xs text-slate-500 whitespace-nowrap">
                       {visit.createdAt ? (<><p className="font-medium text-slate-700">{format(new Date(visit.createdAt), "d MMM yyyy")}</p><p className="text-slate-400">{format(new Date(visit.createdAt), "hh:mm a")}</p></>) : "—"}
@@ -514,6 +536,39 @@ export default function AllVisitsTable({
             </TableBody>
           </Table>
         </div>
+        {filteredVisits.length > 0 && (
+          <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/50 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-slate-500">
+              Showing <span className="font-medium text-slate-700">{shownFrom}-{shownTo}</span> of{" "}
+              <span className="font-medium text-slate-700">{filteredVisits.length}</span> visits
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+              >
+                <ChevronLeft className="mr-1 h-4 w-4" />
+                Previous
+              </Button>
+              <span className="min-w-24 text-center text-sm font-medium text-slate-600">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+              >
+                Next
+                <ChevronRight className="ml-1 h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* PDF Preview Dialog */}

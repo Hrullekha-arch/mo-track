@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { useState, useEffect } from "react";
@@ -56,6 +57,7 @@ import {
   IndianRupee,
   AlertCircle,
   Inbox,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Dialog,
@@ -90,6 +92,43 @@ interface EnrichedQuotation extends Quotation {
 interface EnrichedOrder extends Order {
   totalAmount?: number;
 }
+
+interface PaymentApprovalOrder extends Order {
+  paymentConfirmedAt?: string;
+  paymentConfirmedBy?: { id?: string; name?: string };
+}
+
+type ComplaintApprovalHistory = {
+  id: string;
+  customerName?: string;
+  complaintType?: string;
+  createdAt?: string;
+  approvalStatus?: string;
+  pendingApproval?: boolean;
+  chargeType?: string;
+  chargeAmount?: number;
+  approvedAt?: string;
+  approvedBy?: {
+    name?: string;
+    designation?: string;
+  };
+};
+
+const normalizeApprovalKey = (value: unknown) =>
+  String(value || "").trim().toLowerCase().replace(/[\s_-]/g, "");
+
+const approvalDateToIso = (value: unknown): string | undefined => {
+  if (!value) return undefined;
+  if (typeof value === "string") return value;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "object" && value !== null) {
+    const timestamp = value as { toDate?: () => Date; seconds?: number };
+    if (typeof timestamp.toDate === "function") return timestamp.toDate().toISOString();
+    const seconds = Number(timestamp.seconds);
+    if (Number.isFinite(seconds)) return new Date(seconds * 1000).toISOString();
+  }
+  return undefined;
+};
 
 /* ─── Shared skeleton ────────────────────────────────── */
 
@@ -550,30 +589,67 @@ function ApproveOrdersTab({ onCountChange }: { onCountChange?: (n: number) => vo
 /* ─── Payment Confirmation Tab ───────────────────────── */
 
 function PaymentConfirmationTab({ onCountChange }: { onCountChange?: (n: number) => void }) {
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [pendingOrders, setPendingOrders] = useState<PaymentApprovalOrder[]>([]);
+  const [historyOrders, setHistoryOrders] = useState<PaymentApprovalOrder[]>([]);
+  const [view, setView] = useState<"pending" | "history">("pending");
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const { toast } = useToast();
   const { user, role } = useAuth();
 
   useEffect(() => {
-    const q = query(
+    const pendingQuery = query(
       collection(db, "orders"),
       where("balanceFollowUp", "==", true),
       where("paymentConfirmed", "!=", true)
     );
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const data = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Order));
-        setOrders(data);
-        onCountChange?.(data.length);
-        setLoading(false);
-      },
-      () => setLoading(false)
+    const historyQuery = query(
+      collection(db, "orders"),
+      where("paymentConfirmed", "==", true)
     );
-    return () => unsub();
-  }, []);
+    let pendingLoaded = false;
+    let historyLoaded = false;
+    const finishLoading = () => {
+      if (pendingLoaded && historyLoaded) setLoading(false);
+    };
+    const unsubPending = onSnapshot(
+      pendingQuery,
+      (snap) => {
+        const data = snap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentApprovalOrder));
+        setPendingOrders(data);
+        onCountChange?.(data.length);
+        pendingLoaded = true;
+        finishLoading();
+      },
+      () => {
+        pendingLoaded = true;
+        finishLoading();
+      }
+    );
+    const unsubHistory = onSnapshot(
+      historyQuery,
+      (snap) => {
+        const data = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as PaymentApprovalOrder))
+          .sort(
+            (left, right) =>
+              new Date(right.paymentConfirmedAt || 0).getTime() -
+              new Date(left.paymentConfirmedAt || 0).getTime()
+          );
+        setHistoryOrders(data);
+        historyLoaded = true;
+        finishLoading();
+      },
+      () => {
+        historyLoaded = true;
+        finishLoading();
+      }
+    );
+    return () => {
+      unsubPending();
+      unsubHistory();
+    };
+  }, [onCountChange]);
 
   const handleConfirm = async (orderId: string) => {
     if (!user || (role !== "Accounts" && role !== "admin")) {
@@ -604,11 +680,33 @@ function PaymentConfirmationTab({ onCountChange }: { onCountChange?: (n: number)
 
   if (loading) return <TableSkeleton />;
 
+  const orders = view === "pending" ? pendingOrders : historyOrders;
+
   return (
-    <Table>
+    <div>
+      <div className="flex gap-2 border-b border-[#E2DDD5] p-3">
+        <Button
+          size="sm"
+          variant={view === "pending" ? "default" : "outline"}
+          onClick={() => setView("pending")}
+        >
+          Pending ({pendingOrders.length})
+        </Button>
+        <Button
+          size="sm"
+          variant={view === "history" ? "default" : "outline"}
+          onClick={() => setView("history")}
+        >
+          History ({historyOrders.length})
+        </Button>
+      </div>
+      <Table>
       <TableHeader>
         <TableRow className="hover:bg-transparent border-b border-[#E2DDD5]">
-          {["Order ID", "Customer", "Sales Person", "Total Amount", "Action"].map(
+          {(view === "pending"
+            ? ["Order ID", "Customer", "Sales Person", "Total Amount", "Action"]
+            : ["Order ID", "Customer", "Sales Person", "Total Amount", "Confirmed By", "Confirmed At"]
+          ).map(
             (h) => (
               <TableHead
                 key={h}
@@ -625,8 +723,14 @@ function PaymentConfirmationTab({ onCountChange }: { onCountChange?: (n: number)
       <TableBody>
         {orders.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={5} className="p-0">
-              <EmptyState message="No orders awaiting payment confirmation." />
+            <TableCell colSpan={view === "pending" ? 5 : 6} className="p-0">
+              <EmptyState
+                message={
+                  view === "pending"
+                    ? "No orders awaiting payment confirmation."
+                    : "No payment confirmation history found."
+                }
+              />
             </TableCell>
           </TableRow>
         ) : (
@@ -659,29 +763,43 @@ function PaymentConfirmationTab({ onCountChange }: { onCountChange?: (n: number)
                   {order.totalAmount?.toFixed(2)}
                 </div>
               </TableCell>
-              <TableCell className="text-right">
-                <Button
-                  size="sm"
-                  onClick={() => handleConfirm(order.id)}
-                  disabled={
-                    updatingId === order.id ||
-                    (role !== "Accounts" && role !== "admin")
-                  }
-                  className="bg-[#1A7A6A] hover:bg-[#135E50] text-white text-xs rounded-lg h-8 px-3 gap-1.5"
-                >
-                  {updatingId === order.id ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <CreditCard className="h-3.5 w-3.5" />
-                  )}
-                  Confirm Payment
-                </Button>
-              </TableCell>
+              {view === "pending" ? (
+                <TableCell className="text-right">
+                  <Button
+                    size="sm"
+                    onClick={() => handleConfirm(order.id)}
+                    disabled={
+                      updatingId === order.id ||
+                      (role !== "Accounts" && role !== "admin")
+                    }
+                    className="bg-[#1A7A6A] hover:bg-[#135E50] text-white text-xs rounded-lg h-8 px-3 gap-1.5"
+                  >
+                    {updatingId === order.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CreditCard className="h-3.5 w-3.5" />
+                    )}
+                    Confirm Payment
+                  </Button>
+                </TableCell>
+              ) : (
+                <>
+                  <TableCell className="font-medium">
+                    {order.paymentConfirmedBy?.name || "Unknown approver"}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {order.paymentConfirmedAt
+                      ? format(new Date(order.paymentConfirmedAt), "dd MMM yyyy, hh:mm a")
+                      : "Date unavailable"}
+                  </TableCell>
+                </>
+              )}
             </TableRow>
           ))
         )}
       </TableBody>
-    </Table>
+      </Table>
+    </div>
   );
 }
 
@@ -693,6 +811,7 @@ function ExcessReceiptApprovalTab({
   const { user } = useAuth();
   const { toast } = useToast();
   const [approvals, setApprovals] = useState<InboundExcessApproval[]>([]);
+  const [view, setView] = useState<"pending" | "history">("pending");
   const [loading, setLoading] = useState(true);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const normalizedRole = String((user as any)?.role || "")
@@ -713,10 +832,7 @@ function ExcessReceiptApprovalTab({
     normalizedDesignation === "managingdirector";
 
   useEffect(() => {
-    const approvalsQuery = query(
-      collection(db, "inboundExcessApprovals"),
-      where("status", "==", "pending")
-    );
+    const approvalsQuery = query(collection(db, "inboundExcessApprovals"));
 
     return onSnapshot(
       approvalsQuery,
@@ -791,11 +907,11 @@ function ExcessReceiptApprovalTab({
         )
           .sort(
             (left, right) =>
-              new Date(right.requestedAt || 0).getTime() -
-              new Date(left.requestedAt || 0).getTime()
+              new Date(right.reviewedAt || right.requestedAt || 0).getTime() -
+              new Date(left.reviewedAt || left.requestedAt || 0).getTime()
           );
         setApprovals(rows);
-        onCountChange?.(rows.length);
+        onCountChange?.(rows.filter((row) => row.status === "pending").length);
         setLoading(false);
       },
       (error) => {
@@ -841,8 +957,29 @@ function ExcessReceiptApprovalTab({
     );
   }
 
+  const visibleApprovals = approvals.filter((approval) =>
+    view === "pending" ? approval.status === "pending" : approval.status !== "pending"
+  );
+
   return (
-    <Table>
+    <div>
+      <div className="flex gap-2 border-b border-[#E2DDD5] p-3">
+        <Button
+          size="sm"
+          variant={view === "pending" ? "default" : "outline"}
+          onClick={() => setView("pending")}
+        >
+          Pending ({approvals.filter((approval) => approval.status === "pending").length})
+        </Button>
+        <Button
+          size="sm"
+          variant={view === "history" ? "default" : "outline"}
+          onClick={() => setView("history")}
+        >
+          History ({approvals.filter((approval) => approval.status !== "pending").length})
+        </Button>
+      </div>
+      <Table>
       <TableHeader>
         <TableRow className="bg-[#F8F6F1] hover:bg-[#F8F6F1]">
           <TableHead>PO / Item</TableHead>
@@ -854,18 +991,31 @@ function ExcessReceiptApprovalTab({
           <TableHead>Receive Now</TableHead>
           <TableHead>Excess</TableHead>
           <TableHead>Requested By</TableHead>
-          <TableHead className="text-right">Decision</TableHead>
+          {view === "pending" ? (
+            <TableHead className="text-right">Decision</TableHead>
+          ) : (
+            <>
+              <TableHead>Result</TableHead>
+              <TableHead>Reviewed By</TableHead>
+            </>
+          )}
         </TableRow>
       </TableHeader>
       <TableBody>
-        {approvals.length === 0 ? (
+        {visibleApprovals.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={10}>
-              <EmptyState message="No excess receipt approvals are pending." />
+            <TableCell colSpan={view === "pending" ? 10 : 11}>
+              <EmptyState
+                message={
+                  view === "pending"
+                    ? "No excess receipt approvals are pending."
+                    : "No excess receipt approval history found."
+                }
+              />
             </TableCell>
           </TableRow>
         ) : (
-          approvals.map((approval) => (
+          visibleApprovals.map((approval) => (
             <TableRow key={approval.id}>
               <TableCell>
                 <p className="font-semibold text-[#1C1C1A]">{approval.poNumber}</p>
@@ -911,6 +1061,7 @@ function ExcessReceiptApprovalTab({
                     : "Time unavailable"}
                 </p>
               </TableCell>
+              {view === "pending" ? (
               <TableCell>
                 <TooltipProvider delayDuration={150}>
                   <div className="flex justify-end gap-2">
@@ -968,15 +1119,187 @@ function ExcessReceiptApprovalTab({
                   </div>
                 </TooltipProvider>
               </TableCell>
+              ) : (
+                <>
+                  <TableCell>
+                    <Badge
+                      className={
+                        approval.status === "rejected"
+                          ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-50"
+                          : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50"
+                      }
+                    >
+                      {approval.status === "used" ? "Approved / Used" : approval.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <p className="font-medium">
+                      {approval.reviewedBy?.name || "Unknown approver"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {approval.reviewedAt
+                        ? format(new Date(approval.reviewedAt), "dd MMM yyyy, hh:mm a")
+                        : "Date unavailable"}
+                    </p>
+                  </TableCell>
+                </>
+              )}
             </TableRow>
           ))
+        )}
+      </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+/* ─── Tab count badge ────────────────────────────────── */
+
+function ComplaintApprovalHistoryTab({
+  onCountChange,
+}: {
+  onCountChange?: (count: number) => void;
+}) {
+  const [complaints, setComplaints] = useState<ComplaintApprovalHistory[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const complaintsQuery = query(
+      collection(db, "companyVisits"),
+      where("category", "==", "complaint_visit")
+    );
+
+    return onSnapshot(
+      complaintsQuery,
+      (snapshot) => {
+        const rows = snapshot.docs
+          .map((complaintDoc) => {
+            const data = complaintDoc.data() as any;
+            const approval = data?.approval || {};
+            return {
+              id: complaintDoc.id,
+              customerName: String(data?.customerName || "").trim() || undefined,
+              complaintType:
+                String(data?.complaintType || data?.complaintSubType || "").trim() || undefined,
+              createdAt: approvalDateToIso(data?.createdAt),
+              approvalStatus: String(data?.approvalStatus || "").trim() || undefined,
+              pendingApproval:
+                typeof data?.pendingApproval === "boolean" ? data.pendingApproval : undefined,
+              chargeType: String(approval?.chargeType || data?.chargeType || "").trim() || undefined,
+              chargeAmount: Number(approval?.chargeAmount ?? data?.chargeAmount ?? 0),
+              approvedAt: approvalDateToIso(approval?.approvedAt || data?.approvedAt),
+              approvedBy: approval?.approvedBy || data?.approvedBy || undefined,
+            } satisfies ComplaintApprovalHistory;
+          })
+          .sort(
+            (left, right) =>
+              new Date(right.approvedAt || right.createdAt || 0).getTime() -
+              new Date(left.approvedAt || left.createdAt || 0).getTime()
+          );
+
+        const pendingCount = rows.filter(
+          (row) =>
+            row.pendingApproval === true ||
+            normalizeApprovalKey(row.approvalStatus) !== "approved"
+        ).length;
+        setComplaints(rows);
+        onCountChange?.(pendingCount);
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Complaint approval history listener failed:", error);
+        setComplaints([]);
+        onCountChange?.(0);
+        setLoading(false);
+      }
+    );
+  }, [onCountChange]);
+
+  if (loading) return <TableSkeleton />;
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow className="bg-[#F8F6F1] hover:bg-[#F8F6F1]">
+          <TableHead>Customer / Complaint</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead>Service</TableHead>
+          <TableHead>Approved By</TableHead>
+          <TableHead>Approval Date</TableHead>
+          <TableHead className="text-right">Action</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {complaints.length === 0 ? (
+          <TableRow>
+            <TableCell colSpan={6}>
+              <EmptyState message="No complaint approval records found." />
+            </TableCell>
+          </TableRow>
+        ) : (
+          complaints.map((complaint) => {
+            const approved = normalizeApprovalKey(complaint.approvalStatus) === "approved";
+            const chargeable = normalizeApprovalKey(complaint.chargeType) === "chargeable";
+            return (
+              <TableRow key={complaint.id}>
+                <TableCell>
+                  <p className="font-semibold text-[#1C1C1A]">
+                    {complaint.customerName || "Unknown customer"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {complaint.complaintType || "Complaint visit"}
+                  </p>
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    className={
+                      approved
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50"
+                        : "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50"
+                    }
+                  >
+                    {approved ? "Approved" : "Pending"}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  {chargeable
+                    ? `₹${Number(complaint.chargeAmount || 0).toLocaleString("en-IN")}`
+                    : "Free service"}
+                </TableCell>
+                <TableCell>
+                  {approved ? (
+                    <>
+                      <p className="font-medium text-[#1C1C1A]">
+                        {complaint.approvedBy?.name || "Unknown approver"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {complaint.approvedBy?.designation || "Designation unavailable"}
+                      </p>
+                    </>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Awaiting approval</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {complaint.approvedAt
+                    ? format(new Date(complaint.approvedAt), "dd MMM yyyy, hh:mm a")
+                    : "—"}
+                </TableCell>
+                <TableCell className="text-right">
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/dashboard/complain-approval?complaint=${complaint.id}`}>
+                      {approved ? "View" : "Review"}
+                    </Link>
+                  </Button>
+                </TableCell>
+              </TableRow>
+            );
+          })
         )}
       </TableBody>
     </Table>
   );
 }
-
-/* ─── Tab count badge ────────────────────────────────── */
 
 function TabCount({
   count,
@@ -1005,21 +1328,29 @@ type TabValue =
   | "quotations"
   | "orders"
   | "payment-confirmation"
-  | "excess-receipts";
+  | "excess-receipts"
+  | "complaints";
 
 export default function ApprovalsPage() {
+  const { user } = useAuth();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab") as TabValue | null;
+  const isEa =
+    String((user as any)?.designation || "").trim().toLowerCase().replace(/[\s_-]/g, "") === "ea";
 
   const resolve = (t: TabValue | null): TabValue => {
+    if (isEa && (t === "quotations" || t === "orders" || t === "complaints")) {
+      return "payment-confirmation";
+    }
     if (
       t === "quotations" ||
       t === "orders" ||
       t === "payment-confirmation" ||
-      t === "excess-receipts"
+      t === "excess-receipts" ||
+      t === "complaints"
     )
       return t;
-    return "orders";
+    return isEa ? "payment-confirmation" : "orders";
   };
 
   const [activeTab, setActiveTab] = useState<TabValue>(resolve(tabParam));
@@ -1027,10 +1358,11 @@ export default function ApprovalsPage() {
   const [orderCount, setOrderCount] = useState(0);
   const [paymentCount, setPaymentCount] = useState(0);
   const [excessReceiptCount, setExcessReceiptCount] = useState(0);
+  const [complaintCount, setComplaintCount] = useState(0);
 
   useEffect(() => {
     setActiveTab(resolve(tabParam));
-  }, [tabParam]);
+  }, [isEa, tabParam]);
 
   return (
     <div className="min-h-screen bg-[#FAFAF7] p-6 md:p-8 lg:p-10">
@@ -1051,16 +1383,20 @@ export default function ApprovalsPage() {
 
           {/* summary pills */}
           <div className="flex flex-wrap gap-2">
-            <div className="flex items-center gap-2 rounded-full border border-[#E2DDD5] bg-[#F0EDE6] px-4 py-1.5">
-              <FileText className="h-3.5 w-3.5 text-[#C4963A]" />
-              <span className="text-sm font-semibold text-[#1C1C1A]">{quotationCount}</span>
-              <span className="text-xs text-muted-foreground">Quotations</span>
-            </div>
-            <div className="flex items-center gap-2 rounded-full border border-[#E2DDD5] bg-[#F0EDE6] px-4 py-1.5">
-              <ShoppingCart className="h-3.5 w-3.5 text-[#C4963A]" />
-              <span className="text-sm font-semibold text-[#1C1C1A]">{orderCount}</span>
-              <span className="text-xs text-muted-foreground">Orders</span>
-            </div>
+            {!isEa && (
+              <>
+                <div className="flex items-center gap-2 rounded-full border border-[#E2DDD5] bg-[#F0EDE6] px-4 py-1.5">
+                  <FileText className="h-3.5 w-3.5 text-[#C4963A]" />
+                  <span className="text-sm font-semibold text-[#1C1C1A]">{quotationCount}</span>
+                  <span className="text-xs text-muted-foreground">Quotations</span>
+                </div>
+                <div className="flex items-center gap-2 rounded-full border border-[#E2DDD5] bg-[#F0EDE6] px-4 py-1.5">
+                  <ShoppingCart className="h-3.5 w-3.5 text-[#C4963A]" />
+                  <span className="text-sm font-semibold text-[#1C1C1A]">{orderCount}</span>
+                  <span className="text-xs text-muted-foreground">Orders</span>
+                </div>
+              </>
+            )}
             <div className="flex items-center gap-2 rounded-full border border-[#E2DDD5] bg-[#E0F5F0] px-4 py-1.5">
               <CreditCard className="h-3.5 w-3.5 text-[#1A7A6A]" />
               <span className="text-sm font-semibold text-[#1C1C1A]">{paymentCount}</span>
@@ -1071,6 +1407,13 @@ export default function ApprovalsPage() {
               <span className="text-sm font-semibold text-[#1C1C1A]">{excessReceiptCount}</span>
               <span className="text-xs text-muted-foreground">Excess Receipts</span>
             </div>
+            {!isEa && (
+              <div className="flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-1.5">
+                <ShieldCheck className="h-3.5 w-3.5 text-indigo-700" />
+                <span className="text-sm font-semibold text-[#1C1C1A]">{complaintCount}</span>
+                <span className="text-xs text-muted-foreground">Complaints</span>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -1081,23 +1424,27 @@ export default function ApprovalsPage() {
         onValueChange={(v) => setActiveTab(v as TabValue)}
         className="w-full"
       >
-        <TabsList className="bg-[#F0EDE6] border border-[#E2DDD5] rounded-xl p-1 h-auto mb-6 w-full max-w-3xl">
-          <TabsTrigger
-            value="quotations"
-            className="flex-1 rounded-lg text-xs font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-[#1C1C1A] text-muted-foreground transition-all"
-          >
-            <FileText className="h-3.5 w-3.5 mr-1.5" />
-            Quotations
-            <TabCount count={quotationCount} />
-          </TabsTrigger>
-          <TabsTrigger
-            value="orders"
-            className="flex-1 rounded-lg text-xs font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-[#1C1C1A] text-muted-foreground transition-all"
-          >
-            <ShoppingCart className="h-3.5 w-3.5 mr-1.5" />
-            Orders
-            <TabCount count={orderCount} />
-          </TabsTrigger>
+        <TabsList className="bg-[#F0EDE6] border border-[#E2DDD5] rounded-xl p-1 h-auto mb-6 w-full max-w-4xl">
+          {!isEa && (
+            <>
+              <TabsTrigger
+                value="quotations"
+                className="flex-1 rounded-lg text-xs font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-[#1C1C1A] text-muted-foreground transition-all"
+              >
+                <FileText className="h-3.5 w-3.5 mr-1.5" />
+                Quotations
+                <TabCount count={quotationCount} />
+              </TabsTrigger>
+              <TabsTrigger
+                value="orders"
+                className="flex-1 rounded-lg text-xs font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-[#1C1C1A] text-muted-foreground transition-all"
+              >
+                <ShoppingCart className="h-3.5 w-3.5 mr-1.5" />
+                Orders
+                <TabCount count={orderCount} />
+              </TabsTrigger>
+            </>
+          )}
           <TabsTrigger
             value="payment-confirmation"
             className="flex-1 rounded-lg text-xs font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-[#1C1C1A] text-muted-foreground transition-all"
@@ -1114,9 +1461,21 @@ export default function ApprovalsPage() {
             Excess Receipts
             <TabCount count={excessReceiptCount} />
           </TabsTrigger>
+          {!isEa && (
+            <TabsTrigger
+              value="complaints"
+              className="flex-1 rounded-lg text-xs font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-[#1C1C1A] text-muted-foreground transition-all"
+            >
+              <ShieldCheck className="h-3.5 w-3.5 mr-1.5" />
+              Complaints
+              <TabCount count={complaintCount} />
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* ── Quotations panel ── */}
+        {!isEa && (
+          <>
         <TabsContent value="quotations" className="mt-0 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
           <div className="mb-3 flex items-center gap-2">
             <span className="inline-block h-0.5 w-6 bg-[#C4963A] rounded-full" />
@@ -1147,6 +1506,9 @@ export default function ApprovalsPage() {
         </TabsContent>
 
         {/* ── Payment panel ── */}
+          </>
+        )}
+
         <TabsContent value="payment-confirmation" className="mt-0 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
           <div className="mb-3 flex items-center gap-2">
             <span className="inline-block h-0.5 w-6 bg-[#1A7A6A] rounded-full" />
@@ -1174,6 +1536,30 @@ export default function ApprovalsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {!isEa && (
+        <TabsContent value="complaints" className="mt-0 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="inline-block h-0.5 w-6 bg-indigo-500 rounded-full" />
+              <p className="text-[11px] uppercase tracking-widest font-medium text-[#8A8A84]">
+                Complaint Approval History
+              </p>
+            </div>
+            <Button asChild size="sm">
+              <Link href="/dashboard/complain-approval">
+                <ShieldCheck className="mr-1.5 h-3.5 w-3.5" />
+                Open Complaint Desk
+              </Link>
+            </Button>
+          </div>
+          <Card className="border border-[#E2DDD5] rounded-2xl shadow-none overflow-hidden bg-white">
+            <CardContent className="p-0">
+              <ComplaintApprovalHistoryTab onCountChange={setComplaintCount} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+        )}
       </Tabs>
     </div>
   );

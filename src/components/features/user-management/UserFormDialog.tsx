@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { useForm, type FieldErrors } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { doc, setDoc, updateDoc } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -29,6 +29,7 @@ const PC_ALL_SALES_PERMISSIONS = [
   SALES_MODULE_PERMISSION,
   ALLOCATE_ORDER_PERMISSION,
 ];
+const DEFAULT_STORE_OPTIONS = ["MO GCR BRANCH", "MO MG ROAD"];
 
 const parseTimeToMinutes = (value?: string) => {
   if (!value || !/^\d{2}:\d{2}$/.test(value)) return null;
@@ -112,6 +113,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
   const [isDutyTimeDialogOpen, setIsDutyTimeDialogOpen] = useState(false);
   const [draftDutyStart, setDraftDutyStart] = useState("10:00");
   const [draftDutyEnd, setDraftDutyEnd] = useState("19:00");
+  const [storeOptions, setStoreOptions] = useState<string[]>(DEFAULT_STORE_OPTIONS);
   const { toast } = useToast();
   const isEditing = !!user;
 
@@ -139,6 +141,19 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
   const timesheetEnabled = Boolean(form.watch('timesheetEnabled'));
   const timesheetDutyStart = form.watch('timesheetDutyStart');
   const timesheetDutyEnd = form.watch('timesheetDutyEnd');
+
+  useEffect(() => {
+    return onSnapshot(doc(db, "appSettings", "storeOptions"), (snapshot) => {
+      const storedOptions = snapshot.data()?.stores;
+      if (Array.isArray(storedOptions) && storedOptions.length) {
+        setStoreOptions(
+          storedOptions.map((store) => String(store || "").trim()).filter(Boolean)
+        );
+      } else {
+        setStoreOptions(DEFAULT_STORE_OPTIONS);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -480,14 +495,15 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                 render={({ field }) => (
                     <FormItem>
                     <FormLabel>Store</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                             <SelectTrigger><SelectValue placeholder="Assign a store" /></SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                            <SelectItem value="MO GCR BRANCH">MO GCR BRANCH</SelectItem>
-                            <SelectItem value="MO MG ROAD">MO MG ROAD</SelectItem>
-                            <SelectItem value="MO SULTANPUR">MO SULTANPUR</SelectItem>
+                            {Array.from(new Set([...(field.value ? [field.value] : []), ...storeOptions]))
+                              .map((store) => (
+                                <SelectItem key={store} value={store}>{store}</SelectItem>
+                              ))}
                         </SelectContent>
                     </Select>
                     <FormMessage />

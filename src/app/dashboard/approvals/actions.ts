@@ -126,12 +126,15 @@ export async function approveOrderAndCreatePurchaseRequest(
 export async function confirmPaymentReceived(orderId: string, approver: { id: string; name: string }): Promise<{ success: boolean; message: string }> {
     try {
         const orderRef = adminDb.collection('orders').doc(orderId);
+        const confirmedAt = new Date().toISOString();
         
         const batch = adminDb.batch();
 
         batch.update(orderRef, {
             paymentConfirmed: true,
             balanceFollowUp: false,
+            paymentConfirmedAt: confirmedAt,
+            paymentConfirmedBy: approver,
         });
 
         const orderDoc = await orderRef.get();
@@ -153,7 +156,7 @@ export async function confirmPaymentReceived(orderId: string, approver: { id: st
                 const paymentConfirmationStep: O2DStatus = {
                     stepId: 11, // 'Payment Received Conf'
                     status: 'completed',
-                    completedAt: new Date().toISOString(),
+                    completedAt: confirmedAt,
                     completedBy: approver.name,
                     remarks: `Payment confirmed by ${approver.name}.`,
                     selection: 'Done'

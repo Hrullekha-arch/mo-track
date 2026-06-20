@@ -130,3 +130,36 @@
          text-[#554b3b] hover:bg-[#C8BBA4]/10
          rounded-xl px-4 py-2 transition-all;
 }
+
+@keyframes luxury-word-slide {
+  0% {
+    margin-left: 0;
+  }
+  100% {
+    margin-left: 100%;
+  }
+}
+
+.luxury-word-slide {
+  animation: luxury-word-slide 20s linear infinite;
+  will-change: margin-left;
+}
+
+.luxury-word-slide-delayed {
+  animation-delay: 0.3s;
+}
+
+.luxury-signature-name {
+  font-family: "Edwardian Script ITC", "Kunstler Script", "Bickham Script Pro",
+    "Snell Roundhand", "Apple Chancery", "Segoe Script", cursive;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0.015em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luxury-word-slide,
+  .luxury-word-slide-delayed {
+    animation: none;
+  }
+}

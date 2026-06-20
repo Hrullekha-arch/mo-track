@@ -114,6 +114,9 @@ export interface User {
   department?: string;
   reportingManager?: string;
   joiningDate?: string; // YYYY-MM-DD
+  dateOfBirth?: string; // YYYY-MM-DD
+  dob?: string; // Backward-compatible date-of-birth field
+  birthDate?: string; // Backward-compatible date-of-birth field
   employmentStatus?: 'active' | 'on_leave' | 'inactive';
   panNumber?: string;
   aadhaarNumber?: string;
