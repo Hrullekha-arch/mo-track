@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Customer, Deal, DealProduct, Quotation, VasDetail, Stock } from "@/lib/types";
+import { Customer, Deal, DealProduct, Quotation, VasDetail, Stock, User } from "@/lib/types";
 import { Loader2, Trash2, CalendarIcon, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Separator } from "@/components/ui/separator";
@@ -148,6 +148,7 @@ const createQuotationFormSchema = z.object({
   sendEmail: z.boolean().default(false),
   sendSms: z.boolean().default(false),
   representativeId: z.string().optional(),
+  advance: z.coerce.number().min(0).optional(),
 });
 
 export type FormValues = z.infer<typeof createQuotationFormSchema>;
@@ -311,7 +312,7 @@ export function CreateQuotationDialog({
   mode,
 }: CreateQuotationDialogProps) {
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, firebaseUser } = useAuth();
   const [isPending, startTransition] = useTransition();
 
   // ─── State ───────────────────────────────────────────────
@@ -320,12 +321,36 @@ export function CreateQuotationDialog({
   const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
   const [isSearchingBcn, setIsSearchingBcn] = useState(false);
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
+  const [salesmen, setSalesmen] = useState<User[]>([]);
   const [addItem, setAddItem] = useState({ ...DEFAULT_ADD_ITEM_STATE });
   const initSignatureRef = useRef("");
   const dialogMode: QuotationDialogMode =
     mode || (initialQuotation ? "clone" : "create");
   const isCloneMode = dialogMode === "clone";
   const isEditMode = dialogMode === "edit";
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const snapshot = await getDocs(
+          query(collection(db, "users"), where("role", "==", "salesman"))
+        );
+        if (cancelled) return;
+        setSalesmen(
+          snapshot.docs
+            .map((docItem) => ({ id: docItem.id, ...docItem.data() } as User))
+            .sort((left, right) => left.name.localeCompare(right.name))
+        );
+      } catch (error) {
+        console.error("Failed to load SM options:", error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   // ─── Form ────────────────────────────────────────────────
   const form = useForm<FormValues>({
@@ -340,6 +365,35 @@ export function CreateQuotationDialog({
       sendSms: false,
     },
   });
+
+  useEffect(() => {
+    if (!isOpen || form.getValues("representativeId")) return;
+    const assignedId = String(
+      deal.assignedSalesPerson?.id || deal.representativeId || ""
+    ).trim();
+    const assignedName = String(deal.assignedSalesPerson?.name || "")
+      .trim()
+      .toLowerCase();
+    const matchingSalesman = assignedName
+      ? salesmen.find(
+          (salesman) => salesman.name.trim().toLowerCase() === assignedName
+        )
+      : undefined;
+    const resolvedId = assignedId || matchingSalesman?.id || "";
+    if (resolvedId) {
+      form.setValue("representativeId", resolvedId, {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+    }
+  }, [
+    deal.assignedSalesPerson?.id,
+    deal.assignedSalesPerson?.name,
+    deal.representativeId,
+    form,
+    isOpen,
+    salesmen,
+  ]);
 
   const { fields: itemFields, append: appendItem, remove: removeItem } = useFieldArray({
     control: form.control,
@@ -729,6 +783,8 @@ export function CreateQuotationDialog({
                 id: user.id,
                 name: user.name || user.email || user.id,
                 role: user.role,
+                designation: user.designation,
+                authToken: await firebaseUser?.getIdToken(),
               }
             )
           : await createQuotationAction(
@@ -858,6 +914,7 @@ export function CreateQuotationDialog({
             <QuotationEditForm
               form={form}
               deal={deal}
+              salesmen={salesmen}
               itemFields={itemFields}
               removeItem={removeItem}
               addItem={addItem}
@@ -910,6 +967,7 @@ export function CreateQuotationDialog({
 interface QuotationEditFormProps {
   form: UseFormReturn<FormValues>;
   deal: Deal;
+  salesmen: User[];
   itemFields: any[];
   removeItem: (index: number) => void;
   addItem: typeof DEFAULT_ADD_ITEM_STATE;
@@ -925,6 +983,7 @@ interface QuotationEditFormProps {
 const QuotationEditForm = memo(function QuotationEditForm({
   form,
   deal,
+  salesmen,
   itemFields,
   removeItem,
   addItem,
@@ -940,7 +999,7 @@ const QuotationEditForm = memo(function QuotationEditForm({
   return (
     <FormProvider {...form}>
       <form className="space-y-6 py-4">
-        <QuotationHeader form={form} deal={deal} />
+        <QuotationHeader form={form} deal={deal} salesmen={salesmen} />
         
         <Separator />
         
@@ -977,9 +1036,11 @@ const QuotationEditForm = memo(function QuotationEditForm({
 const QuotationHeader = memo(function QuotationHeader({
   form,
   deal,
+  salesmen,
 }: {
   form: UseFormReturn<FormValues>;
   deal: Deal;
+  salesmen: User[];
 }) {
   const dealNameOption = String(
     deal.title ||
@@ -988,6 +1049,16 @@ const QuotationHeader = memo(function QuotationHeader({
     deal.id ||
     "Deal"
   );
+  const assignedSmId = String(
+    deal.assignedSalesPerson?.id || deal.representativeId || ""
+  ).trim();
+  const assignedSmName = String(deal.assignedSalesPerson?.name || "").trim();
+  const smOptions = [
+    ...(assignedSmId && !salesmen.some((salesman) => salesman.id === assignedSmId)
+      ? [{ id: assignedSmId, name: assignedSmName || "Assigned SM" } as User]
+      : []),
+    ...salesmen,
+  ];
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -1109,6 +1180,39 @@ const QuotationHeader = memo(function QuotationHeader({
               onSelect={field.onChange}
               placeholder="--SELECT--"
             />
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
+      <FormField
+        control={form.control}
+        name="representativeId"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>SM / Sales Representative</FormLabel>
+            <Select
+              value={field.value || assignedSmId}
+              onValueChange={field.onChange}
+            >
+              <FormControl>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select SM" />
+                </SelectTrigger>
+              </FormControl>
+              <SelectContent>
+                {smOptions.map((salesman) => (
+                  <SelectItem key={salesman.id} value={salesman.id}>
+                    {salesman.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {assignedSmName && (
+              <p className="text-xs text-muted-foreground">
+                Auto-selected from deal: {assignedSmName}
+              </p>
+            )}
             <FormMessage />
           </FormItem>
         )}
@@ -2044,15 +2148,38 @@ const QuotationPreview = memo(function QuotationPreview({
           </div>
         )}
 
-        <div className="flex justify-between items-center pt-4 border-t">
-          <div className="flex items-center gap-8">
+        <div className="flex flex-col gap-4 border-t pt-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-end gap-4 sm:gap-8">
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">Quotation Amount</p>
               <p className="font-bold text-2xl text-primary">
                 ₹{totals.quotationAmount.toFixed(2)}
               </p>
             </div>
-            
+
+            <FormField
+              control={form.control}
+              name="advance"
+              render={({ field }) => (
+                <FormItem className="space-y-1 rounded-md border border-amber-200 bg-amber-50 p-3">
+                  <FormLabel className="text-sm font-semibold text-amber-900">Advance Received (₹)</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min={0}
+                      placeholder="Enter advance"
+                      className="w-40 bg-white"
+                      {...field}
+                      value={field.value ?? ""}
+                      onChange={(e) => field.onChange(e.target.value === "" ? undefined : Number(e.target.value))}
+                    />
+                  </FormControl>
+                  <p className="text-[11px] text-amber-800">Enter the customer advance before creating the quotation.</p>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             <FormField
               control={form.control}
               name="sendEmail"

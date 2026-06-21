@@ -719,6 +719,9 @@ export function InboundTable({ mode }: { mode: "pending" | "completed" }) {
   const [globalFilter, setGlobalFilter] = React.useState("");
   const [dateFrom, setDateFrom] = React.useState("");
   const [dateTo, setDateTo] = React.useState("");
+  const [summaryFilter, setSummaryFilter] = React.useState<
+    "Pending Receiving" | "In Progress" | null
+  >(null);
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
   const [isVerificationOpen, setIsVerificationOpen] = React.useState(false);
   const [isCreateZohoPoOpen, setIsCreateZohoPoOpen] = React.useState(false);
@@ -1133,8 +1136,16 @@ export function InboundTable({ mode }: { mode: "pending" | "completed" }) {
       )},
   ];
 
+  const visibleTableData = React.useMemo(
+    () =>
+      summaryFilter
+        ? tableData.filter((row) => row.status === summaryFilter)
+        : tableData,
+    [tableData, summaryFilter]
+  );
+
   const table = useReactTable({
-    data: tableData, columns,
+    data: visibleTableData, columns,
     getCoreRowModel: getCoreRowModel(), getSortedRowModel: getSortedRowModel(), getFilteredRowModel: getFilteredRowModel(),
     onGlobalFilterChange: setGlobalFilter, state: { globalFilter },
   });
@@ -1170,19 +1181,49 @@ export function InboundTable({ mode }: { mode: "pending" | "completed" }) {
         {mode === "pending" && (
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label:"Pending Receiving", value:stats.pending,    color:"bg-slate-600" },
-              { label:"In Progress",       value:stats.inProgress, color:"bg-amber-500" },
-              { label:"Total Items",       value:stats.total,      color:"bg-blue-600"  },
+              {
+                label:"Pending Receiving",
+                value:stats.pending,
+                filter:"Pending Receiving" as const,
+                iconColor:"bg-slate-600",
+                cardColor:"border-slate-200 bg-slate-50/80 hover:bg-slate-100",
+              },
+              {
+                label:"In Progress",
+                value:stats.inProgress,
+                filter:"In Progress" as const,
+                iconColor:"bg-amber-500",
+                cardColor:"border-amber-200 bg-amber-50/70 hover:bg-amber-100/80",
+              },
+              {
+                label:"Total Items",
+                value:stats.total,
+                filter:null,
+                iconColor:"bg-indigo-600",
+                cardColor:"border-indigo-200 bg-indigo-50/65 hover:bg-indigo-100/75",
+              },
             ].map((stat) => (
-              <div key={stat.label} className="rounded-xl border bg-card p-4 flex items-center gap-3.5 shadow-sm hover:shadow-md transition-shadow">
-                <div className={cn("rounded-xl p-2.5 shrink-0", stat.color)}>
+              <button
+                key={stat.label}
+                type="button"
+                onClick={() => setSummaryFilter(stat.filter)}
+                className={cn(
+                  "rounded-xl border p-4 flex items-center gap-3.5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  stat.cardColor,
+                  summaryFilter === stat.filter && "ring-2 ring-primary/50"
+                )}
+              >
+                <div className={cn("rounded-xl p-2.5 shrink-0", stat.iconColor)}>
                   <Package className="h-4 w-4 text-white" />
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground font-medium">{stat.label}</p>
                   <p className="text-2xl font-bold tabular-nums leading-tight mt-0.5">{stat.value}</p>
+                  <p className="mt-1 text-[10px] font-semibold text-muted-foreground">
+                    Click to view details
+                  </p>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -1231,6 +1272,15 @@ export function InboundTable({ mode }: { mode: "pending" | "completed" }) {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                {summaryFilter && (
+                  <Badge
+                    variant="outline"
+                    className="cursor-pointer text-xs"
+                    onClick={() => setSummaryFilter(null)}
+                  >
+                    Showing: {summaryFilter} ({visibleTableData.length}) · Clear
+                  </Badge>
+                )}
                 {selectedPendingPoItems.length > 0 ? (
                   <Badge variant="outline" className="text-xs font-medium">
                     Selected {selectedPendingPoItems.length} item(s) · PO {selectedPoNumber || "—"}

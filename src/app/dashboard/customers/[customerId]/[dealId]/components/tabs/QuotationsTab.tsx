@@ -118,6 +118,7 @@ interface QuotationsTabProps {
   deal?: Deal | null;
   salesmen?: User[];
   cpds?: Cpd[];
+  focusOrderNo?: string | null;
 }
 
 // ✅ Memoized row component — prevents re-rendering all rows when one changes
@@ -125,6 +126,7 @@ const QuotationRow = memo(function QuotationRow({
   q,
   index,
   isAdmin,
+  canEditConverted,
   deletingId,
   onView,
   onEdit,
@@ -136,6 +138,7 @@ const QuotationRow = memo(function QuotationRow({
   q: Quotation;
   index: number;
   isAdmin: boolean;
+  canEditConverted: boolean;
   deletingId: string | null;
   onView: () => void;
   onEdit: () => void;
@@ -161,7 +164,7 @@ const QuotationRow = memo(function QuotationRow({
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={(e) => { e.stopPropagation(); onEdit(); }}
-              disabled={q.status !== "Converted to Order"}
+              disabled={q.status !== "Converted to Order" || !canEditConverted}
             >
               Edit Converted Quotation
             </DropdownMenuItem>
@@ -210,6 +213,7 @@ export default function QuotationsTab({
   deal: dealProp,
   salesmen: salesmenProp = [],
   cpds: cpdsProp = [],
+  focusOrderNo,
 }: QuotationsTabProps) {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [customer, setCustomer] = useState<Customer | null>(customerProp ?? null);
@@ -229,6 +233,21 @@ export default function QuotationsTab({
   const { toast } = useToast();
   const { role, user } = useAuth();
   const isAdmin = role === "admin";
+  const normalizedRole = String(role || user?.role || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]/g, "");
+  const normalizedDesignation = String(user?.designation || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]/g, "");
+  const canEditConvertedQuotation =
+    normalizedRole === "admin" ||
+    normalizedRole === "md" ||
+    normalizedRole === "managingdirector" ||
+    normalizedDesignation === "ea" ||
+    normalizedDesignation === "md" ||
+    normalizedDesignation === "managingdirector";
 
 
   useEffect(() => {
@@ -273,6 +292,21 @@ export default function QuotationsTab({
   useEffect(() => {
     fetchQuotations();
   }, [fetchQuotations]);
+
+  useEffect(() => {
+    if (!focusOrderNo || quotations.length === 0) return;
+    const normalizeOrderNo = (value: unknown) =>
+      String(value || "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, "")
+        .replace(/^MOTRACK[-_]?/, "");
+    const target = normalizeOrderNo(focusOrderNo);
+    const matchingQuotation = quotations.find(
+      (quotation) => normalizeOrderNo(quotation.orderNo) === target
+    );
+    if (matchingQuotation) setSelectedQuotation(matchingQuotation);
+  }, [focusOrderNo, quotations]);
 
   const handleConvertToOrder = useCallback(
     (q: Quotation) => {
@@ -343,6 +377,14 @@ export default function QuotationsTab({
 
   const handleEditQuotation = useCallback(
     (quotation: Quotation) => {
+      if (!canEditConvertedQuotation) {
+        toast({
+          variant: "destructive",
+          title: "Access restricted",
+          description: "Only EA, Admin, or MD can edit a quotation after order placement.",
+        });
+        return;
+      }
       if (!deal || !customer) {
         toast({
           variant: "destructive",
@@ -364,7 +406,7 @@ export default function QuotationsTab({
       setEditItems(mapQuotationItemsForDialog(quotation));
       setEditVasDetails(mapQuotationVasForDialog(quotation));
     },
-    [deal, customer, toast]
+    [canEditConvertedQuotation, deal, customer, toast]
   );
 
   const handleEditDialogClose = useCallback(() => {
@@ -434,6 +476,7 @@ export default function QuotationsTab({
                         q={q}
                         index={i}
                         isAdmin={isAdmin}
+                        canEditConverted={canEditConvertedQuotation}
                         deletingId={deletingQuotationId}
                         onView={() => setSelectedQuotation(q)}
                         onEdit={() => handleEditQuotation(q)}
@@ -514,6 +557,16 @@ export default function QuotationsTab({
           customer={customer}
           salesmen={salesmen}
           cpds={cpds}
+          onEdit={
+            canEditConvertedQuotation &&
+            selectedQuotation.status === "Converted to Order"
+              ? () => {
+                  const quotation = selectedQuotation;
+                  setSelectedQuotation(null);
+                  handleEditQuotation(quotation);
+                }
+              : undefined
+          }
         />
       )}
       {editSourceQuotation && customer && deal && (

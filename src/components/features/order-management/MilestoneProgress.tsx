@@ -16,6 +16,7 @@ interface MilestoneProgressProps {
   onMilestoneChange?: (milestoneId: number, completed: boolean) => void;
   role?: UserRole | null; // Keep for prop-drilling, but useAuth is preferred
   disabled?: boolean;
+  maxEditableMilestoneId?: number;
 }
 
 const milestoneIcons: { [key: number]: React.ElementType } = {
@@ -29,7 +30,12 @@ const milestoneIcons: { [key: number]: React.ElementType } = {
   8: Wrench,
 };
 
-export function MilestoneProgress({ milestones, onMilestoneChange, disabled = false }: MilestoneProgressProps) {
+export function MilestoneProgress({
+  milestones,
+  onMilestoneChange,
+  disabled = false,
+  maxEditableMilestoneId,
+}: MilestoneProgressProps) {
   const { role: userRole, user } = useAuth();
   const isPcUser = userRole === 'PC' || (userRole === 'employee' && user?.designation === 'PC');
   
@@ -38,6 +44,7 @@ export function MilestoneProgress({ milestones, onMilestoneChange, disabled = fa
 
   const canEditMilestone = (milestoneId: number) => {
     if (userRole === 'admin') return true;
+    if (maxEditableMilestoneId !== undefined) return milestoneId <= maxEditableMilestoneId;
     if (isPcUser) return true;
     if (userRole === 'employee' && milestoneId <= 5) return true; // Employees handle up to Ready for Delivery
     if (userRole === 'installer' && milestoneId > 5) return true; 

@@ -397,7 +397,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <UserProfile />
       </aside>
 
-      <div className="flex flex-col flex-1 md:pl-16">
+      <div className="flex min-w-0 flex-1 flex-col md:pl-16">
         <header className="md:hidden flex h-[65px] items-center justify-between border-b bg-card px-4">
             <Sheet>
                 <SheetTrigger asChild>
@@ -441,7 +441,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                  <MobileUserMenu />
             </div>
         </header>
-        <main className="flex-1 overflow-y-auto">
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
           <RequiredOnboardingDialog />
           {children}
         </main>

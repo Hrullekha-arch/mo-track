@@ -25,6 +25,7 @@ interface QuotationDetailDialogProps {
   customer?: Customer;
   salesmen: User[];
   cpds: Cpd[];
+  onEdit?: () => void;
 }
 
 const parseDate = (date: any): Date => {
@@ -41,7 +42,16 @@ const parseDate = (date: any): Date => {
   return new Date();
 };
 
-export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, customer, salesmen, cpds }: QuotationDetailDialogProps) {
+export function QuotationDetailDialog({
+  isOpen,
+  onClose,
+  quotation,
+  deal,
+  customer,
+  salesmen,
+  cpds,
+  onEdit,
+}: QuotationDetailDialogProps) {
   const [lineItemSearch, setLineItemSearch] = React.useState("");
   const [vasSearch, setVasSearch] = React.useState("");
 
@@ -75,6 +85,28 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, custom
           <meta charset="utf-8" />
           <title>Print Quotation</title>
           ${styleTags}
+          <style>
+            @page { size: A4 portrait; margin: 0; }
+            html, body {
+              width: 210mm;
+              margin: 0;
+              padding: 0;
+              overflow: visible;
+              background: #fff;
+            }
+            *, *::before, *::after { box-sizing: border-box; }
+            .quotation-print-page {
+              width: 210mm !important;
+              max-width: 210mm !important;
+              margin: 0 !important;
+              overflow: hidden !important;
+            }
+            table { page-break-inside: auto; }
+            tr { page-break-inside: avoid; page-break-after: auto; }
+            thead { display: table-header-group; }
+            tfoot { display: table-row-group; }
+            img { max-width: 100% !important; }
+          </style>
         </head>
         <body>
           ${content.innerHTML}
@@ -352,6 +384,11 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, custom
         )}
 
         <DialogFooter className="bg-muted p-4">
+          {onEdit && (
+            <Button onClick={onEdit}>
+              Edit Quotation
+            </Button>
+          )}
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>

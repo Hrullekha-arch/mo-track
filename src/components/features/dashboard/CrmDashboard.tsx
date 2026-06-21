@@ -56,7 +56,10 @@ import {
 import { useRouter } from "next/navigation";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { updateOrderMilestoneAction } from "@/app/dashboard/orders/[orderId]/milestone-actions";
+import {
+  completeOrderByCrmAction,
+  updateOrderMilestoneAction,
+} from "@/app/dashboard/orders/[orderId]/milestone-actions";
 
 interface EnrichedVisit extends DealVisit {
   customerName: string;
@@ -985,6 +988,8 @@ const TodayVisits = ({ heightClassName = "h-[20rem]" }: { heightClassName?: stri
 };
 
 const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] }) => {
+  const { firebaseUser } = useAuth();
+  const { toast } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -993,6 +998,9 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState("");
   const [detailsData, setDetailsData] = useState<CrmOrderDetailsDialogData | null>(null);
+  const [queueView, setQueueView] = useState<"active" | "history">("active");
+  const [completingOrderId, setCompletingOrderId] = useState<string | null>(null);
+  const [updatingCrmMilestone, setUpdatingCrmMilestone] = useState<number | null>(null);
 
   useEffect(() => {
     if (assignedSalesmen.length === 0) {
@@ -1015,6 +1023,16 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
 
     return () => unsubscribe();
   }, [assignedSalesmen]);
+
+  useEffect(() => {
+    if (!selectedOrder) return;
+    const refreshedOrder = orders.find((orderItem) => orderItem.id === selectedOrder.id);
+    if (!refreshedOrder || refreshedOrder === selectedOrder) return;
+    setSelectedOrder(refreshedOrder);
+    setDetailsData((current) =>
+      current ? { ...current, order: refreshedOrder } : current
+    );
+  }, [orders, selectedOrder?.id]);
 
   const openOrderDetails = async (orderItem: Order) => {
     setSelectedOrder(orderItem);
@@ -1070,13 +1088,16 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
 
   const monitoredOrders = useMemo(() => orders.map((orderItem) => deriveOrderMonitor(orderItem)), [orders]);
 
+  const isCompletedOrder = (orderItem: Order) =>
+    normalizeStatus(orderItem.status) === "completed" ||
+    Boolean((orderItem as any).crmCompletedAt);
+
   const filteredOrders = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
-    if (!normalizedSearch) {
-      return monitoredOrders;
-    }
-
     return monitoredOrders.filter((row) => {
+      const completed = isCompletedOrder(row.order);
+      if (queueView === "active" ? completed : !completed) return false;
+      if (!normalizedSearch) return true;
       return (
         String(row.order.customerName || "")
           .toLowerCase()
@@ -1096,10 +1117,17 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
         row.nextStep.toLowerCase().includes(normalizedSearch)
       );
     });
-  }, [monitoredOrders, searchTerm]);
+  }, [monitoredOrders, searchTerm, queueView]);
 
   const sortedQueue = useMemo(() => {
     return [...filteredOrders].sort((a, b) => {
+      if (queueView === "history") {
+        const completedA =
+          toDateSafe((a.order as any).crmCompletedAt || (a.order as any).completedAt)?.getTime() || 0;
+        const completedB =
+          toDateSafe((b.order as any).crmCompletedAt || (b.order as any).completedAt)?.getTime() || 0;
+        return completedB - completedA;
+      }
       const riskWeight: Record<OrderRisk, number> = { critical: 3, watch: 2, stable: 1 };
       if (riskWeight[b.risk] !== riskWeight[a.risk]) {
         return riskWeight[b.risk] - riskWeight[a.risk];
@@ -1109,18 +1137,105 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
       }
       return b.ageDays - a.ageDays;
     });
-  }, [filteredOrders]);
+  }, [filteredOrders, queueView]);
 
   const kpis = useMemo(() => {
-    const live = monitoredOrders.filter((row) => row.progress < 100).length;
-    const critical = monitoredOrders.filter((row) => row.risk === "critical" && row.progress < 100).length;
-    const watch = monitoredOrders.filter((row) => row.risk === "watch" && row.progress < 100).length;
-    const avgProgress = monitoredOrders.length
-      ? Math.round(monitoredOrders.reduce((acc, row) => acc + row.progress, 0) / monitoredOrders.length)
+    const activeRows = monitoredOrders.filter((row) => !isCompletedOrder(row.order));
+    const historyRows = monitoredOrders.filter((row) => isCompletedOrder(row.order));
+    const live = activeRows.length;
+    const critical = activeRows.filter((row) => row.risk === "critical" && row.progress < 100).length;
+    const watch = activeRows.filter((row) => row.risk === "watch" && row.progress < 100).length;
+    const avgProgress = activeRows.length
+      ? Math.round(activeRows.reduce((acc, row) => acc + row.progress, 0) / activeRows.length)
       : 0;
 
-    return { live, critical, watch, avgProgress };
+    return { live, critical, watch, avgProgress, history: historyRows.length };
   }, [monitoredOrders]);
+
+  const completeSelectedOrder = async () => {
+    if (!selectedOrder?.id || !firebaseUser) return;
+    setCompletingOrderId(selectedOrder.id);
+    try {
+      const result = await completeOrderByCrmAction({
+        orderId: selectedOrder.id,
+        authToken: await firebaseUser.getIdToken(),
+      });
+      toast({
+        title: result.success ? "Order completed" : "Unable to complete",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+      });
+      if (result.success) {
+        setDetailsDialogOpen(false);
+        setSelectedOrder(null);
+        setDetailsData(null);
+        setQueueView("history");
+      }
+    } catch (error: any) {
+      toast({
+        title: "Unable to complete",
+        description: error?.message || "Failed to complete order.",
+        variant: "destructive",
+      });
+    } finally {
+      setCompletingOrderId(null);
+    }
+  };
+
+  const updateCrmMilestone = async (milestoneId: number, completed: boolean) => {
+    if (!selectedOrder?.id || !firebaseUser || !completed) return;
+    setUpdatingCrmMilestone(milestoneId);
+    try {
+      const result = await updateOrderMilestoneAction({
+        orderId: selectedOrder.id,
+        milestoneId,
+        completed: true,
+        authToken: await firebaseUser.getIdToken(),
+      });
+      if (!result.success) throw new Error(result.message);
+
+      const applyCompletedMilestone = (orderItem: Order) => {
+        const updated = applyOrderMilestoneChange(
+          orderItem,
+          milestoneId,
+          true,
+          { id: firebaseUser.uid, name: "CRM" }
+        );
+        return {
+          ...orderItem,
+          milestones: updated.milestones,
+          workflow: updated.workflow,
+        };
+      };
+      setSelectedOrder((current) =>
+        current ? applyCompletedMilestone(current) : current
+      );
+      setDetailsData((current) =>
+        current
+          ? { ...current, order: applyCompletedMilestone(current.order) }
+          : current
+      );
+      setOrders((current) =>
+        current.map((orderItem) =>
+          orderItem.id === selectedOrder.id
+            ? applyCompletedMilestone(orderItem)
+            : orderItem
+        )
+      );
+      toast({
+        title: "Milestone completed",
+        description: "The order progress has been updated.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Update failed",
+        description: error?.message || "Failed to complete milestone.",
+        variant: "destructive",
+      });
+    } finally {
+      setUpdatingCrmMilestone(null);
+    }
+  };
 
   const selectedMonitor = useMemo(
     () => (selectedOrder ? deriveOrderMonitor(selectedOrder) : null),
@@ -1357,7 +1472,9 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
             <div>
               <CardTitle>Order Execution Queue</CardTitle>
               <CardDescription>
-                Priority-first queue for all assigned CRM orders and pending milestones.
+                {queueView === "active"
+                  ? "Priority-first queue for assigned CRM orders and pending milestones."
+                  : "Completed customer orders closed by the CRM team."}
               </CardDescription>
             </div>
             <div className="relative w-full lg:w-72">
@@ -1369,6 +1486,26 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
                 className="pl-8"
               />
             </div>
+          </div>
+          <div className="flex w-fit rounded-xl border border-slate-200 bg-slate-100 p-1">
+            <Button
+              type="button"
+              size="sm"
+              variant={queueView === "active" ? "default" : "ghost"}
+              onClick={() => setQueueView("active")}
+              className="rounded-lg"
+            >
+              Active Orders ({kpis.live})
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={queueView === "history" ? "default" : "ghost"}
+              onClick={() => setQueueView("history")}
+              className="rounded-lg"
+            >
+              History ({kpis.history})
+            </Button>
           </div>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <div className="rounded-xl border border-slate-200 bg-white p-3">
@@ -1398,7 +1535,11 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
                 sortedQueue.map((row) => (
                   <div
                     key={row.order.id}
-                    className={`rounded-xl border p-4 ${riskContainerClassMap[row.risk]}`}
+                    className={`rounded-xl border p-4 ${
+                      queueView === "history"
+                        ? "border-emerald-200 bg-emerald-50/50"
+                        : riskContainerClassMap[row.risk]
+                    }`}
                   >
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1412,9 +1553,15 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
                             {row.order.salesPerson || "-"}
                           </p>
                         </div>
-                        <Badge variant="outline" className={riskBadgeClassMap[row.risk]}>
-                          {riskLabelMap[row.risk]}
-                        </Badge>
+                        {queueView === "history" ? (
+                          <Badge className="border-emerald-200 bg-emerald-100 text-emerald-700" variant="outline">
+                            Completed
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className={riskBadgeClassMap[row.risk]}>
+                            {riskLabelMap[row.risk]}
+                          </Badge>
+                        )}
                       </div>
                       <Progress value={row.progress} className="h-2" />
                       <div className="grid grid-cols-1 gap-2 text-xs text-muted-foreground md:grid-cols-4">
@@ -1428,7 +1575,15 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
                           Next: <span className="font-semibold text-slate-900">{row.nextStep}</span>
                         </p>
                         <p>
-                          Aging: <span className="font-semibold text-slate-900">{row.ageDays} day(s)</span>
+                          {queueView === "history" ? "Completed:" : "Aging:"}{" "}
+                          <span className="font-semibold text-slate-900">
+                            {queueView === "history"
+                              ? formatDateTimeLabel(
+                                  (row.order as any).crmCompletedAt ||
+                                    (row.order as any).completedAt
+                                )
+                              : `${row.ageDays} day(s)`}
+                          </span>
                         </p>
                       </div>
                     </div>
@@ -1442,7 +1597,9 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
                 ))
               ) : (
                 <p className="py-10 text-center text-sm text-muted-foreground">
-                  No orders found for the current CRM assignment/search.
+                  {queueView === "history"
+                    ? "No completed orders in CRM history."
+                    : "No active orders found for the current CRM assignment/search."}
                 </p>
               )}
             </div>
@@ -1502,6 +1659,96 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
                       <DetailField label="Created At" value={formatDateTimeLabel(selectedOrder.createdAt)} />
                     </CardContent>
                   </Card>
+
+                  <Card className="border-slate-200">
+                    <CardHeader>
+                      <CardTitle>Milestone Progress</CardTitle>
+                      <CardDescription>
+                        CRM can tick every completed stage in sequence, including delivery and
+                        installation.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <MilestoneProgress
+                        milestones={getNormalizedOrderMilestones(selectedOrder)}
+                        onMilestoneChange={
+                          isCompletedOrder(selectedOrder)
+                            ? undefined
+                            : updateCrmMilestone
+                        }
+                        maxEditableMilestoneId={8}
+                        disabled={updatingCrmMilestone !== null}
+                      />
+                      {updatingCrmMilestone !== null && (
+                        <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Saving milestone completion...
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {!isCompletedOrder(selectedOrder) && (
+                    <Card
+                      className={
+                        selectedMonitor?.progress === 100
+                          ? "border-emerald-300 bg-emerald-50/60"
+                          : "border-amber-200 bg-amber-50/50"
+                      }
+                    >
+                      <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="font-semibold text-slate-900">
+                            CRM Order Completion
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {selectedMonitor?.progress === 100
+                              ? "All milestones are complete. Close this order and move the customer to History."
+                              : `This order is ${selectedMonitor?.progress || 0}% complete. Finish all milestones before CRM closure.`}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          className="shrink-0 bg-emerald-600 text-white hover:bg-emerald-700"
+                          disabled={
+                            selectedMonitor?.progress !== 100 ||
+                            completingOrderId === selectedOrder.id
+                          }
+                          onClick={() => void completeSelectedOrder()}
+                        >
+                          {completingOrderId === selectedOrder.id ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <CheckCircle className="mr-2 h-4 w-4" />
+                          )}
+                          Mark Order Complete
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {isCompletedOrder(selectedOrder) && (
+                    <Card className="border-emerald-300 bg-emerald-50/60">
+                      <CardContent className="grid grid-cols-1 gap-3 p-4 md:grid-cols-3">
+                        <DetailField label="CRM Status" value="Completed / History" />
+                        <DetailField
+                          label="Completed By"
+                          value={
+                            (selectedOrder as any).crmCompletedBy?.name ||
+                            (selectedOrder as any).completedBy ||
+                            "CRM"
+                          }
+                        />
+                        <DetailField
+                          label="Completed At"
+                          value={formatDateTimeLabel(
+                            (selectedOrder as any).crmCompletedAt ||
+                              (selectedOrder as any).completedAt
+                          )}
+                        />
+                      </CardContent>
+                    </Card>
+                  )}
 
                   <Card>
                     <CardHeader>

@@ -163,3 +163,73 @@
     animation: none;
   }
 }
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+  body {
+    margin: 0;
+    padding: 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+
+/* === GLOBAL PHONE RESPONSIVENESS === */
+@media (max-width: 767px) {
+  html,
+  body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  main,
+  main > *,
+  [data-radix-scroll-area-viewport] > div {
+    min-width: 0 !important;
+    max-width: 100%;
+  }
+
+  [role="dialog"] {
+    width: calc(100vw - 1rem) !important;
+    max-width: calc(100vw - 1rem) !important;
+    max-height: calc(100dvh - 1rem) !important;
+    overflow-y: auto;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    max-width: 100%;
+  }
+
+  table {
+    min-width: max-content;
+  }
+
+  .overflow-hidden:has(> table),
+  .rounded-md:has(> table),
+  .rounded-xl:has(> table),
+  .rounded-2xl:has(> table) {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .luxury-word-slide,
+  .luxury-word-slide-delayed {
+    width: auto;
+    max-width: 100%;
+    margin-left: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    animation: none;
+  }
+
+  .luxury-signature-name {
+    line-height: 1.15;
+  }
+}

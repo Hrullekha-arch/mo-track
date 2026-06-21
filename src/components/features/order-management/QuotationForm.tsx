@@ -47,6 +47,7 @@ const formSchema = z.object({
   sendSms: z.boolean().default(false),
   representativeId: z.string().optional(), // Added field
   cpdId: z.string().optional(), // To link quotation with CPD
+  advance: z.coerce.number().min(0).optional(),
 });
 
 interface QuotationFormProps {

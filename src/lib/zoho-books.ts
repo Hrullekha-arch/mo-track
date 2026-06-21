@@ -954,14 +954,14 @@ export async function getZohoItemById(itemId: string): Promise<ZohoItem | null> 
     productType: asTrimmedString(item.product_type) || undefined,
     preferredVendorId: asTrimmedString(item.vendor_id) || undefined,
     stockOnHand:
-      asFiniteNumber(item.stock_on_hand) ??
-      sumZohoLocationQuantity(item.locations, "location_stock_on_hand"),
-    availableStock: asFiniteNumber(
-      item.available_stock ?? item.available_for_sale_stock
-    ) ?? sumZohoLocationQuantity(item.locations, "location_available_stock"),
+      sumZohoLocationQuantity(item.locations, "location_stock_on_hand") ??
+      asFiniteNumber(item.stock_on_hand),
+    availableStock:
+      sumZohoLocationQuantity(item.locations, "location_available_stock") ??
+      asFiniteNumber(item.available_stock ?? item.available_for_sale_stock),
     actualAvailableStock:
-      asFiniteNumber(item.actual_available_stock) ??
-      sumZohoLocationQuantity(item.locations, "location_actual_available_stock"),
+      sumZohoLocationQuantity(item.locations, "location_actual_available_stock") ??
+      asFiniteNumber(item.actual_available_stock),
     ...extractZohoLineTaxContext(item, "sales"),
   };
 }

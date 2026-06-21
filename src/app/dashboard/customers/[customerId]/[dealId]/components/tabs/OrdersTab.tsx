@@ -24,9 +24,10 @@ import { parseDate } from "../../utils/dateUtils";
 interface OrdersTabProps {
   customerId: string;
   dealId: string;
+  onOpenQuotation?: (orderNo: string) => void;
 }
 
-export default function OrdersTab({ customerId, dealId }: OrdersTabProps) {
+export default function OrdersTab({ customerId, dealId, onOpenQuotation }: OrdersTabProps) {
   const [orders, setOrders] = useState<DealOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
@@ -100,7 +101,19 @@ export default function OrdersTab({ customerId, dealId }: OrdersTabProps) {
                 </TableHeader>
                 <TableBody>
                   {orders.map((order, i) => (
-                    <TableRow key={order.id}>
+                    <TableRow
+                      key={order.id}
+                      role="button"
+                      tabIndex={0}
+                      className="cursor-pointer hover:bg-muted/60"
+                      onClick={() => onOpenQuotation?.(order.orderNo)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onOpenQuotation?.(order.orderNo);
+                        }
+                      }}
+                    >
                       <TableCell>{i + 1}</TableCell>
                       <TableCell className="font-medium">
                         {order.orderNo}
@@ -121,7 +134,19 @@ export default function OrdersTab({ customerId, dealId }: OrdersTabProps) {
 
             <div className="md:hidden space-y-3">
               {orders.map((order, i) => (
-                <Card key={order.id}>
+                <Card
+                  key={order.id}
+                  role="button"
+                  tabIndex={0}
+                  className="cursor-pointer transition-shadow hover:shadow-md"
+                  onClick={() => onOpenQuotation?.(order.orderNo)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onOpenQuotation?.(order.orderNo);
+                    }
+                  }}
+                >
                   <CardContent className="p-4 space-y-2">
                     <div className="flex items-start justify-between">
                       <div>

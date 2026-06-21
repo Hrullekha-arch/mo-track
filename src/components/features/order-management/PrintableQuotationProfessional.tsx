@@ -241,9 +241,24 @@ export function PrintableQuotationProfessional({ type, values, creatorName, sale
     const logoSrc = type === "GOODS" ? "/name-logo.png" : "/vatLOGO.png";
 
     return (
-        <div style={{ width: '210mm', minHeight: '297mm', margin: 'auto', padding: '2rem 1.5rem', backgroundColor: 'white', color: 'black', fontFamily: 'Arial, sans-serif', fontSize: '12px' }}>
-            <header style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #333', paddingBottom: '1rem' }}>
-                  <div>
+        <div
+            className="quotation-print-page"
+            style={{
+                width: '210mm',
+                maxWidth: '210mm',
+                minHeight: '297mm',
+                margin: '0 auto',
+                padding: '10mm',
+                boxSizing: 'border-box',
+                overflow: 'hidden',
+                backgroundColor: 'white',
+                color: 'black',
+                fontFamily: 'Arial, sans-serif',
+                fontSize: '10px',
+            }}
+        >
+            <header style={{ display: 'flex', justifyContent: 'space-between', gap: '8mm', borderBottom: '2px solid #333', paddingBottom: '1rem' }}>
+                  <div style={{ minWidth: 0, flex: '1 1 auto' }}>
                     <h1 className="text-2xl font-bold">Quotation</h1>
 
                     <h2 className="text-sm font-bold mt-2">{company.name}</h2>
@@ -260,12 +275,12 @@ export function PrintableQuotationProfessional({ type, values, creatorName, sale
                     Email: info@mofurnishings.com, Contact: 0124-4777888
                     </p>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                    <Image src={logoSrc} alt="Mo Logo" width={120} height={60} style={{ marginBottom: '1rem' }} />
-                    <p style={{ margin: 0 }}><strong>Quotation #</strong>{values.quotationNo}</p>
+                <div style={{ textAlign: 'right', flex: '0 0 58mm', minWidth: 0 }}>
+                    <Image src={logoSrc} alt="Mo Logo" width={110} height={55} style={{ marginLeft: 'auto', marginBottom: '1rem', maxWidth: '100%', objectFit: 'contain' }} />
+                    <p style={{ margin: 0, overflowWrap: 'anywhere' }}><strong>Quotation #</strong>{values.quotationNo}</p>
                     <p style={{ margin: '0.25rem 0' }}><strong>Date:</strong> {format(validDate, "dd/MM/yyyy")}</p>
-                    <p style={{ margin: 0 }}><strong>Salesman:</strong> {salesmanName || 'N/A'}</p>
-                    <p style={{ margin: '0.25rem 0' }}><strong>Created By:</strong> {creatorName || 'N/A'}</p>
+                    <p style={{ margin: 0, overflowWrap: 'anywhere' }}><strong>Salesman:</strong> {salesmanName || 'N/A'}</p>
+                    <p style={{ margin: '0.25rem 0', overflowWrap: 'anywhere' }}><strong>Created By:</strong> {creatorName || 'N/A'}</p>
                 </div>
             </header>
 
@@ -285,19 +300,31 @@ export function PrintableQuotationProfessional({ type, values, creatorName, sale
             </section>
 
             <main style={{ marginTop: '1rem' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                <table style={{ width: '100%', maxWidth: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: '9px' }}>
+                    <colgroup>
+                        <col style={{ width: '4%' }} />
+                        <col style={{ width: '7%' }} />
+                        <col style={{ width: '24%' }} />
+                        <col style={{ width: '7%' }} />
+                        <col style={{ width: '7%' }} />
+                        <col style={{ width: '11%' }} />
+                        <col style={{ width: '11%' }} />
+                        <col style={{ width: '11%' }} />
+                        <col style={{ width: '8%' }} />
+                        <col style={{ width: '10%' }} />
+                    </colgroup>
                     <thead>
                         <tr style={{ backgroundColor: '#f2f2f2', border: '1px solid #ddd' }}>
-                            <th style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'left' }}>#</th>
-                            <th style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'left' }}>HSN</th>
-                            <th style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'left' }}>Particulars</th>
-                            <th style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>Qty</th>
-                            <th style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'left' }}>UOM</th>
-                            <th style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>Rate</th>
-                            <th style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>Amount</th>
-                            <th style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>Disc.</th>
-                            <th style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>Tax (%)</th>
-                            <th style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>Amount</th>
+                            <th style={{ padding: '4px 3px', border: '1px solid #ddd', textAlign: 'left' }}>#</th>
+                            <th style={{ padding: '4px 3px', border: '1px solid #ddd', textAlign: 'left' }}>HSN</th>
+                            <th style={{ padding: '4px 3px', border: '1px solid #ddd', textAlign: 'left' }}>Particulars</th>
+                            <th style={{ padding: '4px 3px', border: '1px solid #ddd', textAlign: 'right' }}>Qty</th>
+                            <th style={{ padding: '4px 3px', border: '1px solid #ddd', textAlign: 'left' }}>UOM</th>
+                            <th style={{ padding: '4px 3px', border: '1px solid #ddd', textAlign: 'right' }}>Rate</th>
+                            <th style={{ padding: '4px 3px', border: '1px solid #ddd', textAlign: 'right' }}>Amount</th>
+                            <th style={{ padding: '4px 3px', border: '1px solid #ddd', textAlign: 'right' }}>Disc.</th>
+                            <th style={{ padding: '4px 3px', border: '1px solid #ddd', textAlign: 'right' }}>Tax</th>
+                            <th style={{ padding: '4px 3px', border: '1px solid #ddd', textAlign: 'right' }}>Net Amt.</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -355,14 +382,14 @@ export function PrintableQuotationProfessional({ type, values, creatorName, sale
                 </table>
             </main>
 
-            <footer style={{ marginTop: '2rem', display: 'flex', justifyContent: 'space-between', borderTop: '2px solid #333', paddingTop: '1rem' }}>
-                <div style={{ fontSize: '11px' }}>
+            <footer style={{ marginTop: '2rem', display: 'flex', justifyContent: 'space-between', gap: '8mm', borderTop: '2px solid #333', paddingTop: '1rem' }}>
+                <div style={{ minWidth: 0, flex: '1 1 auto', fontSize: '10px', overflowWrap: 'anywhere' }}>
                     <p style={{ margin: 0, fontWeight: 'bold' }}>MO DESIGNS PRIVATE LIMITED</p>
                     <p style={{ margin: '0.25rem 0' }}>BANK DETAILS - HDFC BANK LTD,SECTOR-56, HUDA DISTRICT<br/>CENTRE, GURGAON-122001 HARYANA</p>
                     <p style={{ margin: 0 }}>Acc.No. - 50200094305041,IFSC - HDFC0003871</p>
-                    <p style={{ marginTop: '1rem', fontWeight: 'bold' }}>ADVANCE - 0 ₹</p>
+                    <p style={{ marginTop: '1rem', fontWeight: 'bold' }}>ADVANCE - {formatToINR(values.advance ?? 0)} ₹</p>
                 </div>
-                <div style={{ width: '40%', fontSize: '11px' }}>
+                <div style={{ flex: '0 0 72mm', minWidth: 0, fontSize: '10px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #ddd' }}>
                         <span>Sub Total Amount</span>
                         <span style={{ fontWeight: 'bold' }}>{formatToINR(totals.subTotalAmount)}</span>

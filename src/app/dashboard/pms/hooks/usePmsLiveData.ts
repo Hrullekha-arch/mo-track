@@ -173,9 +173,8 @@ export const usePmsLiveData = ({
     const lookups = buildLookups(orders, machines, people, products, routing, plans);
     const embellishmentByRowKey = new Map(embellishmentRecords.map((record) => [record.id, record]));
     const overrideByRowKey = new Map(vasOverrides.map((override) => [override.id, override]));
-    const activePmsOrderIds = new Set(
+    const pmsOrderIdsWithJobs = new Set(
       jobs
-        .filter((job) => String(job.status || "").toUpperCase() !== "DONE")
         .map((job) => String(job.orderId || "").trim())
         .filter(Boolean)
     );
@@ -237,7 +236,7 @@ export const usePmsLiveData = ({
     const rows = orders
       .filter((order) => {
         if ((order.sections?.VAS?.items?.length || 0) <= 0) return false;
-        return !isOrderClosedForPms(order) || activePmsOrderIds.has(order.id);
+        return !isOrderClosedForPms(order) || pmsOrderIdsWithJobs.has(order.id);
       })
       .flatMap((order) =>
         (order.sections?.VAS?.items || []).flatMap((item, index) => {
@@ -269,21 +268,40 @@ export const usePmsLiveData = ({
           const requiresEmbellishment = hasEmbellishmentRoutingStep(routingSteps);
           const groupKey = matchedProductId ? `${order.id}_${matchedProductId}` : `${order.id}_${vasName}`;
           const jobBucket = jobsByGroup.get(groupKey) || { sorted: [] };
-          const status = jobBucket.inProgress?.status || jobBucket.nextJob?.status || "WAITING";
-          const currentProcess =
-            jobBucket.inProgress?.process || jobBucket.nextJob?.process || "Not scheduled";
-          const stepNo = jobBucket.inProgress?.stepNo ?? jobBucket.nextJob?.stepNo;
-          const plannedStart = jobBucket.nextPlan?.plannedStart;
-          const plannedEnd = jobBucket.nextPlan?.plannedEnd;
+          const allJobsDone =
+            jobBucket.sorted.length > 0 &&
+            jobBucket.sorted.every(
+              (job) => String(job.status || "").toUpperCase() === "DONE"
+            );
+          const lastCompletedJob = allJobsDone
+            ? [...jobBucket.sorted].reverse().find((job) => job.status === "DONE")
+            : undefined;
+          const completedPlan = lastCompletedJob
+            ? lookups.planByJob.get(lastCompletedJob.id)
+            : undefined;
+          const status = allJobsDone
+            ? "DONE"
+            : jobBucket.inProgress?.status || jobBucket.nextJob?.status || "WAITING";
+          const currentProcess = allJobsDone
+            ? lastCompletedJob?.process || "Completed"
+            : jobBucket.inProgress?.process || jobBucket.nextJob?.process || "Not scheduled";
+          const stepNo = allJobsDone
+            ? lastCompletedJob?.stepNo
+            : jobBucket.inProgress?.stepNo ?? jobBucket.nextJob?.stepNo;
+          const activePlan = jobBucket.nextPlan || completedPlan;
+          const plannedStart =
+            activePlan?.plannedStart || lastCompletedJob?.actualStart;
+          const plannedEnd =
+            activePlan?.plannedEnd || lastCompletedJob?.actualEnd;
           const hasJobsForProduct = matchedProductId
             ? jobs.some((job) => job.orderId === order.id && job.productId === matchedProductId)
             : false;
           const eta = hasJobsForProduct ? jobBucket.etaFromJobs || plannedEnd : undefined;
-          const machineName = jobBucket.nextPlan?.machineId
-            ? lookups.machineById.get(jobBucket.nextPlan.machineId)?.name
+          const machineName = activePlan?.machineId
+            ? lookups.machineById.get(activePlan.machineId)?.name
             : undefined;
-          const personName = jobBucket.nextPlan?.personId
-            ? lookups.personById.get(jobBucket.nextPlan.personId)?.name
+          const personName = activePlan?.personId
+            ? lookups.personById.get(activePlan.personId)?.name
             : undefined;
           const invoiceReady = isOrderInvoiced(order);
           const waitingJob = jobBucket.nextJob?.status === "WAITING" ? jobBucket.nextJob : undefined;
@@ -362,7 +380,11 @@ export const usePmsLiveData = ({
               personName: personName || "-",
               plannedStart,
               plannedEnd,
-              eta,
+              eta: allJobsDone
+                ? lastCompletedJob?.actualEnd ||
+                  lastCompletedJob?.updatedAt ||
+                  eta
+                : eta,
               lastUpdate:
                 jobBucket.inProgress?.updatedAt ||
                 jobBucket.nextJob?.updatedAt ||

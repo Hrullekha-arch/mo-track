@@ -1441,18 +1441,9 @@ const resolveAllocatedQtyForInvoiceLine = (item: any): number => {
   return num(item?.allocation?.allocatedQty ?? item?.allocatedQty);
 };
 
-const isNormalItemEligibleForPendingInvoice = (
-  item: any,
-  allowUnallocatedFallback: boolean
-): boolean => {
-  if (allowUnallocatedFallback) return resolveInvoiceItemQty(item) > 0;
-  if (item?.allocation?.forceReinvoice === true) return true;
-  const allocationStatus = String(item?.allocation?.status || "")
-    .trim()
-    .toUpperCase();
-  if (allocationStatus === "ALLOCATED" || allocationStatus === "PARTIAL") {
-    return true;
-  }
+const isNormalItemEligibleForPendingInvoice = (item: any): boolean => {
+  // A status label alone is not enough. Goods can be invoiced only when
+  // an actual allocated quantity exists in a roll, lot, or allocation total.
   return resolveAllocatedQtyForInvoiceLine(item) > 0;
 };
 
@@ -1530,6 +1521,38 @@ const hasGeneratedInvoiceForSection = (
   getInvoicesForOrder(invoices.filter(isInvoiceCountableForInvoicing), order).some((invoice) =>
     invoiceIncludesSection(invoice, section)
   );
+
+// One-time business exception: order 52137 was corrected after its first invoice.
+// Keep the original invoice in history, but allow only subsequently allocated
+// Goods quantity to return for invoicing.
+const allowsPostInvoiceAllocation = (order: Order): boolean => {
+  const references = [
+    order.id,
+    order.orderId,
+    order.orderNo,
+    order.crmOrderNo,
+  ].map((value) =>
+    String(value || "")
+      .trim()
+      .toUpperCase()
+      .replace(/^MOTRACK-/, "")
+  );
+  return references.includes("52137");
+};
+
+const ORDER_52137_BASELINE_INVOICED_PRODUCTS = new Map<string, number>([
+  ["hdw024", 21.63],
+]);
+
+const hasOrder52137FinalInvoice = (
+  order: Order,
+  invoices: Invoice[]
+): boolean =>
+  allowsPostInvoiceAllocation(order) &&
+  getInvoicesForOrder(
+    invoices.filter(isInvoiceCountableForInvoicing),
+    order
+  ).some((invoice) => invoice.postRectification52137 === true);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FIX 4: computeInvoicingStatus — now uses resolveInvoiceItemQty everywhere
@@ -1629,7 +1652,6 @@ const isOrderInstallationDone = (order: Order): boolean =>
 // ─────────────────────────────────────────────────────────────────────────────
 type BuildInvoiceCandidateOptions = {
   includeInvoiceBypassOrders?: boolean;
-  allowUnallocatedForBypassOrders?: boolean;
 };
 
 const buildInvoiceCandidates = (
@@ -1638,7 +1660,6 @@ const buildInvoiceCandidates = (
   options?: BuildInvoiceCandidateOptions
 ): InvoiceCandidate[] => {
   const includeInvoiceBypassOrders = options?.includeInvoiceBypassOrders === true;
-  const allowUnallocatedForBypassOrders = options?.allowUnallocatedForBypassOrders === true;
   const effectiveInvoices = invoices.filter(isInvoiceCountableForInvoicing);
 
   return orders
@@ -1652,8 +1673,18 @@ const buildInvoiceCandidates = (
         if (isOrderInstallationDone(order)) return null;
       }
 
-      const orderInvoices = getInvoicesForOrder(effectiveInvoices, order);
+      const allOrderInvoices = getInvoicesForOrder(effectiveInvoices, order);
+      const orderInvoices = allowsPostInvoiceAllocation(order)
+        ? allOrderInvoices.filter(
+            (invoice) => invoice.postRectification52137 === true
+          )
+        : allOrderInvoices;
       const invoicedQtyByGroup = new Map<string, number>();
+      const invoicedQtyByProduct = new Map<string, number>(
+        allowsPostInvoiceAllocation(order)
+          ? ORDER_52137_BASELINE_INVOICED_PRODUCTS
+          : []
+      );
       const invoicedQtyByLength = new Map<string, number>();
 
       // FIX 2: Per-item VAS tracking instead of binary flag
@@ -1668,6 +1699,15 @@ const buildInvoiceCandidates = (
           const qty = resolveInvoiceItemQty(item); // FIX 4
           if (groupKey)
             invoicedQtyByGroup.set(groupKey, num(invoicedQtyByGroup.get(groupKey)) + qty);
+          const productKey = normalizeKey(
+            item?.bcn || item?.description || item?.itemName || item?.name
+          );
+          if (productKey) {
+            invoicedQtyByProduct.set(
+              productKey,
+              num(invoicedQtyByProduct.get(productKey)) + qty
+            );
+          }
           const lengthId = item.allocationRef?.lengthId;
           if (lengthId)
             invoicedQtyByLength.set(lengthId, num(invoicedQtyByLength.get(lengthId)) + qty);
@@ -1691,18 +1731,16 @@ const buildInvoiceCandidates = (
       type GroupEntry = {
         representative: any;
         groupKey: string;
+        productKey: string;
         requiredQty: number;
         allocatedQty: number;
         lengths: Map<string, { qty: number; stockItemId?: string }>;
         forceReinvoice: boolean;
       };
       const groupedNormalItems = new Map<string, GroupEntry>();
-      const shouldAllowUnallocatedFallback =
-        allowUnallocatedForBypassOrders &&
-        (order.invoicing?.invoiceRequired === false || isInstantSaleLikeOrder(order));
 
       normalItemsRaw.forEach((item: any) => {
-        if (!isNormalItemEligibleForPendingInvoice(item, shouldAllowUnallocatedFallback)) {
+        if (!isNormalItemEligibleForPendingInvoice(item)) {
           return;
         }
         const discountPercent = resolveDiscountPercent(order, item);
@@ -1714,6 +1752,7 @@ const buildInvoiceCandidates = (
         const group: GroupEntry = existingGroup || {
           representative: item,
           groupKey,
+          productKey: bcnKey,
           requiredQty: 0,
           allocatedQty: 0,
           lengths: new Map(),
@@ -1745,6 +1784,7 @@ const buildInvoiceCandidates = (
 
       groupedNormalItems.forEach((group) => {
         const item = group.representative || {};
+        const ignoreForceReinvoice = allowsPostInvoiceAllocation(order);
         const allocatedFromLengths = Array.from(group.lengths.values()).reduce(
           (sum, entry) => sum + num(entry.qty),
           0
@@ -1756,19 +1796,21 @@ const buildInvoiceCandidates = (
           allocatedFromLengths > 0
             ? Math.max(allocatedFromLengths, allocatedFromLines)
             : allocatedFromLines;
-        if (
-          shouldAllowUnallocatedFallback &&
-          allocatedTotalRaw <= 0 &&
-          num(group.requiredQty) > 0
-        ) {
-          // Instant / cashsale flow may not have stock allocation yet.
-          // Allow manual invoicing from order/quotation quantities.
-          allocatedTotalRaw = num(group.requiredQty);
-        }
         const allocatedTotal = Math.min(allocatedTotalRaw, num(group.requiredQty));
-        const alreadyInvoiced = group.forceReinvoice
-          ? 0
-          : num(invoicedQtyByGroup.get(group.groupKey));
+        const priorProductInvoiced = num(
+          invoicedQtyByProduct.get(group.productKey)
+        );
+        const alreadyInvoiced = ignoreForceReinvoice
+          ? Math.min(allocatedTotal, priorProductInvoiced)
+          : group.forceReinvoice
+            ? 0
+            : num(invoicedQtyByGroup.get(group.groupKey));
+        if (ignoreForceReinvoice && priorProductInvoiced > 0) {
+          invoicedQtyByProduct.set(
+            group.productKey,
+            Math.max(0, priorProductInvoiced - alreadyInvoiced)
+          );
+        }
         let remaining = Math.max(0, allocatedTotal - alreadyInvoiced);
         if (remaining <= 0) return;
 
@@ -1784,7 +1826,7 @@ const buildInvoiceCandidates = (
             if (remaining <= 0) break;
             const lengthRemaining = Math.max(
               0,
-              group.forceReinvoice
+              group.forceReinvoice && !ignoreForceReinvoice
                 ? num(lengthMeta.qty)
                 : num(lengthMeta.qty) - num(invoicedQtyByLength.get(lengthId))
             );
@@ -1816,6 +1858,7 @@ const buildInvoiceCandidates = (
             description: item.description, unit, exclusiveRate, rate, qty, gst,
             discountPercent, discountAmount, hsn: item.hsn, group: item.group,
             taxableAmount, gstAmount, totalAmount: taxableAmount + gstAmount,
+            allocationRef: { stockItemId: item.bcn },
           });
         }
       });
@@ -2908,7 +2951,10 @@ function GenerateInvoiceDialog({
   const editablePayload = React.useMemo(
     () => {
       if (!editableCandidate) return null;
-      const payload = buildPrintablePayload(editableCandidate);
+      const payload = buildPrintablePayload(
+        editableCandidate,
+        asTrimmedString(zohoInvoiceNumber) || undefined
+      );
       return {
         ...payload,
         meta: {
@@ -2920,7 +2966,7 @@ function GenerateInvoiceDialog({
         },
       };
     },
-    [editableCandidate, zohoSalesperson]
+    [editableCandidate, zohoInvoiceNumber, zohoSalesperson]
   );
 
   const lineCalcByKey = React.useMemo(() => {
@@ -3269,6 +3315,98 @@ function GenerateInvoiceDialog({
         throw new Error("Software invoice payload is unavailable.");
       }
 
+      if (
+        allowsPostInvoiceAllocation(order) &&
+        editableCandidate.normalItems.length > 0
+      ) {
+        const latestOrderSnap = await getDoc(doc(db, "orders", order.id));
+        if (!latestOrderSnap.exists()) {
+          throw new Error("Order 52137 could not be rechecked.");
+        }
+        const latestOrder = {
+          ...(latestOrderSnap.data() as Order),
+          id: latestOrderSnap.id,
+        } as Order;
+
+        const orderReferences = Array.from(getOrderReferenceKeys(latestOrder));
+        const [invoiceByOrderId, invoiceByOrderNo] = await Promise.all([
+          getDocs(
+            query(
+              collection(db, "invoices"),
+              where("orderId", "in", orderReferences)
+            )
+          ),
+          getDocs(
+            query(
+              collection(db, "invoices"),
+              where("orderNo", "in", orderReferences)
+            )
+          ),
+        ]);
+        const latestInvoiceMap = new Map<string, Invoice>();
+        invoices
+          .filter((invoice) => isInvoiceForOrder(invoice, latestOrder))
+          .forEach((invoice) => latestInvoiceMap.set(invoice.id, invoice));
+        [...invoiceByOrderId.docs, ...invoiceByOrderNo.docs].forEach(
+          (invoiceDoc) => {
+            latestInvoiceMap.set(invoiceDoc.id, {
+              ...(invoiceDoc.data() as Invoice),
+              id: invoiceDoc.id,
+            });
+          }
+        );
+        const latestInvoices = Array.from(latestInvoiceMap.values());
+        if (hasOrder52137FinalInvoice(latestOrder, latestInvoices)) {
+          throw new Error(
+            "The final pending invoice for Order 52137 has already been generated. Generate is no longer allowed."
+          );
+        }
+        const latestCandidate = buildInvoiceCandidates(
+          [latestOrder],
+          latestInvoices,
+          { includeInvoiceBypassOrders: true }
+        )[0];
+        const latestGoodsCandidate = latestCandidate
+          ? createSectionCandidate(latestCandidate, "NORMAL")
+          : null;
+        if (!latestGoodsCandidate) {
+          throw new Error(
+            "These allocated products have already been invoiced. No duplicate invoice is allowed for Order 52137."
+          );
+        }
+
+        const remainingByProduct = new Map<string, number>();
+        latestGoodsCandidate.normalItems.forEach((item) => {
+          const key = normalizeKey(
+            item?.bcn || item?.description || (item as any)?.itemName
+          );
+          if (!key) return;
+          remainingByProduct.set(
+            key,
+            num(remainingByProduct.get(key)) + resolveInvoiceItemQty(item)
+          );
+        });
+        const selectedByProduct = new Map<string, number>();
+        editableCandidate.normalItems.forEach((item) => {
+          const key = normalizeKey(
+            item?.bcn || item?.description || (item as any)?.itemName
+          );
+          if (!key) return;
+          selectedByProduct.set(
+            key,
+            num(selectedByProduct.get(key)) + resolveInvoiceItemQty(item)
+          );
+        });
+        for (const [productKey, selectedQty] of selectedByProduct) {
+          const remainingQty = num(remainingByProduct.get(productKey));
+          if (remainingQty <= 0 || selectedQty - remainingQty > 0.001) {
+            throw new Error(
+              "Duplicate product detected for Order 52137. Refresh the page; only newly allocated uninvoiced products can be generated."
+            );
+          }
+        }
+      }
+
       const now = new Date().toISOString();
       localInvoiceId = doc(collection(db, "invoices")).id;
 
@@ -3325,6 +3463,10 @@ function GenerateInvoiceDialog({
         invoiceDate: zohoInvoiceDate,
         orderId: order.id,
         orderNo: order.orderNo || order.id,
+        postRectification52137:
+          allowsPostInvoiceAllocation(order) && invoiceType !== "VAS"
+            ? true
+            : undefined,
         customerId: order.customerId,
         storeName: selectedStoreForRequest || undefined,
         zohoCustomerId:
@@ -3592,6 +3734,8 @@ function GenerateInvoiceDialog({
     !!zohoInvoiceDate &&
     activeLineMappings.length > 0 &&
     manualLabelIssues.length === 0;
+  const isInterstateInvoice =
+    editablePayload?.customer.taxMode === "INTERSTATE";
 
   return (
     <>
@@ -3825,9 +3969,15 @@ function GenerateInvoiceDialog({
                     <TableHead className="text-xs uppercase w-[110px]">Dis%</TableHead>
                     <TableHead className="text-xs uppercase w-[110px]">GST%</TableHead>
                     <TableHead className="text-xs uppercase w-[140px] text-right">Value</TableHead>
-                    <TableHead className="text-xs uppercase w-[150px] text-right">CGST</TableHead>
-                    <TableHead className="text-xs uppercase w-[150px] text-right">SGST</TableHead>
-                    <TableHead className="text-xs uppercase w-[120px] text-right">IGST</TableHead>
+                    {!isInterstateInvoice && (
+                      <>
+                        <TableHead className="text-xs uppercase w-[150px] text-right">CGST</TableHead>
+                        <TableHead className="text-xs uppercase w-[150px] text-right">SGST</TableHead>
+                      </>
+                    )}
+                    {isInterstateInvoice && (
+                      <TableHead className="text-xs uppercase w-[150px] text-right">IGST</TableHead>
+                    )}
                     <TableHead className="text-xs uppercase w-[140px] text-right">Amt</TableHead>
                     <TableHead className="text-xs uppercase w-[80px] text-right">Action</TableHead>
                   </TableRow>
@@ -3963,42 +4113,48 @@ function GenerateInvoiceDialog({
                           }) || "0.00"}
                         </span>
                       </TableCell>
-                      <TableCell className="text-right">
-                        <div className="text-sm font-medium">
-                          ₹{" "}
-                          {lineCalcByKey[line.sourceKey]?.cgstAmount.toLocaleString("en-IN", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          }) || "0.00"}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          @{lineCalcByKey[line.sourceKey]?.cgstRate.toFixed(1) || "0.0"}%
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="text-sm font-medium">
-                          ₹{" "}
-                          {lineCalcByKey[line.sourceKey]?.sgstAmount.toLocaleString("en-IN", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          }) || "0.00"}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          @{lineCalcByKey[line.sourceKey]?.sgstRate.toFixed(1) || "0.0"}%
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="text-sm font-medium">
-                          ₹{" "}
-                          {lineCalcByKey[line.sourceKey]?.igstAmount.toLocaleString("en-IN", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          }) || "0.00"}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          @{lineCalcByKey[line.sourceKey]?.igstRate.toFixed(1) || "0.0"}%
-                        </div>
-                      </TableCell>
+                      {!isInterstateInvoice && (
+                        <>
+                          <TableCell className="text-right">
+                            <div className="text-sm font-medium">
+                              ₹{" "}
+                              {lineCalcByKey[line.sourceKey]?.cgstAmount.toLocaleString("en-IN", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              }) || "0.00"}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              @{lineCalcByKey[line.sourceKey]?.cgstRate.toFixed(1) || "0.0"}%
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="text-sm font-medium">
+                              ₹{" "}
+                              {lineCalcByKey[line.sourceKey]?.sgstAmount.toLocaleString("en-IN", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              }) || "0.00"}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              @{lineCalcByKey[line.sourceKey]?.sgstRate.toFixed(1) || "0.0"}%
+                            </div>
+                          </TableCell>
+                        </>
+                      )}
+                      {isInterstateInvoice && (
+                        <TableCell className="text-right">
+                          <div className="text-sm font-medium">
+                            ₹{" "}
+                            {lineCalcByKey[line.sourceKey]?.igstAmount.toLocaleString("en-IN", {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            }) || "0.00"}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            @{lineCalcByKey[line.sourceKey]?.igstRate.toFixed(1) || "0.0"}%
+                          </div>
+                        </TableCell>
+                      )}
                       <TableCell className="text-right">
                         <span className="text-sm font-semibold">
                           ₹{" "}
@@ -4053,36 +4209,42 @@ function GenerateInvoiceDialog({
                       })}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between border-b border-border pb-1">
-                    <span>Cgst</span>
-                    <span>
-                      ₹{" "}
-                      {editablePayload.totals.cgst.toLocaleString("en-IN", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between border-b border-border pb-1">
-                    <span>Sgst</span>
-                    <span>
-                      ₹{" "}
-                      {editablePayload.totals.sgst.toLocaleString("en-IN", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between border-b border-border pb-1">
-                    <span>Igst</span>
-                    <span>
-                      ₹{" "}
-                      {editablePayload.totals.igst.toLocaleString("en-IN", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </span>
-                  </div>
+                  {!isInterstateInvoice && (
+                    <>
+                      <div className="flex items-center justify-between border-b border-border pb-1">
+                        <span>CGST</span>
+                        <span>
+                          ₹{" "}
+                          {editablePayload.totals.cgst.toLocaleString("en-IN", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between border-b border-border pb-1">
+                        <span>SGST</span>
+                        <span>
+                          ₹{" "}
+                          {editablePayload.totals.sgst.toLocaleString("en-IN", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                  {isInterstateInvoice && (
+                    <div className="flex items-center justify-between border-b border-border pb-1">
+                      <span>IGST</span>
+                      <span>
+                        ₹{" "}
+                        {editablePayload.totals.igst.toLocaleString("en-IN", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between border-b border-border pb-1">
                     <span>roundoff</span>
                     <span>
@@ -4837,9 +4999,12 @@ export default function InvoicePage() {
     () =>
       candidates
         .map((c) => createSectionCandidate(c, "NORMAL"))
-        .filter((candidate): candidate is InvoiceCandidate =>
-          candidate !== null &&
-          !hasGeneratedInvoiceForSection(candidate.order, invoices, "NORMAL")
+        .filter(
+          (candidate): candidate is InvoiceCandidate =>
+            candidate !== null &&
+            ((allowsPostInvoiceAllocation(candidate.order) &&
+              !hasOrder52137FinalInvoice(candidate.order, invoices)) ||
+              !hasGeneratedInvoiceForSection(candidate.order, invoices, "NORMAL"))
         ),
     [candidates, invoices]
   );
@@ -4848,9 +5013,10 @@ export default function InvoicePage() {
     () =>
       candidates
         .map((c) => createSectionCandidate(c, "VAS"))
-        .filter((candidate): candidate is InvoiceCandidate =>
-          candidate !== null &&
-          !hasGeneratedInvoiceForSection(candidate.order, invoices, "VAS")
+        .filter(
+          (candidate): candidate is InvoiceCandidate =>
+            candidate !== null &&
+            !hasGeneratedInvoiceForSection(candidate.order, invoices, "VAS")
         ),
     [candidates, invoices]
   );
@@ -4957,13 +5123,55 @@ export default function InvoicePage() {
 
   const hydrateCandidateForGeneration = React.useCallback(
     async (candidate: InvoiceCandidate): Promise<InvoiceCandidate> => {
-      const hydratedCandidate = await hydrateCandidateWithLatestBilling(candidate);
+      const latestOrderSnap = await getDoc(doc(db, "orders", candidate.order.id));
+      const latestOrder = latestOrderSnap.exists()
+        ? ({ ...(latestOrderSnap.data() as Order), id: latestOrderSnap.id } as Order)
+        : candidate.order;
+      const latestCandidates = buildInvoiceCandidates([latestOrder], invoices, {
+        includeInvoiceBypassOrders: true,
+      });
+      const latestBase = latestCandidates[0];
+      const requestedSection =
+        candidate.normalItems.length > 0 && candidate.vasItems.length === 0
+          ? "NORMAL"
+          : candidate.vasItems.length > 0 && candidate.normalItems.length === 0
+            ? "VAS"
+            : null;
+      if (
+        requestedSection &&
+        hasGeneratedInvoiceForSection(latestOrder, invoices, requestedSection) &&
+        !(
+          requestedSection === "NORMAL" &&
+          allowsPostInvoiceAllocation(latestOrder) &&
+          !hasOrder52137FinalInvoice(latestOrder, invoices)
+        )
+      ) {
+        throw new Error(
+          requestedSection === "VAS"
+            ? "VAS invoice already generated. View it in VAS Invoice History."
+            : "Goods invoice already generated. View it in Invoice History."
+        );
+      }
+      const latestCandidate = latestBase
+        ? requestedSection
+          ? createSectionCandidate(latestBase, requestedSection)
+          : latestBase
+        : null;
+      if (!latestCandidate) {
+        throw new Error(
+          requestedSection === "VAS"
+            ? "No uninvoiced VAS items remain."
+            : "No allocated, uninvoiced Goods items are available. Allocate stock first."
+        );
+      }
+
+      const hydratedCandidate = await hydrateCandidateWithLatestBilling(latestCandidate);
       const quotation = await fetchQuotationForOrder(hydratedCandidate.order);
       return quotation
         ? normalizeCandidatePricingFromQuotation(hydratedCandidate, quotation)
         : hydratedCandidate;
     },
-    [fetchQuotationForOrder, hydrateCandidateWithLatestBilling]
+    [fetchQuotationForOrder, hydrateCandidateWithLatestBilling, invoices]
   );
 
   const verifyCandidateBeforeGenerate = React.useCallback(
@@ -5151,20 +5359,30 @@ export default function InvoicePage() {
 
       const built = buildInvoiceCandidates([order], invoices, {
         includeInvoiceBypassOrders: true,
-        allowUnallocatedForBypassOrders: true,
       });
       if (built.length > 0) {
         const base = built[0];
-        const hasGoodsInvoice = hasGeneratedInvoiceForSection(order, invoices, "NORMAL");
-        const hasVasInvoice = hasGeneratedInvoiceForSection(order, invoices, "VAS");
+        const hasGoodsInvoice = hasGeneratedInvoiceForSection(
+          order,
+          invoices,
+          "NORMAL"
+        );
+        const hasFinal52137Invoice = hasOrder52137FinalInvoice(order, invoices);
+        const hasVasInvoice = hasGeneratedInvoiceForSection(
+          order,
+          invoices,
+          "VAS"
+        );
         return (
-          (!hasGoodsInvoice ? createSectionCandidate(base, "NORMAL") : null) ||
-          (!hasVasInvoice ? createSectionCandidate(base, "VAS") : null) ||
-          (!hasGoodsInvoice && !hasVasInvoice ? base : null)
+          (!hasGoodsInvoice ||
+          (allowsPostInvoiceAllocation(order) && !hasFinal52137Invoice)
+            ? createSectionCandidate(base, "NORMAL")
+            : null) ||
+          (!hasVasInvoice ? createSectionCandidate(base, "VAS") : null)
         );
       }
 
-      return buildManualCandidateFromOrder(order);
+      return null;
     },
     [invoices]
   );

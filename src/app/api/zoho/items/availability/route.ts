@@ -56,7 +56,9 @@ function selectExactItem(
 }
 
 async function resolveAvailability(lookup: AvailabilityLookup) {
-  const cacheKey = String(lookup.zohoItemId || normalizeCode(lookup.bcn) || lookup.key || "");
+  const cacheKey = `location-v2:${String(
+    lookup.zohoItemId || normalizeCode(lookup.bcn) || lookup.key || ""
+  )}`;
   const cached = availabilityCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.item;
 

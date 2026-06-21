@@ -174,10 +174,31 @@ export async function searchCustomersAction(filters: {
 
     // Priority search: by order or quotation number
     if (filters.orderNo) {
-        const quotationQuery = adminDb.collectionGroup('quotations').where('orderNo', '==', filters.orderNo.trim()).limit(1);
-        const quotationSnapshot = await quotationQuery.get();
-        if (!quotationSnapshot.empty) {
-            const quotationDoc = quotationSnapshot.docs[0];
+        const rawOrderNo = filters.orderNo.trim();
+        const compactOrderNo = rawOrderNo.replace(/\s+/g, '');
+        const orderSuffix = compactOrderNo.replace(/^MOTRACK[-_]?/i, '');
+        const orderCandidates: Array<string | number> = Array.from(
+          new Set<string | number>([
+            rawOrderNo,
+            compactOrderNo,
+            compactOrderNo.toUpperCase(),
+            orderSuffix,
+            `MOTRACK-${orderSuffix}`,
+            ...(orderSuffix && /^\d+$/.test(orderSuffix) ? [Number(orderSuffix)] : []),
+          ].filter((value) => value !== ''))
+        );
+
+        const quotationSnapshots = await Promise.all(
+          orderCandidates.map((candidate) =>
+            adminDb
+              .collectionGroup('quotations')
+              .where('orderNo', '==', candidate)
+              .limit(1)
+              .get()
+          )
+        );
+        const quotationDoc = quotationSnapshots.find((snapshot) => !snapshot.empty)?.docs[0];
+        if (quotationDoc) {
             const pathParts = quotationDoc.ref.path.split('/');
             const customerId = pathParts[1]; // Path: customers/{customerId}/...
             if (customerId) {
@@ -186,6 +207,53 @@ export async function searchCustomersAction(filters: {
                     return JSON.parse(JSON.stringify([{ id: customerDoc.id, ...customerDoc.data() }]));
                 }
             }
+        }
+
+        const orderSnapshots = await Promise.all(
+          orderCandidates.map(async (candidate) => {
+            const candidateText = String(candidate);
+            const directDoc = await adminDb.collection('orders').doc(candidateText).get();
+            if (directDoc.exists) return directDoc;
+
+            for (const field of ['orderNo', 'crmOrderNo']) {
+              const snapshot = await adminDb
+                .collection('orders')
+                .where(field, '==', candidate)
+                .limit(1)
+                .get();
+              if (!snapshot.empty) return snapshot.docs[0];
+            }
+            return null;
+          })
+        );
+        const orderDoc = orderSnapshots.find(Boolean);
+        if (orderDoc) {
+          const orderData = orderDoc.data() as any;
+          const customerId = String(orderData?.customerId || '').trim();
+          if (customerId) {
+            const customerDoc = await customersRef.doc(customerId).get();
+            if (customerDoc.exists) {
+              return JSON.parse(JSON.stringify([{ id: customerDoc.id, ...customerDoc.data() }]));
+            }
+          }
+
+          const dealId = String(orderData?.dealId || '').trim();
+          if (dealId) {
+            const dealSnapshot = await adminDb
+              .collectionGroup('deals')
+              .where('dealId', '==', dealId)
+              .limit(1)
+              .get();
+            if (!dealSnapshot.empty) {
+              const customerIdFromDeal = dealSnapshot.docs[0].ref.path.split('/')[1];
+              if (customerIdFromDeal) {
+                const customerDoc = await customersRef.doc(customerIdFromDeal).get();
+                if (customerDoc.exists) {
+                  return JSON.parse(JSON.stringify([{ id: customerDoc.id, ...customerDoc.data() }]));
+                }
+              }
+            }
+          }
         }
         return []; // Not found
     }

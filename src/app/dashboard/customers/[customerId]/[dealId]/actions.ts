@@ -2,7 +2,7 @@
 
 'use server'
 
-import { adminDb, adminStorage } from '@/lib/firebase-admin';
+import { adminAuth, adminDb, adminStorage } from '@/lib/firebase-admin';
 import { Deal, DealProduct, DealProductsDoc, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, OrderType, Order, O2DStatus, Selection, Receipt, Invoice } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
 
@@ -578,9 +578,42 @@ export async function updateConvertedQuotationAction(
   quotationId: string,
   values: QuotationFormWithMeta,
   totalAmount: number,
-  actor?: { id?: string; name?: string; role?: string }
+  actor?: {
+    id?: string;
+    name?: string;
+    role?: string;
+    designation?: string;
+    authToken?: string;
+  }
 ): Promise<{ success: boolean; message: string; quotation?: Quotation }> {
   try {
+    if (!actor?.authToken) {
+      return { success: false, message: "Authentication is required." };
+    }
+    const decoded = await adminAuth.verifyIdToken(actor.authToken);
+    const actorSnapshot = await adminDb.collection("users").doc(decoded.uid).get();
+    if (!actorSnapshot.exists) {
+      return { success: false, message: "User not found." };
+    }
+    const actorData = actorSnapshot.data() as any;
+    const normalizeAccess = (value: unknown) =>
+      String(value || "").trim().toLowerCase().replace(/[\s_-]/g, "");
+    const actorRole = normalizeAccess(actorData?.role);
+    const actorDesignation = normalizeAccess(actorData?.designation);
+    const canEditConvertedQuotation =
+      actorRole === "admin" ||
+      actorRole === "md" ||
+      actorRole === "managingdirector" ||
+      actorDesignation === "ea" ||
+      actorDesignation === "md" ||
+      actorDesignation === "managingdirector";
+    if (!canEditConvertedQuotation) {
+      return {
+        success: false,
+        message: "Only EA, Admin, or MD can edit a quotation after order placement.",
+      };
+    }
+
     const dealRef = adminDb
       .collection("customers")
       .doc(customerId)
@@ -671,7 +704,8 @@ export async function updateConvertedQuotationAction(
       }
     }
 
-    const updatedQuotation = await adminDb.runTransaction(async (transaction) => {
+    const updatedQuotation = await adminDb.runTransaction(
+      async (transaction: FirebaseFirestore.Transaction) => {
       const invoiceQuery = adminDb
         .collection("invoices")
         .where("orderId", "==", orderRef.id)
@@ -722,7 +756,7 @@ export async function updateConvertedQuotationAction(
         recordedInvoices.length > 0
       ) {
         throw new Error(
-          "This order already has an invoice. Void/cancel the invoice before changing its converted quotation."
+          "Quotation updates are allowed only before invoice generation. This order already has an invoice."
         );
       }
 
@@ -778,7 +812,6 @@ export async function updateConvertedQuotationAction(
           message: `Pricing synchronized after quotation ${currentQuotation.quotationNo} was edited.`,
         })
       );
-
       transaction.set(quotationRef, nextQuotation);
       transaction.update(
         orderRef,
@@ -811,13 +844,14 @@ export async function updateConvertedQuotationAction(
         );
       }
 
-      return nextQuotation;
-    });
+        return nextQuotation;
+      }
+    );
 
     return {
       success: true,
       message:
-        "Converted quotation and linked order were updated. Invoice verification will now use the corrected values.",
+        "Quotation updated successfully. The corrected values will appear when the invoice is generated.",
       quotation: JSON.parse(JSON.stringify(updatedQuotation)),
     };
   } catch (error: any) {

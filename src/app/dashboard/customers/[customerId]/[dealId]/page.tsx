@@ -83,6 +83,7 @@ export default function CrmActivityTrackerPage({
 
   const defaultTab = searchParams.get("tab") || "visits";
   const [activeTab, setActiveTab] = useState(defaultTab);
+  const [quotationOrderFocus, setQuotationOrderFocus] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [editCustomerOpen, setEditCustomerOpen] = useState(false);
   const [updatedCustomer, setUpdatedCustomer] = useState<any>(null);
@@ -159,6 +160,7 @@ export default function CrmActivityTrackerPage({
             customerId={customerId}
             dealId={dealId}
             onRefresh={refreshDeal}
+            focusOrderNo={quotationOrderFocus}
           />
         );
       case "orders":
@@ -167,6 +169,10 @@ export default function CrmActivityTrackerPage({
             customerId={customerId}
             dealId={dealId}
             onRefresh={refreshDeal}
+            onOpenQuotation={(orderNo: string) => {
+              setQuotationOrderFocus(orderNo);
+              handleTabChange("quotations");
+            }}
           />
         );
       case "receipt":

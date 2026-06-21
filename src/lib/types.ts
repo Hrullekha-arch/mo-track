@@ -1291,6 +1291,7 @@ export interface Quotation {
     vasDetails?: VasDetail[];
     representativeId?: string; // Salesman User ID
     approvedAt?: string;
+    advance?: number;
 }
 
 export interface DealOrder {
@@ -1394,6 +1395,7 @@ export interface Invoice {
     tallyBillNo?: string;
     tallyVoucherNo?: string;
     isVas?: boolean;
+    postRectification52137?: boolean;
     status?: "ISSUED" | "CANCELLED" | "VOID";
     isLocked?: boolean;
     approvalStatus?: "pending" | "approved" | "rejected";

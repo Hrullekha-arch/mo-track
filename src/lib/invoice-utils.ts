@@ -219,7 +219,11 @@ export const buildPrintablePayloadFromInvoice = (invoice: Invoice): PrintableInv
 
   return {
     meta: {
-      invoiceNo: invoice.invoiceNo,
+      invoiceNo:
+        invoice.zohoInvoiceNo ||
+        invoice.zohoNumber ||
+        invoice.invoiceNo ||
+        invoice.id,
       orderNo: invoice.orderNo || invoice.orderId,
       quotationNo: (invoice as any).quotationNo,
       invoiceDate,

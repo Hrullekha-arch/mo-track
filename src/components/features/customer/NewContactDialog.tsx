@@ -105,7 +105,7 @@ const getStateFormValues = (value: unknown) => {
 const contactSchema = z
   .object({
     name: z.string().min(1, "Name is required."),
-    phone: z.string().min(10, "Phone number must be at least 10 digits.").max(15),
+    phone: z.string().length(10, "Phone number must be exactly 10 digits.").regex(/^\d{10}$/, "Phone must contain only digits."),
     email: z.string().email("Invalid email address.").optional().or(z.literal('')),
     salesSupport: z.string().optional(),
     addressLine1: z.string().optional(),
@@ -450,7 +450,15 @@ function CustomerDialog({ isOpen, onClose, onSuccess, mode = "create", customer 
                      <FormField control={form.control} name="phone" render={({ field }) => (
                         <FormItem>
                             <CustomFormLabel tooltip="Customer's primary contact number">Phone*</CustomFormLabel>
-                            <FormControl><Input {...field} /></FormControl>
+                            <FormControl>
+                                <Input
+                                    {...field}
+                                    type="tel"
+                                    inputMode="numeric"
+                                    maxLength={10}
+                                    onChange={(e) => field.onChange(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                                />
+                            </FormControl>
                             <FormMessage />
                         </FormItem>
                     )} />

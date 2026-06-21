@@ -136,6 +136,9 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
     : normalizeCompanyFinancialYear(seller.companyName, meta.invoiceDate);
   const logoSrc = meta.isVas ? "/vatLOGO.png" : "/name-logo.png";
   const roundedTotal = totals.grandTotal;
+  const isInterstate = customer.taxMode === "INTERSTATE";
+  const showCgstSgst = !isInterstate;
+  const showIgst = isInterstate;
   const getGstPercentFromItem = (item: {
   taxableAmount: number;
   cgst: number;
@@ -234,7 +237,7 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
           <div style={{ display: "flex", borderBottom: "1px solid black" }}>
             <p style={{ width: "50%", margin: "2px 4px" }}>Invoice No</p>
             <p style={{ width: "50%", margin: "2px 4px", borderLeft: "1px solid black", paddingLeft: "4px" }}>
-              <strong>{meta.invoiceNo || "N/A"}</strong>
+              <strong>{meta.invoiceNo || "Assigned on Generate"}</strong>
             </p>
           </div>
 
@@ -268,9 +271,15 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
               
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "8%" }}>Disc. %</th>
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "10%" }}>Value</th>
-              <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "6%" }}>CGST</th>
-              <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "6%" }}>SGST</th>
-              <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "6%" }}>IGST</th>
+              {showCgstSgst && (
+                <>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "7%" }}>CGST</th>
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "7%" }}>SGST</th>
+                </>
+              )}
+              {showIgst && (
+                <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "10%" }}>IGST</th>
+              )}
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "10%" }}>Amt</th>
             </tr>
           </thead>
@@ -304,15 +313,21 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
                     {discountPercent > 0 ? `₹${formatToINR(discountAmount)}\n@${discountPercent.toFixed(1)}%` : `₹${formatToINR(0)}`}
                   </td>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>₹ {formatToINR(item.taxableAmount)}</td>
-                  <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px", lineHeight: "1.2" }}>
-                    {gstRate > 0 ? `₹${formatToINR(item.cgst)}\n@${(gstRate/2).toFixed(1)}%` : formatToINR(item.cgst)}
-                  </td>
-                  <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px", lineHeight: "1.2" }}>
-                    {gstRate > 0 ? `₹${formatToINR(item.sgst)}\n@${(gstRate/2).toFixed(1)}%` : formatToINR(item.sgst)}
-                  </td>
-                  <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px", lineHeight: "1.2" }}>
-                    {item.igst > 0 ? `₹${formatToINR(item.igst)}\n@${gstRate.toFixed(1)}%` : formatToINR(item.igst)}
-                  </td>
+                  {showCgstSgst && (
+                    <>
+                      <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px", lineHeight: "1.2" }}>
+                        {gstRate > 0 ? `₹${formatToINR(item.cgst)}\n@${(gstRate/2).toFixed(1)}%` : formatToINR(item.cgst)}
+                      </td>
+                      <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px", lineHeight: "1.2" }}>
+                        {gstRate > 0 ? `₹${formatToINR(item.sgst)}\n@${(gstRate/2).toFixed(1)}%` : formatToINR(item.sgst)}
+                      </td>
+                    </>
+                  )}
+                  {showIgst && (
+                    <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px", lineHeight: "1.2" }}>
+                      {item.igst > 0 ? `₹${formatToINR(item.igst)}\n@${gstRate.toFixed(1)}%` : formatToINR(item.igst)}
+                    </td>
+                  )}
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>₹ {formatToINR(amount)}</td>
                 </tr>
               );
@@ -329,9 +344,15 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
               
               <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>₹{formatToINR(totals.discount)}</td>
               <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>₹{formatToINR(totals.taxableValue)}</td>
-              <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px" }}>₹{formatToINR(totals.cgst)}</td>
-              <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px" }}>₹{formatToINR(totals.sgst)}</td>
-              <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px" }}>₹{formatToINR(totals.igst)}</td>
+              {showCgstSgst && (
+                <>
+                  <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px" }}>₹{formatToINR(totals.cgst)}</td>
+                  <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px" }}>₹{formatToINR(totals.sgst)}</td>
+                </>
+              )}
+              {showIgst && (
+                <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px" }}>₹{formatToINR(totals.igst)}</td>
+              )}
               <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>₹{formatToINR(totals.grandTotal)}</td>
             </tr>
           </tfoot>
@@ -345,9 +366,15 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
             <thead>
               <tr style={{ backgroundColor: "#f2f2f2" }}>
                 <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "center" }}>Taxable Value</th>
-                <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "center" }}>CGST</th>
-                <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "center" }}>SGST</th>
-                <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "center" }}>IGST</th>
+                {showCgstSgst && (
+                  <>
+                    <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "center" }}>CGST</th>
+                    <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "center" }}>SGST</th>
+                  </>
+                )}
+                {showIgst && (
+                  <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "center" }}>IGST</th>
+                )}
                 <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "center" }}>Total Tax</th>
               </tr>
             </thead>
@@ -359,15 +386,21 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
                     <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>
                       {formatToINR(breakdown.taxable)}
                     </td>
-                    <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>
-                      {breakdown.cgst > 0 ? `₹${formatToINR(breakdown.cgst)} @${(breakdown.rate/2).toFixed(1)}%` : '-'}
-                    </td>
-                    <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>
-                      {breakdown.sgst > 0 ? `${formatToINR(breakdown.sgst)} @${(breakdown.rate/2).toFixed(1)}%` : '-'}
-                    </td>
-                    <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>
-                      {breakdown.igst > 0 ? `₹${formatToINR(breakdown.igst)} @${breakdown.rate.toFixed(1)}%` : '-'}
-                    </td>
+                    {showCgstSgst && (
+                      <>
+                        <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>
+                          {breakdown.cgst > 0 ? `₹${formatToINR(breakdown.cgst)} @${(breakdown.rate/2).toFixed(1)}%` : '-'}
+                        </td>
+                        <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>
+                          {breakdown.sgst > 0 ? `₹${formatToINR(breakdown.sgst)} @${(breakdown.rate/2).toFixed(1)}%` : '-'}
+                        </td>
+                      </>
+                    )}
+                    {showIgst && (
+                      <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>
+                        {breakdown.igst > 0 ? `₹${formatToINR(breakdown.igst)} @${breakdown.rate.toFixed(1)}%` : '-'}
+                      </td>
+                    )}
                     <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontWeight: "bold" }}>
                       {formatToINR(totalTax)}
                     </td>
@@ -380,15 +413,21 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
                 <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>
                   ₹{formatToINR(totals.taxableValue)}
                 </td>
-                <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>
-                  ₹{formatToINR(totals.cgst)}
-                </td>
-                <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>
-                  ₹{formatToINR(totals.sgst)}
-                </td>
-                <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>
-                  ₹{formatToINR(totals.igst)}
-                </td>
+                {showCgstSgst && (
+                  <>
+                    <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>
+                      ₹{formatToINR(totals.cgst)}
+                    </td>
+                    <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>
+                      ₹{formatToINR(totals.sgst)}
+                    </td>
+                  </>
+                )}
+                {showIgst && (
+                  <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>
+                    ₹{formatToINR(totals.igst)}
+                  </td>
+                )}
                 <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>
                   ₹{formatToINR(totals.totalGst)}
                 </td>
@@ -425,9 +464,13 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
             <p style={{ margin: "2px 0", textAlign: "right" }}>Subtotal</p>
             <p style={{ margin: "2px 0", textAlign: "right" }}>Discount</p>
             <p style={{ margin: "2px 0", textAlign: "right" }}>Taxable Value</p>
-            <p style={{ margin: "2px 0", textAlign: "right" }}>CGST</p>
-            <p style={{ margin: "2px 0", textAlign: "right" }}>SGST</p>
-            <p style={{ margin: "2px 0", textAlign: "right" }}>IGST</p>
+            {showCgstSgst && (
+              <>
+                <p style={{ margin: "2px 0", textAlign: "right" }}>CGST</p>
+                <p style={{ margin: "2px 0", textAlign: "right" }}>SGST</p>
+              </>
+            )}
+            {showIgst && <p style={{ margin: "2px 0", textAlign: "right" }}>IGST</p>}
             <p style={{ margin: "2px 0", textAlign: "right" }}>Round Off</p>
             <p style={{ margin: "2px 0", textAlign: "right", fontWeight: "bold" }}>Net Amount</p>
           </div>
@@ -435,9 +478,15 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
             <p style={{ margin: "2px 0", borderBottom: "1px solid black", paddingBottom: "1px" }}>₹{formatToINR(totals.subTotal)}</p>
             <p style={{ margin: "2px 0", borderBottom: "1px solid black", paddingBottom: "1px" }}>₹{formatToINR(totals.discount)}</p>
             <p style={{ margin: "2px 0", borderBottom: "1px solid black", paddingBottom: "1px" }}>₹{formatToINR(totals.taxableValue)}</p>
-            <p style={{ margin: "2px 0", borderBottom: "1px solid black", paddingBottom: "1px" }}>₹{formatToINR(totals.cgst)}</p>
-            <p style={{ margin: "2px 0", borderBottom: "1px solid black", paddingBottom: "1px" }}>₹{formatToINR(totals.sgst)}</p>
-            <p style={{ margin: "2px 0", borderBottom: "1px solid black", paddingBottom: "1px" }}>₹{formatToINR(totals.igst)}</p>
+            {showCgstSgst && (
+              <>
+                <p style={{ margin: "2px 0", borderBottom: "1px solid black", paddingBottom: "1px" }}>₹{formatToINR(totals.cgst)}</p>
+                <p style={{ margin: "2px 0", borderBottom: "1px solid black", paddingBottom: "1px" }}>₹{formatToINR(totals.sgst)}</p>
+              </>
+            )}
+            {showIgst && (
+              <p style={{ margin: "2px 0", borderBottom: "1px solid black", paddingBottom: "1px" }}>₹{formatToINR(totals.igst)}</p>
+            )}
             <p style={{ margin: "2px 0", borderBottom: "1px solid black", paddingBottom: "1px" }}>₹{formatToINR(totals.roundOff)}</p>
             <p style={{ margin: "2px 0", fontWeight: "bold", fontSize: "12px" }}>₹ {formatToINR(totals.grandTotal)}</p>
           </div>

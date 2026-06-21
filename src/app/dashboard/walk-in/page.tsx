@@ -10,6 +10,7 @@ import { Walkin_Customer, User } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { useAuth } from "@/context/AuthContext";
+import { isAllocatorDesignation } from "@/lib/user-access";
 import { attendToWalkin, handoverToSalesman } from "./actions";
 import { getSalesmen } from "../customers/actions";
 
@@ -562,6 +563,12 @@ function EditCustomerDialog({
       }
     }
 
+    if (mobile.trim() && !/^\d{10}$/.test(mobile.trim())) {
+      setValidationError("Mobile number must be exactly 10 digits.");
+      setActiveSection("basic");
+      return;
+    }
+
     setSaving(true);
     try {
       const patch: Record<string, any> = {
@@ -677,7 +684,7 @@ function EditCustomerDialog({
             <DialogTitle className="text-slate-900 flex items-center gap-2">
               <PencilLine className="h-4 w-4 text-indigo-500" />
               Edit Customer Record
-              <span className="text-[10px] font-semibold text-indigo-400 bg-indigo-100 rounded-full px-2 py-0.5 ml-1">Admin Only</span>
+              <span className="text-[10px] font-semibold text-indigo-500 bg-indigo-100 rounded-full px-2 py-0.5 ml-1">Authorized Roles</span>
             </DialogTitle>
             <p className="text-xs text-slate-500 mt-0.5 font-mono">
               {(customer as any).walkinId || customer.id?.slice(0, 8)} · {(customer as any).firstName} {(customer as any).familyName}
@@ -713,7 +720,15 @@ function EditCustomerDialog({
 
               <div className="space-y-1.5">
                 <FL req>Mobile Number</FL>
-                <Input value={mobile} onChange={e => setMobile(e.target.value)} placeholder="10-digit mobile" className="rounded-xl border-slate-200 h-9 text-sm font-mono" />
+                <Input
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={10}
+                  value={mobile}
+                  onChange={e => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  placeholder="10-digit mobile"
+                  className="rounded-xl border-slate-200 h-9 text-sm font-mono"
+                />
               </div>
 
               <div className="space-y-1.5">
@@ -952,7 +967,7 @@ function EditCustomerDialog({
                 <div className="flex items-center justify-between gap-2">
                   <FL>SM Change</FL>
                   <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-600">
-                    Admin Only
+                    Authorized Roles
                   </span>
                 </div>
                 <Select value={salesmanId} onValueChange={setSalesmanId}>
@@ -1152,6 +1167,8 @@ export default function WalkinDataPage() {
   const [activeTab,        setActiveTab]        = useState("all");
   const [currentPage,      setCurrentPage]      = useState(1);
   const [statusCardFilter, setStatusCardFilter] = useState<string | null>(null);
+  const [dateFrom,         setDateFrom]         = useState("");
+  const [dateTo,           setDateTo]           = useState("");
 
   // Went-back dialog
   const [wentBackCustomer, setWentBackCustomer] = useState<Walkin_Customer | null>(null);
@@ -1166,12 +1183,22 @@ export default function WalkinDataPage() {
   const { toast } = useToast();
   const { user }  = useAuth();
 
-  const isAdmin        = user?.role === "admin";
-  const isCrm          = user?.designation === "CRM";
-  const isPC           = user?.role === "PC" || user?.designation === "PC";
-  const isSalesmanager = user?.designation === "salesmanager" || user?.designation === "headsalesmanager";
+  const normalizedRole = String(user?.role || "").trim().toLowerCase();
+  const normalizedDesignation = String(user?.designation || "").trim().toLowerCase();
+  const isAdmin        = normalizedRole === "admin";
+  const isCrm          = normalizedRole === "crm" || normalizedDesignation === "crm";
+  const isPC           = normalizedRole === "pc" || normalizedDesignation === "pc";
+  const isEA           = normalizedRole === "ea" || normalizedDesignation === "ea";
+  const isAllocator    =
+    normalizedRole === "allocator" ||
+    normalizedRole === "allocators" ||
+    isAllocatorDesignation(user?.designation);
+  const isSalesmanager =
+    normalizedDesignation === "salesmanager" ||
+    normalizedDesignation === "headsalesmanager";
+  const canOperateWalkins = isAdmin || isPC || isEA || isCrm || isAllocator;
   const canManage      = isCrm || isAdmin;
-  const canAcknowledge = isAdmin || isSalesmanager;
+  const canAcknowledge = canOperateWalkins || isSalesmanager;
 
   // The store this user belongs to (from their User doc)
   const userStore: string = String(
@@ -1194,7 +1221,7 @@ export default function WalkinDataPage() {
   useEffect(() => {
     if (!user?.id) { setWalkinData([]); setLoading(false); return; }
     setLoading(true);
-    const q = isAdmin || isSalesmanager || isPC
+    const q = isAdmin || isSalesmanager || isPC || isEA || isAllocator
       ? query(collection(db, "Walkin_Customer"))
       : query(collection(db, "Walkin_Customer"), where("createdById", "==", user.id));
     const unsub = onSnapshot(q,
@@ -1222,7 +1249,7 @@ export default function WalkinDataPage() {
     );
     getSalesmen().then(setSalesmen);
     return () => unsub();
-  }, [user?.id]);
+  }, [user?.id, normalizedRole, normalizedDesignation]);
 
   useEffect(() => {
     if (!selectedOrderId) return;
@@ -1251,7 +1278,12 @@ export default function WalkinDataPage() {
       const res = await handoverToSalesman(
         customerId,
         { id: salesman.id, name: salesman.name },
-        { id: user.id, name: user.name, role: (user as any)?.role || null }
+        {
+          id: user.id,
+          name: user.name,
+          role: (user as any)?.role || null,
+          designation: (user as any)?.designation || null,
+        }
       );
       toast(res.success ? { title: `Handed over to ${salesman.name}` } : { variant: "destructive", title: "Error", description: res.message });
     } finally { setUpdatingId(null); }
@@ -1390,24 +1422,44 @@ export default function WalkinDataPage() {
     return (c as any).store === userStore;
   });
 
+  const resolveDateMs = (raw: unknown): Date | null => {
+    if (!raw) return null;
+    if (typeof raw === 'object' && typeof (raw as any).toDate === 'function') return (raw as any).toDate();
+    const d = new Date(raw as any);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const dateFiltered = branchFiltered.filter(c => {
+    if (!dateFrom && !dateTo) return true;
+    const d = resolveDateMs((c as any).createdAt);
+    if (!d) return true;
+    const y = d.getFullYear();
+    const mo = String(d.getMonth() + 1).padStart(2, '0');
+    const dy = String(d.getDate()).padStart(2, '0');
+    const localDay = `${y}-${mo}-${dy}`;
+    if (dateFrom && localDay < dateFrom) return false;
+    if (dateTo && localDay > dateTo) return false;
+    return true;
+  });
+
   const getFiltered = (tab: string) =>
-    branchFiltered
+    dateFiltered
       .filter(c => tab === "went-back" ? c.status === "went-back" : tab === "completed" ? c.status === "completed" : true)
       .filter(c => !statusCardFilter || c.status === statusCardFilter)
       .filter(c => { const q = search.toLowerCase(); return !q || `${(c as any).firstName} ${(c as any).familyName} ${(c as any).mobile}`.toLowerCase().includes(q); });
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeBranch, activeTab, search, statusCardFilter]);
+  }, [activeBranch, activeTab, search, statusCardFilter, dateFrom, dateTo]);
 
   const stats = {
-    total:     branchFiltered.length,
-    pending:   branchFiltered.filter(c => c.status === "Pending").length,
-    attended:  branchFiltered.filter(c => c.status === "Attended").length,
-    handed:    branchFiltered.filter(c => c.status === "Handed Over").length,
-    deal:      branchFiltered.filter(c => c.status === "Deal Created").length,
-    completed: branchFiltered.filter(c => c.status === "completed").length,
-    wentBack:  branchFiltered.filter(c => c.status === "went-back").length,
+    total:     dateFiltered.length,
+    pending:   dateFiltered.filter(c => c.status === "Pending").length,
+    attended:  dateFiltered.filter(c => c.status === "Attended").length,
+    handed:    dateFiltered.filter(c => c.status === "Handed Over").length,
+    deal:      dateFiltered.filter(c => c.status === "Deal Created").length,
+    completed: dateFiltered.filter(c => c.status === "completed").length,
+    wentBack:  dateFiltered.filter(c => c.status === "went-back").length,
     // per-branch counts for the branch tabs (admin only)
     gcr:       walkinData.filter(c => (c as any).store === "MO GCR BRANCH").length,
     mg:        walkinData.filter(c => (c as any).store === "MO MG ROAD").length,
@@ -1418,10 +1470,10 @@ export default function WalkinDataPage() {
     const busy  = updatingId === c.id;
     const isAck = (c as any).acknowledgedStatus?.status === true || (c as any).acknowledgedStatus?.status === "true";
     const canCrmHandover = canManage && c.status === "Attended" && (c as any).attendedBy?.id === user?.id;
-    const canAdminChangeSalesman = isAdmin && c.status !== "completed";
-    const showSalesmanAssignment = canCrmHandover || canAdminChangeSalesman;
+    const canPrivilegedChangeSalesman = canOperateWalkins && c.status !== "completed";
+    const showSalesmanAssignment = canCrmHandover || canPrivilegedChangeSalesman;
     const hasSalesman = Boolean(String((c as any).salesmanId || "").trim());
-    const salesmanButtonLabel = isAdmin
+    const salesmanButtonLabel = canOperateWalkins
       ? (hasSalesman ? "Change Salesman" : "Assign Salesman")
       : "Handover";
 
@@ -1490,7 +1542,7 @@ export default function WalkinDataPage() {
         )}
 
         {/* Admin edit — available for ALL leads, no leadType condition */}
-        {isAdmin && (
+        {canOperateWalkins && (
           <Button size="sm" variant="outline"
             className="h-7 gap-1 text-xs border-indigo-200 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg"
             onClick={() => setEditCustomer(c)}>
@@ -1686,7 +1738,14 @@ export default function WalkinDataPage() {
         <TableHeader>
           <TableRow className="bg-stone-50 hover:bg-stone-50 border-b border-stone-200">
             {["Date", "Customer", "Mobile", "Looking For", "Status", "Type", "Lead Type", "Store", "Attended By", "Handed To", "Actions"].map(h => (
-              <TableHead key={h} className="text-[10px] font-bold text-stone-400 uppercase tracking-widest py-3">{h}</TableHead>
+              <TableHead
+                key={h}
+                className={`text-[10px] font-bold text-stone-400 uppercase tracking-widest py-3 ${
+                  h === "Actions" ? "min-w-[300px] text-center" : ""
+                }`}
+              >
+                {h}
+              </TableHead>
             ))}
           </TableRow>
         </TableHeader>
@@ -1744,7 +1803,11 @@ export default function WalkinDataPage() {
                     </TableCell>
                     <TableCell className="text-[12px] text-stone-500">{(c as any).attendedBy?.name || "—"}</TableCell>
                     <TableCell className="text-[12px] text-stone-500">{(c as any).salesmanName || "—"}</TableCell>
-                    <TableCell><ActionCell customer={c} /></TableCell>
+                    <TableCell className="text-center">
+                      <div className="flex justify-center">
+                        <ActionCell customer={c} />
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))
               : (
@@ -1916,14 +1979,41 @@ export default function WalkinDataPage() {
                 </TabsTrigger>
               ))}
             </TabsList>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-stone-400 pointer-events-none" />
-              <Input
-                className="pl-9 h-9 text-xs w-64 bg-white border-stone-200 rounded-xl shadow-sm placeholder:text-stone-400 focus-visible:ring-emerald-400/30 focus-visible:border-emerald-400"
-                placeholder="Search name or mobile…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 bg-white border border-stone-200 rounded-xl shadow-sm px-2.5 h-9">
+                <CalendarDays className="h-3.5 w-3.5 text-stone-400 shrink-0" />
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={e => setDateFrom(e.target.value)}
+                  className="text-xs text-stone-600 bg-transparent border-none outline-none w-[112px]"
+                  title="From date"
+                />
+                <span className="text-stone-300 text-xs">—</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={e => setDateTo(e.target.value)}
+                  className="text-xs text-stone-600 bg-transparent border-none outline-none w-[112px]"
+                  title="To date"
+                />
+                {(dateFrom || dateTo) && (
+                  <button
+                    onClick={() => { setDateFrom(""); setDateTo(""); }}
+                    className="ml-1 text-stone-400 hover:text-stone-600 text-xs leading-none"
+                    title="Clear dates"
+                  >✕</button>
+                )}
+              </div>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-stone-400 pointer-events-none" />
+                <Input
+                  className="pl-9 h-9 text-xs w-64 bg-white border-stone-200 rounded-xl shadow-sm placeholder:text-stone-400 focus-visible:ring-emerald-400/30 focus-visible:border-emerald-400"
+                  placeholder="Search name or mobile…"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+              </div>
             </div>
           </div>
           <TabsContent value="all"><CustomerTable rows={getFiltered("all")} /></TabsContent>

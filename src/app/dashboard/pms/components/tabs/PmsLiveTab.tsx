@@ -62,6 +62,9 @@ const formatDateKey = (dateKey: string) =>
   });
 
 export function PmsLiveTab({ ctx }: Props) {
+  const [summaryFilter, setSummaryFilter] = useState<
+    "all" | "in-progress" | "planned" | "waiting" | "emergency" | "done"
+  >("all");
   const [nextDayPlanOpen, setNextDayPlanOpen] = useState(false);
   const [planDateFrom, setPlanDateFrom] = useState(getTomorrowIso);
   const [planDateTo, setPlanDateTo] = useState(getTomorrowIso);
@@ -100,6 +103,22 @@ export function PmsLiveTab({ ctx }: Props) {
       }),
     []
   );
+
+  const displayedLiveRows = useMemo(() => {
+    if (summaryFilter === "all") return ctx.liveVasRows;
+    if (summaryFilter === "emergency") {
+      return ctx.liveVasRows.filter((row: any) => row.isEmergency);
+    }
+    const statusByFilter: Record<string, string> = {
+      "in-progress": "IN_PROGRESS",
+      planned: "PLANNED",
+      waiting: "WAITING",
+      done: "DONE",
+    };
+    return ctx.liveVasRows.filter(
+      (row: any) => row.status === statusByFilter[summaryFilter]
+    );
+  }, [ctx.liveVasRows, summaryFilter]);
 
   const filteredPlanRows = useMemo(
     () =>
@@ -251,14 +270,27 @@ export function PmsLiveTab({ ctx }: Props) {
         <CardContent className="space-y-3 px-4 pb-4 pt-0">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="flex flex-wrap gap-2">
-              <Badge variant="secondary">Total: {ctx.liveStats.totalItems}</Badge>
-              <Badge className="bg-emerald-600 hover:bg-emerald-600">
-                In Progress: {ctx.liveStats.inProgress}
-              </Badge>
-              <Badge className="bg-blue-600 hover:bg-blue-600">Planned: {ctx.liveStats.planned}</Badge>
-              <Badge className="bg-amber-500 hover:bg-amber-500">Waiting: {ctx.liveStats.waiting}</Badge>
-              <Badge className="bg-red-600 hover:bg-red-600">Emergency: {ctx.liveStats.emergency}</Badge>
-              <Badge variant="outline">Done: {ctx.liveStats.done}</Badge>
+              {[
+                { key: "all", label: "Total", value: ctx.liveStats.totalItems, className: "border-slate-200 bg-slate-100 text-slate-800" },
+                { key: "in-progress", label: "In Progress", value: ctx.liveStats.inProgress, className: "border-emerald-600 bg-emerald-600 text-white" },
+                { key: "planned", label: "Planned", value: ctx.liveStats.planned, className: "border-blue-600 bg-blue-600 text-white" },
+                { key: "waiting", label: "Waiting", value: ctx.liveStats.waiting, className: "border-amber-500 bg-amber-500 text-white" },
+                { key: "emergency", label: "Emergency", value: ctx.liveStats.emergency, className: "border-red-600 bg-red-600 text-white" },
+                { key: "done", label: "Completed", value: ctx.liveStats.done, className: "border-teal-600 bg-teal-600 text-white" },
+              ].map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setSummaryFilter(item.key as typeof summaryFilter)}
+                  className={cn(
+                    "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-all hover:-translate-y-0.5 hover:shadow-sm",
+                    item.className,
+                    summaryFilter === item.key && "ring-2 ring-slate-900/30 ring-offset-2"
+                  )}
+                >
+                  {item.label}: {item.value}
+                </button>
+              ))}
             </div>
             <div className="flex w-full flex-col gap-2 lg:w-auto lg:min-w-[420px] lg:max-w-[760px] lg:flex-1 lg:items-end">
               <div className="relative w-full lg:max-w-[340px]">
@@ -301,6 +333,24 @@ export function PmsLiveTab({ ctx }: Props) {
             </div>
           </div>
 
+          <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+            <span className="font-medium text-slate-700">
+              Showing {summaryFilter === "all" ? "all VAS items" : summaryFilter.replace("-", " ")}:
+              {" "}{displayedLiveRows.length} record(s)
+            </span>
+            {summaryFilter !== "all" && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7"
+                onClick={() => setSummaryFilter("all")}
+              >
+                Clear Filter
+              </Button>
+            )}
+          </div>
+
           <div className="overflow-x-auto rounded-md border">
             <Table>
               <TableHeader>
@@ -322,14 +372,14 @@ export function PmsLiveTab({ ctx }: Props) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {ctx.liveVasRows.length === 0 ? (
+                {displayedLiveRows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={14} className="h-24 text-center text-muted-foreground">
-                      No VAS items are active right now.
+                      No VAS items found for this status.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  ctx.liveVasRows.map((row: any) => (
+                  displayedLiveRows.map((row: any) => (
                     <TableRow key={row.key}>
                       <TableCell className="font-medium">{row.orderNo}</TableCell>
                       <TableCell>{row.customer}</TableCell>

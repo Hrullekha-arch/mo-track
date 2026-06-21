@@ -257,7 +257,12 @@ export async function attendToWalkin(
 export async function handoverToSalesman(
     customerId: string,
     salesman: { id: string; name: string },
-    crmUser: { id: string; name: string; role?: string | null }
+    crmUser: {
+        id: string;
+        name: string;
+        role?: string | null;
+        designation?: string | null;
+    }
 ): Promise<{ success: boolean; message: string }> {
     try {
         const customerRef = adminDb.collection('Walkin_Customer').doc(customerId);
@@ -268,8 +273,23 @@ export async function handoverToSalesman(
         }
         const customerData = customerSnap.data();
         const creatorId = customerData?.createdById || customerData?.createdBy?.id || null;
-        const isAdminActor = String(crmUser?.role || '').trim().toLowerCase() === 'admin';
-        if (!isAdminActor && creatorId && creatorId !== crmUser.id) {
+        const actorRole = String(crmUser?.role || '').trim().toLowerCase();
+        const actorDesignation = String(crmUser?.designation || '').trim().toLowerCase();
+        const isPrivilegedActor =
+            actorRole === 'admin' ||
+            actorRole === 'pc' ||
+            actorRole === 'ea' ||
+            actorRole === 'crm' ||
+            actorRole === 'allocator' ||
+            actorRole === 'allocators' ||
+            actorRole === 'allocater' ||
+            actorDesignation === 'pc' ||
+            actorDesignation === 'ea' ||
+            actorDesignation === 'crm' ||
+            actorDesignation === 'allocator' ||
+            actorDesignation === 'allocators' ||
+            actorDesignation === 'allocater';
+        if (!isPrivilegedActor && creatorId && creatorId !== crmUser.id) {
             return { success: false, message: "You can only hand over walk-ins created by you." };
         }
 
