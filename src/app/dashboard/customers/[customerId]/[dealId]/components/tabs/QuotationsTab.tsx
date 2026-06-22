@@ -189,7 +189,7 @@ const QuotationRow = memo(function QuotationRow({
               <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onClone(); }}>
                 Clone Quotation
               </DropdownMenuItem>
-              {isSalesManager && (
+              {(isSalesManager || isAdmin) && (
                 <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onConvert(); }} disabled={isConverted || isClosed}>
                   Convert to Order
                 </DropdownMenuItem>
@@ -222,7 +222,7 @@ const QuotationRow = memo(function QuotationRow({
         {q.status === "Closed" ? (
           <Badge variant="secondary">Closed</Badge>
         ) : isConverted ? (
-          <Badge variant="outline">Open</Badge>
+          <Badge variant="default">Converted to Order</Badge>
         ) : (
           <Badge variant="outline">{q.status}</Badge>
         )}
