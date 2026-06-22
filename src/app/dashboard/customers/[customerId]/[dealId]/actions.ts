@@ -1187,11 +1187,6 @@ export async function updateQuotationStatusAction(
       return { success: false, message: 'Quotation not found.' };
     }
 
-    const currentStatus = quotationSnap.data()?.status as Quotation["status"] | undefined;
-    if (currentStatus === 'Converted to Order' && status === 'Closed') {
-      return { success: false, message: 'Converted quotations cannot be closed.' };
-    }
-
     await quotationRef.update({ status });
     return { success: true, message: `Quotation marked as ${status}.` };
   } catch (error: any) {

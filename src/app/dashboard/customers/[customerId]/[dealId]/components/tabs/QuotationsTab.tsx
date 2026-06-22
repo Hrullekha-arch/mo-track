@@ -21,11 +21,11 @@ import {
   Table, TableHeader, TableRow, TableBody, TableCell, TableHead,
 } from "@/components/ui/table";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
 import { CreateQuotationDialog } from "@/components/features/order-management/CreateQuotationDialog";
-import { FileText, MoreHorizontal, Loader2 } from "lucide-react";
+import { FileText, MoreHorizontal, Loader2, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { format } from "date-fns";
@@ -126,6 +126,7 @@ const QuotationRow = memo(function QuotationRow({
   q,
   index,
   isAdmin,
+  isSalesManager,
   canEditConverted,
   deletingId,
   onView,
@@ -138,6 +139,7 @@ const QuotationRow = memo(function QuotationRow({
   q: Quotation;
   index: number;
   isAdmin: boolean;
+  isSalesManager: boolean;
   canEditConverted: boolean;
   deletingId: string | null;
   onView: () => void;
@@ -147,47 +149,70 @@ const QuotationRow = memo(function QuotationRow({
   onClose: () => void;
   onDelete: () => void;
 }) {
-  const isDisabled = q.status === "Converted to Order" || q.status === "Closed";
+  const isClosed = q.status === "Closed";
+  const isConverted = q.status === "Converted to Order" || Boolean(q.orderNo);
   const displayAmount = getQuotationDisplayAmount(q);
   return (
     <TableRow className="cursor-pointer hover:bg-muted/50" onClick={onView}>
       <TableCell onClick={(e) => e.stopPropagation()}>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="h-8 w-8 p-0" onClick={(e) => e.stopPropagation()}>
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onView(); }}>
-              View / Print
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={(e) => { e.stopPropagation(); onEdit(); }}
-              disabled={q.status !== "Converted to Order" || !canEditConverted}
+        <div className="flex items-center gap-1.5">
+          {isConverted && q.orderNo && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5"
+              onClick={(e) => {
+                e.stopPropagation();
+                onConvert();
+              }}
             >
-              Edit Converted Quotation
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onClone(); }}>
-              Clone Quotation
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onConvert(); }} disabled={isDisabled}>
-              Convert to Order
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onClose(); }} disabled={isDisabled}>
-              Close Quotation
-            </DropdownMenuItem>
-            {isAdmin && (
-              <DropdownMenuItem
-                onClick={(e) => { e.stopPropagation(); onDelete(); }}
-                disabled={deletingId === q.id}
-                className="text-destructive focus:text-destructive"
-              >
-                {deletingId === q.id ? "Deleting..." : "Delete Quotation"}
+              <ExternalLink className="h-3.5 w-3.5" />
+              Open Order
+            </Button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 w-8 p-0" onClick={(e) => e.stopPropagation()}>
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onView(); }}>
+                View / Print
               </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <DropdownMenuItem
+                onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                disabled={!isConverted || !canEditConverted}
+              >
+                Edit Converted Quotation
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onClone(); }}>
+                Clone Quotation
+              </DropdownMenuItem>
+              {isSalesManager && (
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onConvert(); }} disabled={isConverted || isClosed}>
+                  Convert to Order
+                </DropdownMenuItem>
+              )}
+              {isAdmin && (
+                <DropdownMenuItem
+                  onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                  disabled={deletingId === q.id}
+                  className="text-destructive focus:text-destructive"
+                >
+                  {deletingId === q.id ? "Deleting..." : "Delete Quotation"}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={(e) => { e.stopPropagation(); onClose(); }}
+                disabled={isClosed}
+              >
+                Close Quotation
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </TableCell>
       <TableCell>{index + 1}</TableCell>
       <TableCell className="font-medium">{q.quotationNo}</TableCell>
@@ -196,6 +221,8 @@ const QuotationRow = memo(function QuotationRow({
       <TableCell>
         {q.status === "Closed" ? (
           <Badge variant="secondary">Closed</Badge>
+        ) : isConverted ? (
+          <Badge variant="outline">Open</Badge>
         ) : (
           <Badge variant="outline">{q.status}</Badge>
         )}
@@ -248,6 +275,9 @@ export default function QuotationsTab({
     normalizedDesignation === "ea" ||
     normalizedDesignation === "md" ||
     normalizedDesignation === "managingdirector";
+  const isSalesManager =
+    ["sm", "salesmanager", "headsalesmanager"].includes(normalizedRole) ||
+    ["sm", "salesmanager", "headsalesmanager"].includes(normalizedDesignation);
 
 
   useEffect(() => {
@@ -310,6 +340,10 @@ export default function QuotationsTab({
 
   const handleConvertToOrder = useCallback(
     (q: Quotation) => {
+      if (q.status === "Converted to Order" && q.orderNo) {
+        router.push(`/dashboard/orders/${q.orderNo}`);
+        return;
+      }
       router.push(`/dashboard/invoice/new?customerId=${customerId}&dealId=${dealId}&quotationId=${q.id}`);
     },
     [router, customerId, dealId]
@@ -317,10 +351,6 @@ export default function QuotationsTab({
 
   const handleCloseQuotation = useCallback(
     async (q: Quotation) => {
-      if (q.status === "Converted to Order") {
-        toast({ variant: "destructive", title: "Cannot Close", description: "Converted quotations cannot be closed." });
-        return;
-      }
       const result = await updateQuotationStatusAction(customerId, dealId, q.id, "Closed");
       if (result.success) {
         toast({ title: "Quotation Closed", description: result.message });
@@ -476,6 +506,7 @@ export default function QuotationsTab({
                         q={q}
                         index={i}
                         isAdmin={isAdmin}
+                        isSalesManager={isSalesManager}
                         canEditConverted={canEditConvertedQuotation}
                         deletingId={deletingQuotationId}
                         onView={() => setSelectedQuotation(q)}

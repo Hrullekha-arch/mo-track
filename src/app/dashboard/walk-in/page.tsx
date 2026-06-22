@@ -1189,6 +1189,13 @@ export default function WalkinDataPage() {
   const isCrm          = normalizedRole === "crm" || normalizedDesignation === "crm";
   const isPC           = normalizedRole === "pc" || normalizedDesignation === "pc";
   const isEA           = normalizedRole === "ea" || normalizedDesignation === "ea";
+  const isMD           =
+    normalizedRole === "md" ||
+    normalizedRole === "managing director" ||
+    normalizedRole === "managingdirector" ||
+    normalizedDesignation === "md" ||
+    normalizedDesignation === "managing director" ||
+    normalizedDesignation === "managingdirector";
   const isAllocator    =
     normalizedRole === "allocator" ||
     normalizedRole === "allocators" ||
@@ -1207,8 +1214,8 @@ export default function WalkinDataPage() {
     (user as any)?.branch ||
     ""
   ).trim();
-  // Non-admin users are locked to their own branch; admin sees all
-  const canSeeAllBranches = isAdmin;
+  // Admin, PC, EA and MD can review every store and switch branch views.
+  const canSeeAllBranches = isAdmin || isPC || isEA || isMD;
 
   // Set initial branch tab based on user's store
   useEffect(() => {
@@ -1221,7 +1228,7 @@ export default function WalkinDataPage() {
   useEffect(() => {
     if (!user?.id) { setWalkinData([]); setLoading(false); return; }
     setLoading(true);
-    const q = isAdmin || isSalesmanager || isPC || isEA || isAllocator
+    const q = isAdmin || isSalesmanager || isPC || isEA || isMD || isAllocator
       ? query(collection(db, "Walkin_Customer"))
       : query(collection(db, "Walkin_Customer"), where("createdById", "==", user.id));
     const unsub = onSnapshot(q,
@@ -1249,7 +1256,7 @@ export default function WalkinDataPage() {
     );
     getSalesmen().then(setSalesmen);
     return () => unsub();
-  }, [user?.id, normalizedRole, normalizedDesignation]);
+  }, [user?.id, normalizedRole, normalizedDesignation, isMD]);
 
   useEffect(() => {
     if (!selectedOrderId) return;

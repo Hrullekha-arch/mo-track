@@ -19,7 +19,11 @@ export async function updateOrderMilestoneAction(input: {
   try {
     const orderId = String(input.orderId || "").trim();
     const milestoneId = Number(input.milestoneId);
-    if (!orderId || !Number.isInteger(milestoneId)) {
+    if (
+      !orderId ||
+      !Number.isInteger(milestoneId) ||
+      typeof input.completed !== "boolean"
+    ) {
       return { success: false, message: "Invalid order or milestone." };
     }
 
@@ -46,7 +50,7 @@ export async function updateOrderMilestoneAction(input: {
     if (!orderSnapshot.exists) return { success: false, message: "Order not found." };
 
     const order = { id: orderSnapshot.id, ...orderSnapshot.data() } as Order;
-    if (completed && isCrmActor) {
+    if (input.completed && isCrmActor) {
       const milestones = getNormalizedOrderMilestones(order);
       const targetIndex = milestones.findIndex((milestone) => milestone.id === milestoneId);
       if (
@@ -102,8 +106,8 @@ export async function completeOrderByCrmAction(input: {
     const orderRef = adminDb.collection("orders").doc(orderId);
     const nowIso = new Date().toISOString();
 
-    await adminDb.runTransaction(async (transaction) => {
-      const orderSnapshot = await transaction.get(orderRef);
+    await adminDb.runTransaction(async (transaction: FirebaseFirestore.Transaction) => {
+      const orderSnapshot = (await transaction.get(orderRef)) as unknown as FirebaseFirestore.DocumentSnapshot;
       if (!orderSnapshot.exists) throw new Error("Order not found.");
 
       const order = { id: orderSnapshot.id, ...orderSnapshot.data() } as Order;
