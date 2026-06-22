@@ -127,6 +127,7 @@ const QuotationRow = memo(function QuotationRow({
   index,
   isAdmin,
   isSalesManager,
+  isCrm,
   canEditConverted,
   deletingId,
   onView,
@@ -140,6 +141,7 @@ const QuotationRow = memo(function QuotationRow({
   index: number;
   isAdmin: boolean;
   isSalesManager: boolean;
+  isCrm: boolean;
   canEditConverted: boolean;
   deletingId: string | null;
   onView: () => void;
@@ -189,7 +191,7 @@ const QuotationRow = memo(function QuotationRow({
               <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onClone(); }}>
                 Clone Quotation
               </DropdownMenuItem>
-              {(isSalesManager || isAdmin) && (
+              {(isSalesManager || isAdmin || isCrm) && (
                 <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onConvert(); }} disabled={isConverted || isClosed}>
                   Convert to Order
                 </DropdownMenuItem>
@@ -276,8 +278,11 @@ export default function QuotationsTab({
     normalizedDesignation === "md" ||
     normalizedDesignation === "managingdirector";
   const isSalesManager =
-    ["sm", "salesmanager", "headsalesmanager"].includes(normalizedRole) ||
-    ["sm", "salesmanager", "headsalesmanager"].includes(normalizedDesignation);
+    ["salesman", "sm", "salesmanager", "headsalesmanager", "salesexecutive", "salesperson"].includes(normalizedRole) ||
+    ["salesman", "sm", "salesmanager", "headsalesmanager", "salesexecutive", "salesperson"].includes(normalizedDesignation);
+  const isCrm =
+    ["crm", "crmmanager", "crmexecutive", "crmhead", "crmlead", "crmuser"].includes(normalizedRole) ||
+    ["crm", "crmmanager", "crmexecutive", "crmhead", "crmlead", "crmuser"].includes(normalizedDesignation);
 
 
   useEffect(() => {
@@ -507,6 +512,7 @@ export default function QuotationsTab({
                         index={i}
                         isAdmin={isAdmin}
                         isSalesManager={isSalesManager}
+                        isCrm={isCrm}
                         canEditConverted={canEditConvertedQuotation}
                         deletingId={deletingQuotationId}
                         onView={() => setSelectedQuotation(q)}
