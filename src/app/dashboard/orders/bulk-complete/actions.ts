@@ -133,12 +133,12 @@ export async function getOrdersForSalesmanBulkCompleteAction(
 
     const byId = new Map<string, Order>();
     byRepresentativeSnap.docs.forEach((doc) => {
-      byId.set(doc.id, { id: doc.id, ...(doc.data() as Order) });
+      byId.set(doc.id, { ...(doc.data() as Order), id: doc.id });
     });
     if (bySalesPersonSnap?.docs?.length) {
       bySalesPersonSnap.docs.forEach((doc: any) => {
         if (!byId.has(doc.id)) {
-          byId.set(doc.id, { id: doc.id, ...(doc.data() as Order) });
+          byId.set(doc.id, { ...(doc.data() as Order), id: doc.id });
         }
       });
     }
@@ -222,7 +222,7 @@ export async function completeOrdersMilestonesBulkAction(input: {
           continue;
         }
 
-        const order = { id: snap.id, ...(snap.data() as Order) } as Order;
+        const order = { ...(snap.data() as Order), id: snap.id } as Order;
         const normalizedMilestones = getNormalizedOrderMilestones(order);
         if (!normalizedMilestones.length) {
           skippedOrderIds.push(orderId);

@@ -274,7 +274,7 @@ export function usePmsDerivedData(params: UsePmsDerivedDataParams) {
           const stepNo = jobBucket.inProgress?.stepNo ?? jobBucket.nextJob?.stepNo;
           const plannedStart = jobBucket.nextPlan?.plannedStart;
           const plannedEnd = jobBucket.nextPlan?.plannedEnd;
-          const eta = order.pmsEta || jobBucket.etaFromJobs || plannedEnd;
+          const eta = (order as any).pmsEta || jobBucket.etaFromJobs || plannedEnd;
           const machineName = jobBucket.nextPlan?.machineId
             ? machineById.get(jobBucket.nextPlan.machineId)?.name
             : undefined;
@@ -313,7 +313,7 @@ export function usePmsDerivedData(params: UsePmsDerivedDataParams) {
             customer: order.customerSnapshot?.name || order.customerName || "N/A",
             customerPhone: order.customerSnapshot?.phone || order.customerPhone || "",
             vasName,
-            qty: item.qty ?? item.quantity ?? 0,
+            qty: item.qty ?? (item as any).quantity ?? 0,
             group: item.group || "-",
             status,
             currentProcess: stepNo ? `${currentProcess} (Step ${stepNo})` : currentProcess,

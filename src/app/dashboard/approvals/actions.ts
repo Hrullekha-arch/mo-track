@@ -186,7 +186,7 @@ export async function approveQuotationAction(
 
     const quotationRef = adminDb
       .collection('customers')
-      .doc(quotation.customerId)
+      .doc((quotation as any).customerId)
       .collection('deals')
       .doc(quotation.dealId)
       .collection('quotations')
@@ -205,7 +205,7 @@ export async function approveQuotationAction(
       approvedBy: approver,
     });
     
-    const dealsSnapshot = await adminDb.collection('customers').doc(quotation.customerId).collection('deals').doc(quotation.dealId).get();
+    const dealsSnapshot = await adminDb.collection('customers').doc((quotation as any).customerId).collection('deals').doc(quotation.dealId).get();
     const dealData = dealsSnapshot.data();
     if (dealData?.dealId) {
         const o2dQuery = adminDb.collection('o2d').where('dealId', '==', dealData.dealId);

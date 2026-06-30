@@ -11,7 +11,8 @@
       "PowerShell(head -20)",
       "PowerShell(cmd /c \"dir /al d:\\\\Mo_Track\\\\node_modules\\\\next\" 2>&1)",
       "PowerShell(cmd /c \"dir d:\\\\Mo_Track\\\\node_modules\\\\next\" 2>&1)",
-      "PowerShell(cmd /c \"dir d:\\\\Mo_Track\\\\node_modules\\\\next\\\\dist\\\\client\\\\components\" 2>&1)"
+      "PowerShell(cmd /c \"dir d:\\\\Mo_Track\\\\node_modules\\\\next\\\\dist\\\\client\\\\components\" 2>&1)",
+      "PowerShell(cd d:\\\\Mo_Track; npx tsc --noEmit 2>&1 > $env:TEMP\\\\tsc-out.txt; Get-Content $env:TEMP\\\\tsc-out.txt | Where-Object { $_ -match \"src.app.dashboard.page\" })"
     ]
   }
 }

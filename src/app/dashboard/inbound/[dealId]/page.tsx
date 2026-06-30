@@ -189,6 +189,7 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                     bcn: itemToUpdate.itemName,
                     type: 'addition',
                     quantityChange: quantity,
+                    invoiceNo: request.tallyPoNumber || itemToUpdate.poNumber || request.id,
                     poNumber: itemToUpdate.poNumber,
                     unit: itemToUpdate.unit || "MTR",
                     salesman: salesman,

@@ -460,11 +460,11 @@ export async function allocateStockToAction(
             const { lengthId, quantity } = allocation;
             if (quantity <= EPSILON) continue;
 
-            const lengthDoc = lengthDocsMap.get(lengthId);
+            const lengthDoc = lengthDocsMap.get(lengthId) as any;
             if (!lengthDoc || !lengthDoc.exists) {
                 throw new Error(`Stock length/roll ${lengthId} not found.`);
             }
-            
+
             const lengthData = lengthDoc.data() as Stock;
             const available = getAvailable(lengthData);
             const original = getOriginal(lengthData, available);
@@ -612,7 +612,7 @@ export async function allocateStockToAction(
             const { lengthId, quantity } = allocation;
             if (quantity <= EPSILON) continue;
 
-            const lengthDoc = lengthDocsMap.get(lengthId)!;
+            const lengthDoc = lengthDocsMap.get(lengthId) as any;
             const lengthRef = lengthDoc.ref;
             const lengthData = lengthDoc.data() as Stock;
             const meta = lengthMeta.get(lengthId);

@@ -33,6 +33,10 @@ import {
   ShieldCheck,
   Sofa,
   BadgePercent,
+  Building2,
+  IndianRupee,
+  RotateCcw,
+  ArrowRightLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isAllocatorDesignation } from "@/lib/user-access";
@@ -69,9 +73,15 @@ export const navItems = [
     { href: "/dashboard/customers", icon: Contact, label: "Customers", roles: ['admin', 'employee'] },
     { href: "/dashboard/walk-in", icon: UserPlus, label: "Walk-in", roles: ['admin', 'employee'] },
     { href: "/dashboard/Sales", icon: ClipboardList, label: "Sales", roles: ['admin', 'employee'] },
+    { href: "/dashboard/payments", icon: IndianRupee, label: "Payments", roles: ['admin', 'Accounts'] },
+    { href: "/dashboard/sales-return", icon: RotateCcw, label: "Sales Returns", roles: ['admin', 'Accounts'] },
+    { href: "/dashboard/vendors", icon: Building2, label: "Vendors", roles: ['admin', 'employee'] },
     { href: "/dashboard/purchase", icon: ShoppingCart, label: "Purchase", roles: ['admin', 'employee'] },
+    { href: "/dashboard/purchase/bills", icon: FileText, label: "Vendor Bills", roles: ['admin', 'Accounts'] },
     { href: "/dashboard/inbound", icon: Archive, label: "Inbound", roles: ['admin', 'employee'] },
     { href: "/dashboard/inventory", icon: Warehouse, label: "Inventory", roles: ['admin', 'employee'] },
+    { href: "/dashboard/inventory/reorder", icon: PackageSearch, label: "Reorder", roles: ['admin', 'employee'] },
+    { href: "/dashboard/inventory/transfers", icon: ArrowRightLeft, label: "Stock Transfers", roles: ['admin', 'employee'] },
     { href: "/dashboard/Billing", icon: FileText, label: "Invoice", roles: ['admin', 'employee'] },
     //{ href: "/dashboard/cutting", icon: Scissors, label: "Cutting & Details", roles: ['admin', 'employee'] },
     { href: "/dashboard/all-orders", icon: Table, label: "Details", roles: ['admin'] },
@@ -332,7 +342,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       registrations.forEach((registration) => {
         void registration.unregister();
       });
-    });
 
     if ("caches" in window) {
       void caches.keys().then((keys) => {

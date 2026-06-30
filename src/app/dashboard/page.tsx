@@ -35,6 +35,8 @@ import {
   TrendingUp,
   XCircle,
   Bell,
+  MoreHorizontal,
+  ExternalLink,
 } from "lucide-react";
 import { useEffect, useState, useMemo, useRef, use, useCallback } from "react";
 import { DateRange } from "react-day-picker";
@@ -64,7 +66,7 @@ import {
 import { db } from "@/lib/firebase";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
-import { InboundRequest, Order, Quotation, PurchaseRequest, Walkin_Customer } from "@/lib/types";
+import { InboundRequest, Order, Quotation, PurchaseRequest, Walkin_Customer, DealVisit } from "@/lib/types";
 import { getFollowUpItems } from "./po-tracking/actions";
 import { useAuth } from "@/context/AuthContext";
 import { endOfDay, format, formatDistanceToNow, startOfDay, subDays } from "date-fns";
@@ -96,6 +98,7 @@ import {
   type MecaVisitRow,
 } from "./meca/actions";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SLOT_OPTIONS } from "@/components/features/order-management/AssignInstallerDialog";
 
 type DashboardOrderRisk = "critical" | "watch" | "stable";
 
@@ -2223,9 +2226,269 @@ const  SalesmanDashboardV2 =() => {
   );
 }
 
+const ALLOCATOR_COMPLAINT_TYPES = ["installation-issue", "measurement-error", "color-mismatch", "damaged-delivery"];
+const ALLOCATOR_COMPLAINT_LABELS: Record<string, string> = {
+  "installation-issue": "Installation Issue",
+  "measurement-error": "Measurement Error",
+  "color-mismatch": "Color Mismatch",
+  "damaged-delivery": "Damaged During Delivery",
+};
+
+function AllocatorComplaintDialog({ visit, open, onClose }: { visit: DealVisit | null; open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const [problem, setProblem] = useState("");
+  const [resolution, setResolution] = useState("");
+  const [receiving, setReceiving] = useState(false);
+
+  useEffect(() => {
+    if (open) { setProblem(""); setResolution(""); }
+  }, [open]);
+
+  if (!visit) return null;
+  const alreadyReceived = !!(visit as any).complianceReceivedAt;
+
+  const handleReceive = async () => {
+    if (!visit.customerId || !visit.dealId || !visit.id) {
+      toast({ variant: "destructive", title: "Missing visit path info" });
+      return;
+    }
+    if (!problem.trim()) {
+      toast({ variant: "destructive", title: "Please describe the problem" });
+      return;
+    }
+    setReceiving(true);
+    try {
+      const visitRef = doc(db, "customers", visit.customerId, "deals", visit.dealId, "visits", visit.id);
+      await updateDoc(visitRef, {
+        complianceReceived: true,
+        complianceReceivedAt: new Date().toISOString(),
+        complianceProblem: problem.trim(),
+        complianceResolution: resolution.trim(),
+      });
+      toast({ title: "Marked as Received", description: `Complaint for ${visit.customerSnapshot?.name || visit.dealId} updated.` });
+      onClose();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Failed", description: err.message });
+    } finally {
+      setReceiving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Receive Material</DialogTitle>
+          <DialogDescription>
+            {ALLOCATOR_COMPLAINT_LABELS[visit.complaintType || ""] || visit.complaintType} — {visit.customerSnapshot?.name || visit.dealId}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 text-sm py-1">
+          <div className="grid grid-cols-2 gap-3 rounded-lg bg-muted/50 px-3 py-2.5">
+            <div>
+              <p className="text-xs text-muted-foreground mb-0.5">Deal ID</p>
+              <p className="font-medium">{visit.dealId || "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-0.5">Customer</p>
+              <p className="font-medium">{visit.customerSnapshot?.name || "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-0.5">Item</p>
+              <p className="font-medium">{visit.complaintItem || "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-0.5">Qty</p>
+              <p className="font-medium">{visit.complaintQuantity || "—"}</p>
+            </div>
+          </div>
+
+          {alreadyReceived ? (
+            <div className="flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2.5">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+              <div>
+                <p className="text-xs font-semibold text-emerald-700">Already Received</p>
+                <p className="text-xs text-emerald-600">{format(new Date((visit as any).complianceReceivedAt), "dd MMM yyyy, hh:mm a")}</p>
+                {(visit as any).complianceProblem && <p className="text-xs text-emerald-600 mt-1">Problem: {(visit as any).complianceProblem}</p>}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">What is the problem? <span className="text-destructive">*</span></label>
+                <Textarea
+                  placeholder="Describe the issue in detail..."
+                  value={problem}
+                  onChange={(e) => setProblem(e.target.value)}
+                  className="resize-none min-h-[80px]"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">How is it going to be resolved?</label>
+                <Textarea
+                  placeholder="Describe the resolution plan..."
+                  value={resolution}
+                  onChange={(e) => setResolution(e.target.value)}
+                  className="resize-none min-h-[80px]"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={receiving}>Cancel</Button>
+          {!alreadyReceived && (
+            <Button onClick={handleReceive} disabled={receiving}>
+              {receiving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              <PackageCheck className="mr-2 h-4 w-4" />
+              Mark as Received
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+type FollowUpQuestion =
+  | { type?: "textarea"; key: string; label: string; placeholder: string }
+  | { type: "radio-yes"; key: string; label: string; placeholder?: never };
+
+const COMPLIANCE_FOLLOWUP_QUESTIONS: Record<string, FollowUpQuestion[]> = {
+  "measurement-error": [
+    { key: "lengthMismatch", label: "Tell me the length is mismatch?", placeholder: "Describe the length mismatch..." },
+    { key: "widthHeight", label: "Can you specify the width and Height of the curtain?", placeholder: "e.g. Width: 5ft, Height: 8ft" },
+    { key: "otherSpecs", label: "Can you specify other specifications?", placeholder: "Any other measurement details..." },
+    { key: "isAlterationDone", label: "Is alteration done?", type: "radio-yes" },
+  ],
+  "installation-issue": [
+    { key: "preferableTime", label: "Specify preferable time for installation?", placeholder: "e.g. Monday 10am–12pm" },
+    { key: "issueDetail", label: "Is there any issue regarding the installation issue?", placeholder: "Describe the issue..." },
+    { key: "otherPending", label: "Is there any other installations pending?", placeholder: "List any pending installations..." },
+    { key: "isInstallationDone", label: "Is installation done?", type: "radio-yes" },
+  ],
+  "color-mismatch": [
+    { key: "colorWanted", label: "What is the specific colour you want?", placeholder: "e.g. Ivory White, #F5F5DC" },
+    { key: "colorReceived", label: "What colour did you receive?", placeholder: "e.g. Off White" },
+  ],
+  "damaged-delivery": [
+    { key: "damagedItem", label: "Can you please specify which item is damaged?", placeholder: "e.g. Curtain rod, fabric..." },
+    { key: "wantsReplacement", label: "Are you want replacement?", placeholder: "Yes / No / Partial" },
+    { key: "willingToRepair", label: "Are you willing to repair the specific part?", placeholder: "Yes / No" },
+  ],
+};
+
+function ComplianceFollowUpDialog({ visit, open, onClose }: { visit: DealVisit | null; open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  const questions = visit ? (COMPLIANCE_FOLLOWUP_QUESTIONS[visit.complaintType || ""] ?? []) : [];
+  const existingAnswers: Record<string, string> = visit ? ((visit as any).followUpAnswers ?? {}) : {};
+
+  useEffect(() => {
+    if (open && visit) {
+      setAnswers((visit as any).followUpAnswers ?? {});
+    }
+  }, [open, visit]);
+
+  if (!visit) return null;
+
+  const handleSave = async () => {
+    if (!visit.customerId || !visit.dealId || !visit.id) {
+      toast({ variant: "destructive", title: "Missing visit path info" });
+      return;
+    }
+    setSaving(true);
+    try {
+      const visitRef = doc(db, "customers", visit.customerId, "deals", visit.dealId, "visits", visit.id);
+      await updateDoc(visitRef, { followUpAnswers: answers });
+      toast({ title: "Follow-up saved", description: "Answers recorded successfully." });
+      onClose();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Failed to save", description: err.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Follow-Up Questions</DialogTitle>
+          <DialogDescription>
+            {ALLOCATOR_COMPLAINT_LABELS[visit.complaintType || ""] || visit.complaintType} — {visit.customerSnapshot?.name || visit.dealId}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-1">
+          <div className="grid grid-cols-2 gap-3 rounded-lg bg-muted/50 px-3 py-2.5 text-sm">
+            <div>
+              <p className="text-xs text-muted-foreground mb-0.5">Deal ID</p>
+              <p className="font-medium">{visit.dealId || "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-0.5">Customer</p>
+              <p className="font-medium">{visit.customerSnapshot?.name || "—"}</p>
+            </div>
+          </div>
+
+          {questions.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">No follow-up questions for this complaint type.</p>
+          ) : (
+            <div className="space-y-3">
+              {questions.map((q) => (
+                <div key={q.key} className="space-y-1.5">
+                  <label className="text-xs font-medium">{q.label}</label>
+                  {q.type === "radio-yes" ? (
+                    <label className="flex items-center gap-2 cursor-pointer w-fit">
+                      <input
+                        type="radio"
+                        name={q.key}
+                        value="yes"
+                        checked={answers[q.key] === "yes"}
+                        onChange={() => setAnswers((prev) => ({ ...prev, [q.key]: "yes" }))}
+                        className="h-4 w-4 accent-primary"
+                      />
+                      <span className="text-sm">Yes</span>
+                    </label>
+                  ) : (
+                    <Textarea
+                      placeholder={q.placeholder}
+                      value={answers[q.key] ?? ""}
+                      onChange={(e) => setAnswers((prev) => ({ ...prev, [q.key]: e.target.value }))}
+                      className="resize-none min-h-[60px] text-sm"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+          {questions.length > 0 && (
+            <Button onClick={handleSave} disabled={saving}>
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Save Answers
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 const AllocatorDashboard = () => {
+  const { user } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [inbounds, setInbounds] = useState<InboundRequest[]>([]);
+  const [complaintVisits, setComplaintVisits] = useState<DealVisit[]>([]);
+  const [approvedComplaints, setApprovedComplaints] = useState<DealVisit[]>([]);
+  const [receivingVisit, setReceivingVisit] = useState<DealVisit | null>(null);
+  const [followUpVisit, setFollowUpVisit] = useState<DealVisit | null>(null);
   const [loading, setLoading] = useState(true);
   const [queueSearch, setQueueSearch] = useState("");
   const [inboundSearch, setInboundSearch] = useState("");
@@ -2276,6 +2539,66 @@ const AllocatorDashboard = () => {
       unsubOrders();
       unsubInbounds();
     };
+  }, []);
+
+  const [approvedCompanyVisits, setApprovedCompanyVisits] = useState<DealVisit[]>([]);
+  const [scheduleVisit, setScheduleVisit] = useState<DealVisit | null>(null);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleSlotId, setScheduleSlotId] = useState("");
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collectionGroup(db, "visits"),
+      (snapshot) => {
+        const all = snapshot.docs.map((d) => {
+          const parts = d.ref.path.split("/");
+          return { id: d.id, ...d.data(), customerId: parts[1], _dealDocId: parts[3] } as DealVisit & { customerId: string; _dealDocId: string };
+        });
+
+        const received = all.filter(
+          (v) => v.typeOfVisit === "complaint" && ALLOCATOR_COMPLAINT_TYPES.includes(v.complaintType || "") && !!(v as any).complianceReceivedAt
+        );
+        received.sort((a, b) => new Date((b as any).complianceReceivedAt).getTime() - new Date((a as any).complianceReceivedAt).getTime());
+        setComplaintVisits(received);
+
+        const approved = all.filter(
+          (v) => v.typeOfVisit === "complaint" && (v as any).complianceApprovalStatus === "Approved"
+        );
+        approved.sort((a, b) => new Date((b as any).complianceApprovedAt || 0).getTime() - new Date((a as any).complianceApprovedAt || 0).getTime());
+        setApprovedComplaints(approved);
+      },
+      () => { setComplaintVisits([]); setApprovedComplaints([]); }
+    );
+    return () => unsub();
+  }, []);
+
+  // Also listen to top-level companyVisits approved complaints (different collection, different field names)
+  useEffect(() => {
+    const unsub = onSnapshot(
+      query(
+        collection(db, "companyVisits"),
+        where("category", "==", "complaint_visit"),
+        where("approvalStatus", "==", "Approved")
+      ),
+      (snapshot) => {
+        const docs = snapshot.docs.map((d) => {
+          const data = d.data() as any;
+          return {
+            id: d.id,
+            ...data,
+            // normalize field names to match what the table expects
+            complianceChargeType: data.complianceChargeType || data.chargeType,
+            complianceApprovedAt: data.complianceApprovedAt || data.approvedAt,
+            customerSnapshot: data.customerSnapshot || { name: data.customerName },
+            assignedSalesPerson: data.assignedSalesPerson || { name: data.createdBy },
+          } as DealVisit;
+        });
+        setApprovedCompanyVisits(docs);
+      },
+      () => setApprovedCompanyVisits([])
+    );
+    return () => unsub();
   }, []);
 
   const orderRows = useMemo(
@@ -2362,6 +2685,22 @@ const AllocatorDashboard = () => {
       );
     });
   }, [inboundSearch, inbounds]);
+
+  const allApprovedComplaints = useMemo(
+    () => [...approvedComplaints, ...approvedCompanyVisits],
+    [approvedComplaints, approvedCompanyVisits]
+  );
+
+  const myApprovedComplaints = useMemo(
+    () => user?.id
+      ? allApprovedComplaints.filter(
+          (v) =>
+            (v as any).assignedInstaller?.id === user.id ||
+            (v as any).assignedCrm?.id === user.id
+        )
+      : [],
+    [allApprovedComplaints, user?.id]
+  );
 
   const quickActions = [
     { title: "Open Allocation", href: "/dashboard/orders", icon: ClipboardList },
@@ -2493,6 +2832,198 @@ const AllocatorDashboard = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Approved Complaints — visible to CRM after Sales Manager approval */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-indigo-600" />
+                Approved Complaints
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Complaints approved by Sales Manager — requires CRM follow-up action
+              </p>
+            </div>
+            <Badge className="bg-indigo-100 text-indigo-700 border border-indigo-200 hover:bg-indigo-100">
+              {myApprovedComplaints.length} Approved
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {myApprovedComplaints.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">No complaints assigned to you yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs uppercase text-muted-foreground">
+                    <th className="pb-2 pr-4 text-left font-medium">Deal ID</th>
+                    <th className="pb-2 pr-4 text-left font-medium">Customer</th>
+                    <th className="pb-2 pr-4 text-left font-medium">Salesman</th>
+                    <th className="pb-2 pr-4 text-left font-medium">Complaint Type</th>
+                    <th className="pb-2 pr-4 text-left font-medium">Assigned Installer</th>
+                    <th className="pb-2 pr-4 text-left font-medium">Service Type</th>
+                    <th className="pb-2 pr-4 text-left font-medium">Approved On</th>
+                    <th className="pb-2 pr-4 text-left font-medium">Scheduled</th>
+                    <th className="pb-2 text-left font-medium"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {myApprovedComplaints.map((v) => (
+                    <tr key={v.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                      <td className="py-2.5 pr-4 font-medium">{v.dealId || "—"}</td>
+                      <td className="py-2.5 pr-4">{v.customerSnapshot?.name || "—"}</td>
+                      <td className="py-2.5 pr-4">{v.assignedSalesPerson?.name || "—"}</td>
+                      <td className="py-2.5 pr-4">
+                        <Badge variant="secondary" className="text-xs">
+                          {ALLOCATOR_COMPLAINT_LABELS[v.complaintType || ""] || v.complaintType || "—"}
+                        </Badge>
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        {(v as any).assignedInstaller?.name
+                          ? <span className="text-xs font-medium text-indigo-700">{(v as any).assignedInstaller.name}</span>
+                          : <span className="text-xs text-muted-foreground">Not assigned</span>}
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        <Badge className={
+                          (v as any).complianceChargeType === "chargeable"
+                            ? "bg-amber-100 text-amber-700 border border-amber-200 text-xs"
+                            : "bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs"
+                        }>
+                          {(v as any).complianceChargeType === "chargeable" ? "Chargeable" : "Free Service"}
+                        </Badge>
+                      </td>
+                      <td className="py-2.5 pr-4 text-xs text-muted-foreground whitespace-nowrap">
+                        {(v as any).complianceApprovedAt
+                          ? format(new Date((v as any).complianceApprovedAt), "dd MMM yyyy")
+                          : "—"}
+                      </td>
+                      <td className="py-2.5 pr-4 whitespace-nowrap">
+                        {(v as any).scheduledDate ? (
+                          <div className="text-xs">
+                            <p className="font-medium text-indigo-700">{(v as any).scheduledDate}</p>
+                            <p className="text-muted-foreground">{(v as any).scheduledTime} · <span className="capitalize">{(v as any).scheduledSlot}</span></p>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Not scheduled</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => {
+                            setScheduleVisit(v);
+                            setScheduleDate((v as any).scheduledDate || "");
+                            setScheduleSlotId((v as any).scheduledSlotId || "");
+                          }}
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <AllocatorComplaintDialog
+        visit={receivingVisit}
+        open={!!receivingVisit}
+        onClose={() => setReceivingVisit(null)}
+      />
+      <ComplianceFollowUpDialog
+        visit={followUpVisit}
+        open={!!followUpVisit}
+        onClose={() => setFollowUpVisit(null)}
+      />
+
+      {/* Schedule Visit Dialog */}
+      <Dialog open={!!scheduleVisit} onOpenChange={(open) => { if (!open) setScheduleVisit(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Schedule Visit</DialogTitle>
+            <DialogDescription>
+              Set date and time for the complaint follow-up visit.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {/* Date */}
+            <div className="space-y-1.5">
+              <Label htmlFor="sched-date" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</Label>
+              <Input
+                id="sched-date"
+                type="date"
+                value={scheduleDate}
+                onChange={(e) => setScheduleDate(e.target.value)}
+                className="rounded-xl"
+              />
+            </div>
+            {/* Slot */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Time Slot</Label>
+              <Select value={scheduleSlotId} onValueChange={setScheduleSlotId}>
+                <SelectTrigger className="rounded-xl">
+                  <SelectValue placeholder="Select a time slot" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SLOT_OPTIONS.map((slot) => (
+                    <SelectItem key={slot.id} value={slot.id}>
+                      {slot.start} – {slot.end}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setScheduleVisit(null)}>Cancel</Button>
+            <Button
+              disabled={!scheduleDate || !scheduleSlotId || scheduleSaving}
+              onClick={async () => {
+                if (!scheduleVisit) return;
+                setScheduleSaving(true);
+                try {
+                  const v = scheduleVisit as any;
+                  const slot = SLOT_OPTIONS.find(s => s.id === scheduleSlotId);
+                  const slotLabel = slot ? `${slot.start} - ${slot.end}` : scheduleSlotId;
+                  const payload: Record<string, any> = {
+                    scheduledDate: scheduleDate,
+                    scheduledSlotId: scheduleSlotId,
+                    scheduledAt: new Date().toISOString(),
+                    slotDate: scheduleDate,
+                    slotLabel,
+                    dueDate: scheduleDate,
+                    ...(v.assignedInstaller?.id ? { assignedTo: v.assignedInstaller.id } : {}),
+                  };
+                  if (v._dealDocId && v.customerId) {
+                    // nested visit — use the Firestore doc ID extracted from the path
+                    await updateDoc(
+                      doc(db, "customers", v.customerId, "deals", v._dealDocId, "visits", scheduleVisit.id),
+                      payload
+                    );
+                  } else {
+                    await updateDoc(doc(db, "companyVisits", scheduleVisit.id), payload);
+                  }
+                  setScheduleVisit(null);
+                } catch {
+                  // silently handle
+                } finally {
+                  setScheduleSaving(false);
+                }
+              }}
+            >
+              {scheduleSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Schedule"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
@@ -3081,7 +3612,7 @@ export default function DashboardPage() {
     }
 
     if (user?.designation === 'CRM') {
-        return <CrmDashboard dashboardType="CRM" />;
+        return <AllocatorDashboard />;
     }
     
     if (normalizedRole === "pc" || user?.designation === 'PC') {

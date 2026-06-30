@@ -9,7 +9,7 @@ import { QuotationForm } from "@/components/features/order-management/QuotationF
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouter } from 'next/navigation';
 
-export default function InstantQuotationPage({ params: paramsPromise }: { params: { customerId: string, dealId: string } }) {
+export default function InstantQuotationPage({ params: paramsPromise }: { params: Promise<{ customerId: string, dealId: string }> }) {
     const params = use(paramsPromise);
     const { customerId, dealId } = params;
     

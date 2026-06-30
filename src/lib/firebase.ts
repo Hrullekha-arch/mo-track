@@ -5,8 +5,15 @@ import {
   FirebaseApp,
   FirebaseOptions,
 } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import {
+  Firestore,
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from "firebase/firestore";
 import { getAuth } from "firebase/auth";
+import { getStorage } from "firebase/storage";
 
 const readFirebaseWebAppConfig = (): Partial<FirebaseOptions> => {
   const raw = process.env.FIREBASE_WEBAPP_CONFIG;
@@ -78,6 +85,19 @@ if (!getApps().length) {
 }
 
 const auth = getAuth(app);
-const db = getFirestore(app);
 
-export { auth, db };
+// Enable offline persistence so the app serves from cache when internet is unavailable
+let db: Firestore;
+try {
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager(),
+    }),
+  });
+} catch {
+  db = getFirestore(app);
+}
+
+const storage = getStorage(app);
+
+export { auth, db, storage };

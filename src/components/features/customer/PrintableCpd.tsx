@@ -14,7 +14,17 @@ export function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, cust
     return <div>Printable CPD</div>;
 }
 
-export function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer }) {
+export function PrintableCustomerCpd({
+  cpd,
+  customer,
+  deal: _deal,
+  salesmen: _salesmen,
+}: {
+  cpd: Cpd;
+  customer: Customer;
+  deal?: Deal;
+  salesmen?: User[];
+}) {
     // ... existing implementation
     return <div>Printable Customer CPD</div>;
 }

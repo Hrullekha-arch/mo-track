@@ -35,7 +35,7 @@ const normalizeMobile = (value: unknown) => String(value || '').replace(/\D/g, '
 export async function addWalkinCustomer(
     data: WalkinCustomerData,
     creator?: WalkinCreator
-): Promise<{ success: boolean, message: string }> {
+): Promise<{ success: boolean, message: string; recordId?: string; walkinId?: string }> {
     console.log("form Data:", data);
     try {
         const walkinRef = adminDb.collection('Walkin_Customer');
@@ -87,7 +87,7 @@ export async function addWalkinCustomer(
             ? 'Returning-Customer'
             : String(data?.customerType || '').trim() || 'Walk-in';
 
-        await walkinRef.add({
+        const createdDoc = await walkinRef.add({
             ...data,
             mobile: rawMobile,
             mobileNormalized: mobileNormalized || null,
@@ -169,6 +169,8 @@ export async function addWalkinCustomer(
 
         return {
             success: true,
+            recordId: createdDoc.id,
+            walkinId,
             message: autoAttend
                 ? isReturningCustomer
                     ? "Customer data saved, marked as returning customer, and auto-attended by CRM."

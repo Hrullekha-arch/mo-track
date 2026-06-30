@@ -771,6 +771,7 @@ export interface StockTransaction {
   bcn: string;
   type: 'addition' | 'deduction' | 'reservation' | 'release';
   quantityChange: number;
+  invoiceNo?: string;
   poNumber?: string;
   batchNo?: string;
   warehouseId?: string;
@@ -798,6 +799,7 @@ export interface StockTransaction {
 export interface PendingPurchaseEntry {
   id: string;
   poNumber: string;
+  invoiceNo?: string;
   status: "Pending" | "Done";
   purchaseEntryStatus?: "Pending" | "Done";
   stockId: string;
@@ -1089,6 +1091,12 @@ export interface DealVisit {
     geofenceLat?: number;
     geofenceLng?: number;
     geofenceRadiusM?: number; // meters
+    // Complaint visit fields
+    complaintItem?: string;
+    complaintQuantity?: string;
+    complaintType?: string;
+    complaintDescription?: string;
+    complaintPriority?: string;
 }
 
 export interface MeasurementEntry {
@@ -1507,6 +1515,7 @@ export interface Invoice {
         total: number;
     };
     createdAt: string; // ISO Date string
+    updatedAt?: string;
     createdBy: string; // User name
     createdById?: string;
     createdByName?: string;
@@ -1834,5 +1843,145 @@ export interface InboundRow {
   vendor?: string;
   docketNo?: string;
   purchaseRequestId?: string;
-  itemIndex: number;    // for referencing original item
+  itemIndex: number;
+}
+
+// ─── Vendor Master ───────────────────────────────────────────────────────────
+export interface Vendor {
+  id: string;
+  name: string;
+  vendorCode?: string;
+  contactPerson?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  gstin?: string;
+  pan?: string;
+  bankName?: string;
+  accountNo?: string;
+  ifsc?: string;
+  paymentTerms?: string;
+  category?: string;
+  notes?: string;
+  isActive?: boolean;
+  createdAt: string;
+  updatedAt?: string;
+  createdBy?: string;
+}
+
+// ─── Payment Received (from customer) ────────────────────────────────────────
+export interface PaymentReceived {
+  id: string;
+  paymentNo: string;
+  customerId?: string;
+  customerName: string;
+  orderId?: string;
+  orderNo?: string;
+  invoiceId?: string;
+  invoiceNo?: string;
+  amount: number;
+  mode: 'Cash' | 'Card' | 'UPI' | 'Cheque' | 'NEFT' | 'RTGS';
+  referenceNo?: string;
+  date: string;
+  notes?: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+// ─── Vendor Bill ──────────────────────────────────────────────────────────────
+export interface VendorBillItem {
+  description: string;
+  qty: number;
+  rate: number;
+  gst?: number;
+  amount: number;
+}
+
+export interface VendorBill {
+  id: string;
+  billNo: string;
+  vendorBillNo?: string;
+  vendorId?: string;
+  vendorName: string;
+  purchaseRequestId?: string;
+  purchaseRequestNo?: string;
+  date: string;
+  dueDate?: string;
+  items: VendorBillItem[];
+  subtotal: number;
+  taxAmount: number;
+  total: number;
+  status: 'draft' | 'pending' | 'paid' | 'partial' | 'overdue';
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+  createdBy: string;
+}
+
+// ─── Vendor Payment ───────────────────────────────────────────────────────────
+export interface VendorPayment {
+  id: string;
+  paymentNo: string;
+  vendorId?: string;
+  vendorName: string;
+  billId?: string;
+  billNo?: string;
+  amount: number;
+  mode: 'Cash' | 'Cheque' | 'NEFT' | 'RTGS' | 'UPI';
+  referenceNo?: string;
+  date: string;
+  notes?: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+// ─── Stock Transfer ───────────────────────────────────────────────────────────
+export interface StockTransfer {
+  id: string;
+  transferNo: string;
+  fromLocation: string;
+  toLocation: string;
+  stockId: string;
+  stockName: string;
+  bcn?: string;
+  quantity: number;
+  unit?: string;
+  status: 'pending' | 'completed' | 'cancelled';
+  requestedBy: string;
+  notes?: string;
+  transferDate: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+// ─── Sales Return ─────────────────────────────────────────────────────────────
+export interface SalesReturnItem {
+  description: string;
+  qty: number;
+  rate: number;
+  amount: number;
+  bcn?: string;
+}
+
+export interface SalesReturn {
+  id: string;
+  returnNo: string;
+  orderId?: string;
+  orderNo?: string;
+  invoiceId?: string;
+  invoiceNo?: string;
+  customerId?: string;
+  customerName: string;
+  returnDate: string;
+  reason: string;
+  items: SalesReturnItem[];
+  total: number;
+  status: 'pending' | 'approved' | 'processed' | 'rejected';
+  creditNoteNo?: string;
+  notes?: string;
+  createdAt: string;
+  createdBy: string;
 }

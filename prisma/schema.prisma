@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model ProductionOrder {
+  id                   String          @id @default(cuid())
+  orderNo              String          @unique
+  customerName         String
+  phone                String
+  customerDemand       String
+  bedType              String
+  roomName             String?
+  formStatus           String          @default("filled")
+  approvalStatus       String          @default("pending")
+  barcode              String?
+  allItemsAvailable    Boolean         @default(false)
+  bomStatus            String          @default("locked")
+  workshopStatus       String          @default("waiting")
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  measurement          BedMeasurement?
+  drawings             Drawing[]
+  bomItems             BomItem[]
+  workshopLogs         WorkshopLog[]
+}
+
+model BedMeasurement {
+  id                String           @id @default(cuid())
+  orderId           String           @unique
+  widthInches       Float
+  lengthInches      Float
+  heightInches      Float
+  headboardInches   Float?
+  storageType       String?
+  remarks           String?
+  order             ProductionOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model Drawing {
+  id          String           @id @default(cuid())
+  orderId      String
+  type         String
+  drawingNo    String          @unique
+  status       String          @default("pending")
+  approvedBy   String?
+  approvedAt   DateTime?
+  order        ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model InventoryItem {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  name        String
+  unit        String
+  inStockQty  Float
+  unitCost    Float
+  bomItems    BomItem[]
+}
+
+model BomItem {
+  id               String           @id @default(cuid())
+  orderId           String
+  inventoryItemId   String
+  quantityRequired  Float
+  quantityReserved  Float           @default(0)
+  isAvailable       Boolean         @default(false)
+  order             ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  inventoryItem     InventoryItem   @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+}
+
+model Person {
+  id            String         @id @default(cuid())
+  name          String
+  role          String
+  helperType    String?
+  mobile        String?
+  active        Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  workshopLogs  WorkshopLog[]
+}
+
+model Machine {
+  id            String         @id @default(cuid())
+  code          String         @unique
+  name          String
+  category      String
+  process       String
+  active        Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  workshopLogs  WorkshopLog[]
+}
+
+model RoutingSequence {
+  id          String   @id @default(cuid())
+  productType String
+  stepNo      Int
+  stageName   String
+  checkpoint  String?
+  estimatedHr Float
+}
+
+model WorkshopLog {
+  id                 String           @id @default(cuid())
+  orderId            String
+  personId           String
+  machineId          String?
+  helperName         String?
+  startedAt          DateTime
+  endedAt            DateTime?
+  labourCost         Float?
+  machineCost        Float?
+  note               String?
+  order              ProductionOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  person             Person           @relation(fields: [personId], references: [id], onDelete: Cascade)
+  machine            Machine?         @relation(fields: [machineId], references: [id], onDelete: SetNull)
+}

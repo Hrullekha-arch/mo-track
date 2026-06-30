@@ -87,6 +87,7 @@ interface EnrichedQuotation extends Quotation {
   customerId: string;
   dealName: string;
   customerName: string;
+  customerPhone?: string;
 }
 
 interface EnrichedOrder extends Order {
@@ -376,6 +377,7 @@ function ApproveQuotationTab({ onCountChange }: { onCountChange?: (n: number) =>
             </DialogHeader>
             <div className="max-h-[70vh] overflow-y-auto my-4 border border-[#E2DDD5] rounded-xl">
               <PrintableQuotationProfessional
+                type="quotation"
                 values={selectedQuotation}
                 creatorName={
                   allUsers.find((u) => u.id === selectedQuotation.createdBy)
@@ -496,8 +498,8 @@ function ApproveOrdersTab({ onCountChange }: { onCountChange?: (n: number) => vo
         ) : (
           orders.map((order) => {
             const items =
-              order.fabricDetails?.length > 0
-                ? order.fabricDetails
+              (order.fabricDetails?.length ?? 0) > 0
+                ? order.fabricDetails ?? []
                 : (order.sections?.NORMAL?.items || []).map((item: any) => ({
                     fabricName: item.bcn || item.description || "N/A",
                     quantity: String(item.qty ?? 0),

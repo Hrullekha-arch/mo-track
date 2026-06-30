@@ -1,12 +1,14 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Textarea } from "@/components/ui/textarea";
 import {
   User,
+  Deal,
   DealOrder,
   DealVisit,
   Selection,
@@ -32,7 +34,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { storage } from "@/lib/firebase";
 import { addVisitAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
+import { saveComplianceAction } from "@/app/dashboard/complain-approval/compliance-actions";
 import {
   subDeliveryInstallationItems,
   FittingInstallationItems,
@@ -92,6 +97,11 @@ const visitSchema = z.object({
   complaintType: z.string().optional(),
   complaintDescription: z.string().optional(),
   complaintPriority: z.string().optional(),
+  complaintItem: z.string().optional(),
+  complaintQuantity: z
+    .string()
+    .optional()
+    .refine((v) => !v || /^\d+(\.\d+)?$/.test(v), { message: "Quantity must be a number" }),
   
   // Sample Showing fields
   sampleShowingItems: z.array(z.string()).optional(),
@@ -209,6 +219,7 @@ const extractDeliveryItemsFromOrder = (order: any) => {
 // Add to the VisitForm props interface:
 export function VisitForm({
   customer,
+  deal,
   customerId,
   dealId,
   onVisitAdded,
@@ -219,6 +230,7 @@ export function VisitForm({
   hideCreateButton = false,
 }: {
   customer?: Customer;
+  deal?: Deal;
   customerId: string;
   dealId: string;
   onVisitAdded: (visit: DealVisit) => void;
@@ -230,17 +242,28 @@ export function VisitForm({
   autoOpen?: boolean;
   hideCreateButton?: boolean;
 }) {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(!!autoOpen);
   const [salesman, setSalesman] = useState<User[]>([]);
+  const [crmUsers, setCrmUsers] = useState<{ id: string; name: string }[]>([]);
+  const [selectedCrm, setSelectedCrm] = useState<{ id: string; name: string } | null>(null);
+  const [complianceOpen, setComplianceOpen] = useState(false);
+  const [complianceForm, setComplianceForm] = useState({
+    dealId: dealId || "",
+    customerName: customer?.name || "",
+    salesman: "",
+    item: "",
+    category: "",
+    quantity: "",
+    typeOfReturn: "",
+    returnSubOptions: [] as string[],
+    descriptionForReturn: "",
+    images: [] as File[],
+  });
+  const [complianceLoading, setComplianceLoading] = useState(false);
 
-  //=================log
-  console.log("VisitForm props - customer:", customer);
-  console.log("VisitForm props - orders:", orders);
-  console.log("VisitForm props - selections:", selections);
-
-  //======================fetch Sales Persons for dropdown========================
-  useEffect(()=>{
+  useEffect(() => {
     const fetchSalesPersons = async () => {
       try {
         const salesPersonsData = await getSalesmen();
@@ -251,6 +274,28 @@ export function VisitForm({
     };
     fetchSalesPersons();
   }, []);
+
+  React.useEffect(() => {
+    if (!deal && !customer) return;
+    const representativeId = (deal as any)?.assignedSalesPerson?.id || (deal as any)?.representativeId;
+    const matchedSalesman = salesmen.find((s) => s.id === representativeId);
+    const salesmanName = matchedSalesman?.name || (deal as any)?.assignedSalesPerson?.name || "";
+    const itemName = (deal as any)?.title || (deal as any)?.dealName || "";
+
+    setComplianceForm((f) => ({
+      ...f,
+      dealId: dealId || f.dealId,
+      customerName: customer?.name || f.customerName,
+      salesman: salesmanName || f.salesman,
+      item: itemName || f.item,
+    }));
+  }, [deal, customer, dealId, salesmen]);
+
+  const RETURN_SUB_OPTIONS: Record<string, string[]> = {
+    Alteration: ["Fitting Issue", "Length Adjustment", "Width Adjustment", "Style Change"],
+    Defective: ["Torn / Damaged", "Stained", "Color Fading", "Broken Parts"],
+    "Wrong Size": ["Too Large", "Too Small", "Wrong Dimensions", "Measurement Error"],
+  };
 
   React.useEffect(() => {
     if (autoOpen) setCreateOpen(true);
@@ -291,6 +336,18 @@ export function VisitForm({
   const { toast } = useToast();
   const { user } = useAuth();
 
+  React.useEffect(() => {
+    if (activeTab !== "complaint" || crmUsers.length > 0) return;
+    getDocs(query(collection(db, "users"), where("role", "==", "employee")))
+      .then((snap) => {
+        const crms = snap.docs
+          .filter((d) => String((d.data() as any).designation || "").trim().toUpperCase() === "CRM")
+          .map((d) => ({ id: d.id, name: (d.data() as any).name || d.id }));
+        setCrmUsers(crms);
+      })
+      .catch(() => {});
+  }, [activeTab]);
+
   const hasMeasurementVisit = useMemo(
     () => visits.some((v) => v.typeOfVisit === "measurement"),
     [visits]
@@ -312,6 +369,8 @@ export function VisitForm({
       fittingInstallations: fittingInstallationOptions.map(() => null),
       subFittingInstallations: subDeliveryInstallationOptions.map(() => null),
       otherFitting: "",
+      complaintItem: "",
+      complaintQuantity: "",
       complaintType: "",
       complaintDescription: "",
       complaintPriority: "medium",
@@ -522,6 +581,19 @@ export function VisitForm({
         return;
       }
 
+    if (activeTab === "complaint") {
+      if (!data.complaintItem?.trim()) {
+        form.setError("complaintItem", { message: "Item Name is required" });
+        toast({ variant: "destructive", title: "Item Name is required" });
+        return;
+      }
+      if (!data.complaintQuantity?.trim()) {
+        form.setError("complaintQuantity", { message: "Quantity is required" });
+        toast({ variant: "destructive", title: "Quantity is required" });
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const savedIndex = Number(selectedAddressIndex);
@@ -558,6 +630,7 @@ export function VisitForm({
         subFittingInstallations: clean(data.subFittingInstallations),
         customerAddress: nextAddress.address,
         customerLandmark: nextAddress.landmark || "",
+        ...(activeTab === "complaint" && selectedCrm ? { assignedCrm: selectedCrm } : {}),
       };
 
       console.log("📦 [VISIT->BACKEND] payload =", visitDataForDb);
@@ -581,6 +654,7 @@ export function VisitForm({
         onVisitAdded(result.visit);
         setCreateOpen(false);
         form.reset();
+        setSelectedCrm(null);
       } else {
         toast({
           variant: "destructive",
@@ -1039,6 +1113,52 @@ export function VisitForm({
         )}
       />
 
+      <div className="grid grid-cols-2 gap-4">
+        <FormField
+          control={form.control}
+          name="complaintItem"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Item Name *</FormLabel>
+              <FormControl>
+                <Input placeholder="Enter item name" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="complaintQuantity"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Quantity *</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder="0"
+                  inputMode="decimal"
+                  {...field}
+                  onKeyDown={(e) => {
+                    if (
+                      !/[\d.]/.test(e.key) &&
+                      !["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)
+                    ) {
+                      e.preventDefault();
+                    }
+                  }}
+                  onChange={(e) => {
+                    const cleaned = e.target.value.replace(/[^0-9.]/g, "");
+                    field.onChange(cleaned);
+                  }}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </div>
+
       <FormField
         control={form.control}
         name="complaintType"
@@ -1105,6 +1225,26 @@ export function VisitForm({
           </FormItem>
         )}
       />
+
+      <div className="space-y-2">
+        <Label>Select CRM <span className="text-muted-foreground text-xs font-normal">(optional)</span></Label>
+        <Select
+          value={selectedCrm?.id || ""}
+          onValueChange={(id) => {
+            const found = crmUsers.find((c) => c.id === id);
+            setSelectedCrm(found ? { id: found.id, name: found.name } : null);
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={crmUsers.length === 0 ? "Loading CRM users…" : "Select CRM to assign"} />
+          </SelectTrigger>
+          <SelectContent>
+            {crmUsers.map((c) => (
+              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 
@@ -1268,7 +1408,7 @@ const OtherVisitContent = (
     <>
       {/* Trigger button */}
       {!hideCreateButton && (
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6 flex justify-end gap-2">
           <Button onClick={() => setCreateOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
             Create Visit
@@ -1489,6 +1629,7 @@ const OtherVisitContent = (
                   onClick={() => {
                     setCreateOpen(false);
                     form.reset();
+                    setSelectedCrm(null);
                   }}
                 >
                   Cancel
@@ -1501,6 +1642,264 @@ const OtherVisitContent = (
               </DialogFooter>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Compliance Dialog */}
+      <Dialog open={complianceOpen} onOpenChange={setComplianceOpen}>
+        <DialogContent
+          className="max-w-lg max-h-[90vh] overflow-y-auto"
+          onPointerDownOutside={(e) => {
+            // Prevent dialog from closing when clicking inside a Radix Select/dropdown portal
+            if ((e.target as Element)?.closest?.("[data-radix-popper-content-wrapper]")) {
+              e.preventDefault();
+            }
+          }}
+          onInteractOutside={(e) => {
+            if ((e.target as Element)?.closest?.("[data-radix-popper-content-wrapper]")) {
+              e.preventDefault();
+            }
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Create Compliance</DialogTitle>
+            <DialogDescription>Fill in the compliance details and submit.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1">
+              <Label>Deal ID</Label>
+              <Input
+                value={complianceForm.dealId}
+                onChange={(e) => setComplianceForm((f) => ({ ...f, dealId: e.target.value }))}
+                placeholder="Deal ID"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Customer Name</Label>
+              <Input
+                value={complianceForm.customerName}
+                onChange={(e) => setComplianceForm((f) => ({ ...f, customerName: e.target.value }))}
+                placeholder="Customer name"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Salesman</Label>
+              <Select
+                value={complianceForm.salesman}
+                onValueChange={(val) => setComplianceForm((f) => ({ ...f, salesman: val }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select salesman" />
+                </SelectTrigger>
+                <SelectContent side="bottom" avoidCollisions={false}>
+                  {salesmen.map((s) => (
+                    <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Item</Label>
+              <Input
+                value={complianceForm.item}
+                onChange={(e) => setComplianceForm((f) => ({ ...f, item: e.target.value }))}
+                placeholder="Item name"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Category</Label>
+                <Input
+                  value={complianceForm.category}
+                  onChange={(e) => setComplianceForm((f) => ({ ...f, category: e.target.value }))}
+                  placeholder="e.g. Fabric, Furniture"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Quantity</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={complianceForm.quantity}
+                  onChange={(e) => setComplianceForm((f) => ({ ...f, quantity: e.target.value }))}
+                  placeholder="0"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Type of Return</Label>
+              <Select
+                value={complianceForm.typeOfReturn}
+                onValueChange={(val) =>
+                  setComplianceForm((f) => ({ ...f, typeOfReturn: val, returnSubOptions: [] }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent side="bottom" avoidCollisions={false}>
+                  <SelectItem value="Alteration">Alteration</SelectItem>
+                  <SelectItem value="Defective">Defective</SelectItem>
+                  <SelectItem value="Wrong Size">Wrong Size</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {complianceForm.typeOfReturn && RETURN_SUB_OPTIONS[complianceForm.typeOfReturn] && (
+                <div className="border rounded-md p-3 space-y-2 bg-muted/30">
+                  {RETURN_SUB_OPTIONS[complianceForm.typeOfReturn].map((option) => (
+                    <div key={option} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`sub-${option}`}
+                        checked={complianceForm.returnSubOptions.includes(option)}
+                        onCheckedChange={(checked) => {
+                          setComplianceForm((f) => ({
+                            ...f,
+                            returnSubOptions: checked
+                              ? [...f.returnSubOptions, option]
+                              : f.returnSubOptions.filter((o) => o !== option),
+                          }));
+                        }}
+                      />
+                      <label htmlFor={`sub-${option}`} className="text-sm cursor-pointer">
+                        {option}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <Label>Description for Return</Label>
+              <Textarea
+                value={complianceForm.descriptionForReturn}
+                onChange={(e) => setComplianceForm((f) => ({ ...f, descriptionForReturn: e.target.value }))}
+                placeholder="Describe the reason for return..."
+                rows={3}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Upload Image</Label>
+              <label className="flex items-center gap-2 cursor-pointer w-fit">
+                <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-3 py-1 text-sm hover:bg-muted transition-colors">
+                  <Plus className="h-4 w-4" />
+                  Choose Images
+                </div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const newFiles = Array.from(e.target.files || []);
+                    setComplianceForm((f) => ({ ...f, images: [...f.images, ...newFiles] }));
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {complianceForm.images.length > 0 && (
+                <div className="space-y-1 mt-1">
+                  {complianceForm.images.map((file, idx) => (
+                    <div key={idx} className="flex items-center gap-2 text-sm bg-muted/40 rounded px-2 py-1">
+                      <span className="truncate flex-1">{file.name}</span>
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-destructive shrink-0"
+                        onClick={() =>
+                          setComplianceForm((f) => ({
+                            ...f,
+                            images: f.images.filter((_, i) => i !== idx),
+                          }))
+                        }
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setComplianceOpen(false)}
+              disabled={complianceLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={complianceLoading}
+              onClick={async () => {
+                if (!complianceForm.dealId || !complianceForm.customerName) {
+                  toast({ variant: "destructive", title: "Deal ID and Customer Name are required" });
+                  return;
+                }
+                setComplianceLoading(true);
+                try {
+                  // Upload images client-side to Firebase Storage
+                  const imageUrls = await Promise.all(
+                    complianceForm.images.map(async (file) => {
+                      const fileRef = storageRef(storage, `compliances/${Date.now()}_${file.name}`);
+                      await uploadBytes(fileRef, file);
+                      return getDownloadURL(fileRef);
+                    })
+                  );
+
+                  const result = await saveComplianceAction({
+                    dealId: complianceForm.dealId,
+                    customerName: complianceForm.customerName,
+                    salesman: complianceForm.salesman,
+                    item: complianceForm.item,
+                    category: complianceForm.category,
+                    quantity: complianceForm.quantity,
+                    typeOfReturn: complianceForm.typeOfReturn,
+                    returnSubOptions: complianceForm.returnSubOptions,
+                    descriptionForReturn: complianceForm.descriptionForReturn,
+                    imageUrls,
+                  });
+
+                  if (!result.success) {
+                    toast({ variant: "destructive", title: "Submission Failed", description: result.message });
+                    return;
+                  }
+
+                  toast({ title: "Compliance Submitted", description: "Compliance record created successfully." });
+                  setComplianceOpen(false);
+                  const repId = (deal as any)?.assignedSalesPerson?.id || (deal as any)?.representativeId;
+                  const matched = salesmen.find((s) => s.id === repId);
+                  setComplianceForm({
+                    dealId: dealId || "",
+                    customerName: customer?.name || "",
+                    salesman: matched?.name || (deal as any)?.assignedSalesPerson?.name || "",
+                    item: (deal as any)?.title || (deal as any)?.dealName || "",
+                    category: "",
+                    quantity: "",
+                    typeOfReturn: "",
+                    returnSubOptions: [],
+                    descriptionForReturn: "",
+                    images: [],
+                  });
+                  router.push("/dashboard/complain-approval");
+                } catch (err: any) {
+                  toast({ variant: "destructive", title: "Failed", description: err.message });
+                } finally {
+                  setComplianceLoading(false);
+                }
+              }}
+            >
+              {complianceLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Submit
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

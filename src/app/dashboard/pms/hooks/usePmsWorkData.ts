@@ -23,6 +23,7 @@ import { isPmsExcludedItem } from "@/lib/pms/filters";
 import {
   isManualCompletionProcess,
   requiresManualDoneAfterProcess,
+  requiresManualDoneBeforeProcess,
 } from "@/lib/pms/process-rules";
 
 type Params = {
@@ -158,6 +159,9 @@ export const usePmsWorkData = ({
         const product = currentJob.productId ? lookups.productById.get(currentJob.productId) : undefined;
         const routingSteps = currentJob.productId ? lookups.routingByProduct.get(currentJob.productId) || [] : [];
 
+        const normalizeProc = (v?: string) =>
+          String(v || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
         const stepPlanMap = new Map<
           number,
           {
@@ -168,29 +172,34 @@ export const usePmsWorkData = ({
             status?: string;
             machineName?: string;
             personName?: string;
+            noPlanReason?: string;
           }
         >();
 
         sortedJobs.forEach((groupJob) => {
           if (groupJob.stepNo === undefined || groupJob.stepNo === null) return;
           const plan = lookups.planByJob.get(groupJob.id);
-          const hasActivePlan =
-            String(groupJob.status || "").toUpperCase() === "PLANNED" ||
-            String(groupJob.status || "").toUpperCase() === "IN_PROGRESS";
           const machineName = plan?.machineId
             ? lookups.machineById.get(plan.machineId)?.name || plan.machineId
             : undefined;
           const personName = plan?.personId
             ? lookups.personById.get(plan.personId)?.name || plan.personId
             : undefined;
+          let noPlanReason: string | undefined;
+          if (groupJob.status === "WAITING" && !machineName) {
+            const proc = normalizeProc(groupJob.process);
+            const hasMachine = machines.some((m) => normalizeProc(m.process) === proc);
+            noPlanReason = hasMachine ? "No skill match" : "No machine for this process";
+          }
           stepPlanMap.set(groupJob.stepNo, {
-            plannedStart: hasActivePlan ? groupJob.plannedStart ?? plan?.plannedStart : undefined,
-            plannedEnd: hasActivePlan ? groupJob.plannedEnd ?? plan?.plannedEnd : undefined,
+            plannedStart: groupJob.plannedStart ?? plan?.plannedStart,
+            plannedEnd: groupJob.plannedEnd ?? plan?.plannedEnd,
             actualStart: groupJob.actualStart,
             actualEnd: groupJob.actualEnd,
             status: groupJob.status,
-            machineName: machineName,
-            personName: personName,
+            machineName,
+            personName,
+            noPlanReason,
           });
         });
 
@@ -207,7 +216,9 @@ export const usePmsWorkData = ({
         const firstStepNo = routingSteps.length > 0 ? routingSteps[0].stepNo : undefined;
         const isFirstStep = currentStepNo !== undefined && firstStepNo !== undefined && currentStepNo === firstStepNo;
         const isManualStep = isManualCompletionProcess(currentJob.process || currentStep?.process || "");
-        const requiresManualDone = requiresManualDoneAfterProcess(previousStep?.process);
+        const requiresManualDone =
+          requiresManualDoneAfterProcess(previousStep?.process) ||
+          requiresManualDoneBeforeProcess(nextStep?.process);
         const currentPlan = currentStep ? stepPlanMap.get(currentStep.stepNo) : undefined;
         const nextPlan = nextStep ? stepPlanMap.get(nextStep.stepNo) : undefined;
         const machine = currentPlan?.machineName;
