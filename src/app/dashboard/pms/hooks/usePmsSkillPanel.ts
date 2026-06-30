@@ -82,8 +82,8 @@ const getGroupedSkills = () => {
         .filter(s => s.allowed)
         .map(s => `${s.machineId}-${s.personId}`)
     )
-  ).map(pair => {
-    const [machineId, personId] = pair.split('-');
+  ).map((pair) => {
+    const [machineId, personId] = (pair as string).split('-');
     return { machineId, personId };
   });
 

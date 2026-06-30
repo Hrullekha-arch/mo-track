@@ -222,9 +222,34 @@ export function StockHistoryTable() {
       }
     },
     {
-      id: 'referenceId',
-      header: 'Reference ID',
-      cell: ({ row }) => row.original.poNumber || row.original.orderId || 'N/A',
+      id: 'movementDetails',
+      header: 'In / Out Details',
+      cell: ({ row }) => {
+        const tx = row.original;
+        const isInbound = tx.type === "addition";
+        const primaryValue = isInbound
+          ? tx.invoiceNo || tx.poNumber || tx.inboundId || "N/A"
+          : tx.orderId || "N/A";
+        const secondaryValue = isInbound
+          ? tx.poNumber && tx.poNumber !== primaryValue
+            ? tx.poNumber
+            : null
+          : tx.invoiceNo || tx.poNumber || null;
+
+        return (
+          <div className="space-y-1">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {isInbound ? "Invoice No" : "Order ID"}
+            </div>
+            <div className="font-medium">{primaryValue}</div>
+            {secondaryValue ? (
+              <div className="text-xs text-muted-foreground">
+                {isInbound ? `PO: ${secondaryValue}` : `Invoice: ${secondaryValue}`}
+              </div>
+            ) : null}
+          </div>
+        );
+      },
     },
     {
       accessorKey: "createdBy",
@@ -268,6 +293,7 @@ export function StockHistoryTable() {
       data = data.filter(t => 
         t.bcn?.toLowerCase().includes(lowercasedFilter) ||
         t.createdBy?.toLowerCase().includes(lowercasedFilter) ||
+        t.invoiceNo?.toLowerCase().includes(lowercasedFilter) ||
         t.poNumber?.toLowerCase().includes(lowercasedFilter) ||
         t.orderId?.toLowerCase().includes(lowercasedFilter)
       );
@@ -327,7 +353,7 @@ export function StockHistoryTable() {
         <CardContent className="p-4">
           <div className="flex flex-wrap items-center py-4 gap-4">
             <Input
-              placeholder="Search by BCN, User, or Ref ID..."
+              placeholder="Search by BCN, User, Invoice No, PO, or Order ID..."
               value={globalFilter}
               onChange={(e) => setGlobalFilter(e.target.value)}
               className="max-w-sm"

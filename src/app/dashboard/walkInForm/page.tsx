@@ -26,6 +26,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { useAuth } from "@/context/AuthContext";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useRouter } from "next/navigation";
 
 const formSchema = z.object({
   firstName: z.string().min(1, "First Name is required."),
@@ -72,6 +73,7 @@ export default function WalkinCustomerPage() {
   const [customerType, setCustomerType] = useState<"" | "Returning-Customer" | "New-Customer">("");
   const { toast } = useToast();
   const { user } = useAuth();
+  const router = useRouter();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -146,6 +148,15 @@ export default function WalkinCustomerPage() {
           description: "Your information has been submitted successfully.",
         });
         form.reset();
+        const visitorQuery = result.recordId
+          ? `id=${encodeURIComponent(result.recordId)}`
+          : result.walkinId
+            ? `walkinId=${encodeURIComponent(result.walkinId)}`
+            : "";
+
+        if (visitorQuery) {
+          router.push(`/dashboard/selectionForm?${visitorQuery}`);
+        }
       } else {
         toast({
           variant: "destructive",

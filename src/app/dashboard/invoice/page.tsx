@@ -937,7 +937,7 @@ function GenerateInvoiceDialog({
         taxSummary: candidate.taxSummary,
         payment: {}, status: "ISSUED", isLocked: true,
         createdAt: now, updatedAt: now,
-        createdBy: user.displayName || "System",
+        createdBy: user.name || "System",
         customer: {
           name: payload.customer.name,
           phone: payload.customer.phone,

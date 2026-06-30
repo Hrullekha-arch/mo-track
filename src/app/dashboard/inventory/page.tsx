@@ -3,14 +3,17 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import {
+  ArrowUpRight,
   BarChart3,
   Boxes,
   ClipboardCheck,
   Database,
   History,
+  Layers3,
   PackageSearch,
   ScanLine,
   ShieldCheck,
+  Sparkles,
   Warehouse,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +31,9 @@ type InventoryStructureBlock = {
   title: string;
   icon: LucideIcon;
   tone: string;
+  accent: string;
+  href: string;
+  cta: string;
   items: string[];
 };
 
@@ -37,19 +43,17 @@ type InventoryStatCard = {
   detail: string;
   icon: LucideIcon;
   tone: string;
+  href: string;
+  cta: string;
 };
 
 type InventoryTab = {
   value: string;
   label: string;
   description: string;
+  icon: LucideIcon;
+  tone: string;
   content: ReactNode;
-};
-
-type HeroFlowStep = {
-  label: string;
-  value: string;
-  detail: string;
 };
 
 const inventoryStructure: InventoryStructureBlock[] = [
@@ -57,24 +61,36 @@ const inventoryStructure: InventoryStructureBlock[] = [
     title: "Catalog & Masters",
     icon: Boxes,
     tone: "border-sky-200 bg-[linear-gradient(180deg,_#fbfeff_0%,_#eef8ff_100%)]",
+    accent: "from-sky-500/20 via-cyan-400/10 to-transparent",
+    href: "/dashboard/inventory?tab=stock#workspace-tabs",
+    cta: "Show stock list",
     items: ["Item master", "Category and barcode setup", "Tax details", "Supplier-linked stock catalog"],
   },
   {
     title: "Stock Operations",
     icon: Warehouse,
     tone: "border-emerald-200 bg-[linear-gradient(180deg,_#fbfffd_0%,_#edfdf5_100%)]",
+    accent: "from-emerald-500/20 via-teal-400/10 to-transparent",
+    href: "/dashboard/inventory?tab=stock-management#workspace-tabs",
+    cta: "Open operations",
     items: ["Opening and inbound stock", "Quantity updates", "Rack placement", "Purchase-linked receipts"],
   },
   {
     title: "Verification & Control",
     icon: ShieldCheck,
     tone: "border-amber-200 bg-[linear-gradient(180deg,_#fffef9_0%,_#fff6df_100%)]",
+    accent: "from-amber-500/20 via-yellow-400/10 to-transparent",
+    href: "/dashboard/inventory?tab=stock-details#workspace-tabs",
+    cta: "View controls",
     items: ["Barcode scan", "Stock verification", "Reserved vs available tracking", "Audit-ready actions"],
   },
   {
     title: "Reports & History",
     icon: BarChart3,
     tone: "border-violet-200 bg-[linear-gradient(180deg,_#fcfbff_0%,_#f3efff_100%)]",
+    accent: "from-violet-500/20 via-fuchsia-400/10 to-transparent",
+    href: "/dashboard/inventory?tab=history#workspace-tabs",
+    cta: "Show history",
     items: ["Stock history", "Movement review", "Dead stock analysis", "Business reporting support"],
   },
 ];
@@ -86,8 +102,23 @@ const quickActions = [
   { href: "/dashboard/reports", label: "Reports", icon: History },
 ];
 
-export default async function InventoryPage() {
+type InventoryPageProps = {
+  searchParams?: Promise<{ tab?: string | string[] }>;
+};
+
+export default async function InventoryPage({ searchParams }: InventoryPageProps) {
+  const tabValues = ["stock", "stock-management", "stock-details", "tax-details", "history"] as const;
+  type InventoryTabValue = (typeof tabValues)[number];
+  const defaultTab: InventoryTabValue = "stock";
+
   const { items, lastDocId, totalCount } = await getStockPaginated();
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const rawTab = Array.isArray(resolvedSearchParams?.tab)
+    ? resolvedSearchParams?.tab[0]
+    : resolvedSearchParams?.tab;
+  const activeTab = tabValues.includes((rawTab || "") as InventoryTabValue)
+    ? ((rawTab || "") as InventoryTabValue)
+    : defaultTab;
 
   const stats: InventoryStatCard[] = [
     {
@@ -96,6 +127,8 @@ export default async function InventoryPage() {
       detail: "All inventory records in stock master",
       icon: Database,
       tone: "border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f6f8fb_100%)]",
+      href: "/dashboard/inventory?tab=stock#workspace-tabs",
+      cta: "Open stock list",
     },
     {
       label: "Visible Now",
@@ -103,6 +136,8 @@ export default async function InventoryPage() {
       detail: "Loaded on the current page for review",
       icon: PackageSearch,
       tone: "border-sky-200 bg-[linear-gradient(180deg,_#fbfeff_0%,_#eef8ff_100%)]",
+      href: "/dashboard/inventory?tab=stock#workspace-tabs",
+      cta: "View loaded records",
     },
     {
       label: "Control Areas",
@@ -110,6 +145,8 @@ export default async function InventoryPage() {
       detail: "Masters, operations, controls, and reports",
       icon: ShieldCheck,
       tone: "border-emerald-200 bg-[linear-gradient(180deg,_#fbfffd_0%,_#edfdf5_100%)]",
+      href: "/dashboard/inventory#inventory-structure",
+      cta: "See zones",
     },
     {
       label: "Workflow",
@@ -117,6 +154,8 @@ export default async function InventoryPage() {
       detail: "Store, allocate, and track with audit history",
       icon: ClipboardCheck,
       tone: "border-amber-200 bg-[linear-gradient(180deg,_#fffef9_0%,_#fff6df_100%)]",
+      href: "/dashboard/inventory?tab=history#workspace-tabs",
+      cta: "Open history",
     },
   ];
 
@@ -125,55 +164,47 @@ export default async function InventoryPage() {
       value: "stock",
       label: "Stock List",
       description: "Current inventory list with pagination and live browsing.",
+      icon: Layers3,
+      tone: "data-[state=active]:border-sky-900 data-[state=active]:bg-sky-950",
       content: <StockTable initialData={items} lastDocId={lastDocId} totalCount={totalCount} />,
     },
     {
       value: "stock-management",
       label: "Stock Management",
       description: "Create, update, and manage stock entries and operational actions.",
+      icon: Warehouse,
+      tone: "data-[state=active]:border-emerald-900 data-[state=active]:bg-emerald-950",
       content: <StockManagementV2 />,
     },
     {
       value: "stock-details",
       label: "Stock Details",
       description: "Item-level details, supporting context, and stock visibility.",
+      icon: PackageSearch,
+      tone: "data-[state=active]:border-indigo-900 data-[state=active]:bg-indigo-950",
       content: <StockDetails />,
     },
     {
       value: "tax-details",
       label: "Tax Details",
       description: "GST and tax-linked inventory configuration and review.",
+      icon: ClipboardCheck,
+      tone: "data-[state=active]:border-amber-900 data-[state=active]:bg-amber-950",
       content: <TaxDetails />,
     },
     {
       value: "history",
       label: "History",
       description: "Movement history for stock additions, deductions, and changes.",
+      icon: History,
+      tone: "data-[state=active]:border-violet-900 data-[state=active]:bg-violet-950",
       content: <StockHistoryTable />,
-    },
-  ];
-
-  const heroFlow: HeroFlowStep[] = [
-    {
-      label: "Step 1",
-      value: "Receive and verify",
-      detail: "Scan inbound stock, confirm quantity, and validate the item source.",
-    },
-    {
-      label: "Step 2",
-      value: "Store with control",
-      detail: "Place stock by warehouse and rack so teams can find it quickly.",
-    },
-    {
-      label: "Step 3",
-      value: "Track every move",
-      detail: "Reserve, issue, and review history with a clean audit trail.",
     },
   ];
 
   return (
     <div className="w-full space-y-3 p-3 md:p-3.5 lg:p-4">
-      <section className="relative overflow-hidden rounded-[22px] border border-slate-200 bg-[linear-gradient(135deg,_#0f1e33_0%,_#173252_52%,_#1e4f61_100%)] text-white shadow-xl shadow-slate-900/10">
+      <section className="relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,_rgba(38,211,186,0.18),_transparent_28%),linear-gradient(135deg,_#081525_0%,_#0f2742_35%,_#10384e_68%,_#14556a_100%)] text-white shadow-[0_28px_80px_-36px_rgba(15,23,42,0.75)]">
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute -right-20 top-0 h-56 w-56 rounded-full bg-cyan-300/10 blur-3xl" />
           <div className="absolute bottom-0 left-1/3 h-40 w-40 rounded-full bg-emerald-300/10 blur-3xl" />
@@ -181,9 +212,15 @@ export default async function InventoryPage() {
         </div>
         <div className="relative grid gap-3.5 p-3.5 md:p-4 xl:grid-cols-[minmax(0,1.02fr)_minmax(280px,0.98fr)] xl:items-start">
           <div className="space-y-3">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/8 px-2.5 py-1">
-              <div className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
-              <span className="text-[9px] font-bold uppercase tracking-[0.3em] text-slate-200">Inventory Control</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/8 px-2.5 py-1">
+                <div className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
+                <span className="text-[9px] font-bold uppercase tracking-[0.3em] text-slate-200">Inventory Control</span>
+              </div>
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-100">
+                <Sparkles className="h-3 w-3" />
+                Audit Ready
+              </div>
             </div>
             <div className="space-y-1.5">
               <h1 className="max-w-3xl text-[2rem] font-bold tracking-tight md:text-[2.35rem] xl:text-[2.65rem]">Inventory Workspace</h1>
@@ -198,52 +235,49 @@ export default async function InventoryPage() {
                   <Link
                     key={action.label}
                     href={action.href}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/8 px-2.5 py-1.5 text-xs font-medium text-white transition hover:-translate-y-0.5 hover:bg-white/14"
+                    className="group inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/8 px-2.5 py-1.5 text-xs font-medium text-white transition hover:-translate-y-0.5 hover:bg-white/14"
                   >
                     <Icon className="h-3 w-3" />
                     <span>{action.label}</span>
+                    <ArrowUpRight className="h-3 w-3 opacity-0 transition group-hover:opacity-100" />
                   </Link>
                 );
               })}
             </div>
-
-            <div className="grid gap-2 rounded-[20px] border border-white/10 bg-white/6 p-2.5 backdrop-blur-sm md:grid-cols-3">
-              {heroFlow.map((step, index) => (
-                <div
-                  key={step.label}
-                  className={`space-y-1 ${index < heroFlow.length - 1 ? "md:border-r md:border-white/10 md:pr-2.5" : ""}`}
-                >
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-300">{step.label}</p>
-                  <p className="text-[13px] font-semibold text-white md:text-sm">{step.value}</p>
-                  <p className="text-[11px] leading-relaxed text-slate-300">{step.detail}</p>
-                </div>
-              ))}
-            </div>
           </div>
 
-          <div className="grid gap-2.5 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2">
             {stats.map((stat) => {
               const Icon = stat.icon;
               return (
-                <div key={stat.label} className={`h-full rounded-[18px] border p-3 text-slate-900 shadow-sm ${stat.tone}`}>
+                <Link
+                  key={stat.label}
+                  href={stat.href}
+                  className={`group relative block h-full overflow-hidden rounded-[18px] border px-3 py-2.5 text-slate-900 shadow-[0_10px_24px_-24px_rgba(15,23,42,0.45)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_18px_36px_-28px_rgba(15,23,42,0.45)] ${stat.tone}`}
+                >
+                  <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-slate-900/10 to-transparent" />
                   <div className="flex h-full items-start justify-between gap-3">
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{stat.label}</p>
-                      <p className="mt-1 text-[1.7rem] font-bold tracking-tight leading-none md:text-[1.9rem]">{stat.value}</p>
-                      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-600">{stat.detail}</p>
+                      <p className="mt-1 text-[1.45rem] font-bold tracking-tight leading-none md:text-[1.65rem]">{stat.value}</p>
+                      <p className="mt-1 text-[10.5px] leading-relaxed text-slate-600">{stat.detail}</p>
+                      <div className="mt-2 inline-flex items-center gap-1.5 text-[10.5px] font-semibold text-slate-700">
+                        <span>{stat.cta}</span>
+                        <ArrowUpRight className="h-3 w-3 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                      </div>
                     </div>
-                    <div className="rounded-xl border border-white/70 bg-white/75 p-1.5">
+                    <div className="rounded-lg border border-white/70 bg-white/75 p-1.5">
                       <Icon className="h-3 w-3 text-slate-700" />
                     </div>
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-[linear-gradient(135deg,_#ffffff_0%,_#f7f9fc_100%)] p-5 shadow-sm">
+      <section id="inventory-structure" className="rounded-[30px] border border-slate-200 bg-[linear-gradient(135deg,_#ffffff_0%,_#f7f9fc_55%,_#eef4fb_100%)] p-5 shadow-[0_18px_50px_-40px_rgba(15,23,42,0.45)]">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.26em] text-slate-500">Inventory Structure</p>
@@ -261,22 +295,40 @@ export default async function InventoryPage() {
         </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {inventoryStructure.map((section) => (
-            <InventoryStructureCard key={section.title} section={section} />
+          {inventoryStructure.map((section, index) => (
+            <InventoryStructureCard key={section.title} section={section} index={index + 1} />
           ))}
         </div>
       </section>
 
-      <Tabs defaultValue="stock" className="w-full space-y-4">
-        <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0 md:grid-cols-3 xl:grid-cols-5">
+      <Tabs defaultValue={activeTab} className="w-full space-y-4">
+        <div id="workspace-tabs" className="rounded-[26px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-3 shadow-[0_12px_35px_-28px_rgba(15,23,42,0.35)]">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.26em] text-slate-500">Workspace Modes</p>
+              <p className="mt-1 text-sm text-slate-600">Switch between stock, operations, details, tax, and audit review.</p>
+            </div>
+            <div className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-600 md:inline-flex">
+              Control Center
+            </div>
+          </div>
+          <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 md:grid-cols-3 xl:grid-cols-5">
             {tabs.map((tab) => (
               <TabsTrigger
                 key={tab.value}
                 value={tab.value}
-                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-semibold text-slate-600 data-[state=active]:border-slate-900 data-[state=active]:bg-slate-900 data-[state=active]:text-white"
+                className={`
+                  group flex h-auto flex-col items-start gap-1 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left text-xs font-semibold text-slate-600
+                  data-[state=active]:text-white ${tab.tone}
+                `}
               >
-                {tab.label}
+                <div className="flex w-full items-center gap-2">
+                  <tab.icon className="h-4 w-4" />
+                  <span>{tab.label}</span>
+                </div>
+                <span className="text-[11px] font-normal leading-relaxed text-slate-500 group-data-[state=active]:text-white/75">
+                  {tab.description}
+                </span>
               </TabsTrigger>
             ))}
           </TabsList>
@@ -284,10 +336,17 @@ export default async function InventoryPage() {
 
         {tabs.map((tab) => (
           <TabsContent key={tab.value} value={tab.value} className="m-0">
-            <Card className="rounded-3xl border-slate-200 shadow-sm">
-              <CardHeader className="border-b border-slate-100 pb-4">
-                <CardTitle className="text-lg text-slate-950">{tab.label}</CardTitle>
-                <CardDescription>{tab.description}</CardDescription>
+            <Card className="overflow-hidden rounded-[30px] border-slate-200 shadow-[0_16px_45px_-32px_rgba(15,23,42,0.4)]">
+              <CardHeader className="border-b border-slate-100 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] pb-4">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-2.5">
+                    <tab.icon className="h-4 w-4 text-slate-700" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg text-slate-950">{tab.label}</CardTitle>
+                    <CardDescription>{tab.description}</CardDescription>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="p-4 md:p-5">
                 <Suspense fallback={<InventorySkeleton />}>{tab.content}</Suspense>
@@ -300,17 +359,22 @@ export default async function InventoryPage() {
   );
 }
 
-function InventoryStructureCard({ section }: { section: InventoryStructureBlock }) {
+function InventoryStructureCard({ section, index }: { section: InventoryStructureBlock; index: number }) {
   const Icon = section.icon;
 
   return (
-    <div className={`rounded-2xl border p-4 shadow-sm ${section.tone}`}>
+    <Link
+      href={section.href}
+      className={`group relative block overflow-hidden rounded-[24px] border p-4 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.35)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_20px_45px_-28px_rgba(15,23,42,0.4)] ${section.tone}`}
+    >
+      <div className={`pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-r ${section.accent}`} />
       <div className="flex items-start justify-between gap-3">
         <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">Zone {String(index).padStart(2, "0")}</p>
           <h3 className="text-sm font-semibold text-slate-900">{section.title}</h3>
           <p className="mt-1 text-xs text-slate-600">Core inventory block</p>
         </div>
-        <div className="rounded-xl border border-white/70 bg-white/70 p-2">
+        <div className="rounded-xl border border-white/70 bg-white/70 p-2 shadow-sm transition group-hover:scale-105">
           <Icon className="h-4 w-4 text-slate-700" />
         </div>
       </div>
@@ -322,7 +386,11 @@ function InventoryStructureCard({ section }: { section: InventoryStructureBlock 
           </div>
         ))}
       </div>
-    </div>
+      <div className="mt-4 inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
+        <span>{section.cta}</span>
+        <ArrowUpRight className="h-3 w-3 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+      </div>
+    </Link>
   );
 }
 

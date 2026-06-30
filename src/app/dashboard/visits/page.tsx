@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card } from "@/components/ui/card";
-import { collection, onSnapshot, query, doc, getDoc, collectionGroup, runTransaction } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, collectionGroup, runTransaction, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { DealVisit, Customer, Deal, User } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
-import { AssignInstallerDialog, SLOT_OPTIONS } from "@/components/features/order-management/AssignInstallerDialog";
+import { AssignInstallerDialog, SLOT_OPTIONS, type SlotSelection } from "@/components/features/order-management/AssignInstallerDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
   Eye, Share2, Copy, MapPin, History, CalendarSync, MoreHorizontal,
@@ -699,12 +699,24 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign, onShare, onViewDet
     const toDate = dateTo ? (() => { const d = new Date(dateTo); d.setHours(23, 59, 59, 999); return d; })() : hasDateFilter ? null : endOfToday;
 
     return visits.filter(visit => {
+      // Complaint visits that have been scheduled always show (regardless of scheduled date)
+      const isScheduledComplaint =
+        (visit as any)._isScheduledComplaint === true ||
+        (Boolean(visit.slotDate) && (
+          visit.typeOfVisit?.toLowerCase() === "complaint" ||
+          Boolean((visit as any).complaintType) ||
+          Boolean((visit as any).complianceApprovalStatus)
+        ));
       if (fromDate || toDate) {
-        if (!visit.dueDate) return false;
-        const due = new Date(visit.dueDate);
-        if (isNaN(due.getTime())) return false;
-        if (fromDate && due < fromDate) return false;
-        if (toDate && due > toDate) return false;
+        if (isScheduledComplaint && !hasDateFilter) {
+          // pass through — bypass today-only default for scheduled complaints
+        } else {
+          if (!visit.dueDate) return false;
+          const due = new Date(visit.dueDate);
+          if (isNaN(due.getTime())) return false;
+          if (fromDate && due < fromDate) return false;
+          if (toDate && due > toDate) return false;
+        }
       }
       if (typeFilter !== "all" && visit.typeOfVisit !== typeFilter) return false;
       if (statusFilter !== "all" && (visit.status || "requested") !== statusFilter) return false;
@@ -1356,7 +1368,7 @@ function EditVisitDialog({ visit, isOpen, onClose, salesmen, onSuccess }: {
       dueDate: visit.dueDate ? format(new Date(visit.dueDate), "yyyy-MM-dd") : visit.slotDate || "",
       representative: visit.representative || "",
       customerAddress: visit.customerAddress || visit.location?.address || "",
-      remark: visit.remark || "",
+      remark: (visit as any).remark || "",
     });
   }, [visit, form]);
 
@@ -1491,9 +1503,9 @@ function VisitDetailsDialog({ visit, assigneeNameById, onClose }: {
             {visit.typeOfVisit === "measurement" ? (
               <div>
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Measurement Details</p>
-                <p className="text-sm text-slate-700">{visit.measurements?.map(m => `‣ ${m?.name || m}`).join(", ") || "N/A"}</p>
-                {visit.blinds?.length > 0 && (
-                  <p className="text-sm text-slate-700 mt-1">Blinds: {visit.blinds.join(", ")}</p>
+                <p className="text-sm text-slate-700">{visit.measurements?.map(m => `‣ ${(m as any)?.name || m}`).join(", ") || "N/A"}</p>
+                {(visit.blinds?.length ?? 0) > 0 && (
+                  <p className="text-sm text-slate-700 mt-1">Blinds: {visit.blinds?.join(", ")}</p>
                 )}
               </div>
             ) : (
@@ -1505,10 +1517,10 @@ function VisitDetailsDialog({ visit, assigneeNameById, onClose }: {
               </div>
             )}
 
-            {visit.remark && (
+            {(visit as any).remark && (
               <div className="rounded-xl bg-amber-50 border border-amber-100 px-3 py-2.5">
                 <p className="text-[11px] text-amber-600 font-medium uppercase tracking-wide">Remark</p>
-                <p className="text-sm text-slate-700 mt-0.5">{visit.remark}</p>
+                <p className="text-sm text-slate-700 mt-0.5">{(visit as any).remark}</p>
               </div>
             )}
           </div>
@@ -1522,6 +1534,7 @@ function VisitDetailsDialog({ visit, assigneeNameById, onClose }: {
 
 export default function AllVisitsPage() {
   const [allVisits, setAllVisits] = React.useState<EnrichedDealVisit[]>([]);
+  const [companyScheduledVisits, setCompanyScheduledVisits] = React.useState<EnrichedDealVisit[]>([]);
   const [users, setUsers] = React.useState<User[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [tracking, setTracking] = React.useState<InstallerTracking[]>([]);
@@ -1658,56 +1671,108 @@ export default function AllVisitsPage() {
 
   // Firestore subscriptions
   React.useEffect(() => {
+    const onErr = (label: string) => (err: Error) => {
+      console.warn(`[${label}] Firestore listener error (will retry automatically):`, err.message);
+    };
+
     const unsubs = [
-      onSnapshot(query(collection(db, "users")), snap => {
-        setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
-      }),
-      onSnapshot(collectionGroup(db, "visits"), async snap => {
-        const customerCache = new Map<string, Customer>();
-        const dealCache = new Map<string, Deal>();
-        const results = await Promise.all(snap.docs.map(async docSnap => {
-          const visit = docSnap.data() as DealVisit;
-          const parts = docSnap.ref.path.split("/");
-          const customerId = parts[1], dealDocId = parts[3];
-          if (!customerCache.has(customerId)) {
-            const s = await getDoc(doc(db, "customers", customerId));
-            if (s.exists()) customerCache.set(customerId, { id: s.id, ...s.data() } as Customer);
-          }
-          const ck = `${customerId}-${dealDocId}`;
-          if (!dealCache.has(ck)) {
-            const s = await getDoc(doc(db, "customers", customerId, "deals", dealDocId));
-            if (s.exists()) dealCache.set(ck, { id: s.id, ...s.data() } as Deal);
-          }
-          const deal = dealCache.get(ck);
-          return {
-            ...visit, id: docSnap.id, customerId, dealDocId,
-            customerName: customerCache.get(customerId)?.name || "Unknown",
-            dealName: deal?.dealName || "Unknown",
-            dealId: deal?.dealId || "N/A",
-            customer: customerCache.get(customerId) || null,
-          };
-        }));
-        setAllVisits(results);
-        setLoading(false);
-      }),
-      onSnapshot(collection(db, "installerTracking"), snap => {
-        const installers: InstallerTracking[] = [];
-        snap.forEach((docSnap) => {
-          installers.push(normalizeTrackingDoc(docSnap.id, docSnap.data()));
-        });
-        setTracking(installers);
-        setTrackingLoading(false);
-      }),
-      onSnapshot(collection(db, "jobSuggestions"), snap => {
-        const next: Record<string, JobSuggestion> = {};
-        snap.forEach(d => { next[d.id] = { installerId: d.id, ...(d.data() as any) }; });
-        setSuggestMap(next);
-      }),
-      onSnapshot(collection(db, "adminDailyStats"), snap => {
-        const next: Record<string, AdminDailyStats> = {};
-        snap.forEach(d => { const data = d.data() as any; if (data?.installerId) next[data.installerId] = data; });
-        setDailyStatsMap(next);
-      }),
+      onSnapshot(
+        query(collection(db, "users")),
+        snap => { setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User))); },
+        onErr("users")
+      ),
+      onSnapshot(
+        collectionGroup(db, "visits"),
+        async snap => {
+          const customerCache = new Map<string, Customer>();
+          const dealCache = new Map<string, Deal>();
+          const results = await Promise.all(snap.docs.map(async docSnap => {
+            const visit = docSnap.data() as DealVisit;
+            const parts = docSnap.ref.path.split("/");
+            const customerId = parts[1], dealDocId = parts[3];
+            if (!customerCache.has(customerId)) {
+              const s = await getDoc(doc(db, "customers", customerId));
+              if (s.exists()) customerCache.set(customerId, { id: s.id, ...s.data() } as Customer);
+            }
+            const ck = `${customerId}-${dealDocId}`;
+            if (!dealCache.has(ck)) {
+              const s = await getDoc(doc(db, "customers", customerId, "deals", dealDocId));
+              if (s.exists()) dealCache.set(ck, { id: s.id, ...s.data() } as Deal);
+            }
+            const deal = dealCache.get(ck);
+            return {
+              ...visit, id: docSnap.id, customerId, dealDocId,
+              customerName: customerCache.get(customerId)?.name || "Unknown",
+              dealName: deal?.dealName || "Unknown",
+              dealId: deal?.dealId || "N/A",
+              customer: customerCache.get(customerId) || null,
+            };
+          }));
+          setAllVisits(results);
+          setLoading(false);
+        },
+        onErr("visits")
+      ),
+      onSnapshot(
+        collection(db, "installerTracking"),
+        snap => {
+          const installers: InstallerTracking[] = [];
+          snap.forEach((docSnap) => { installers.push(normalizeTrackingDoc(docSnap.id, docSnap.data())); });
+          setTracking(installers);
+          setTrackingLoading(false);
+        },
+        onErr("installerTracking")
+      ),
+      onSnapshot(
+        collection(db, "jobSuggestions"),
+        snap => {
+          const next: Record<string, JobSuggestion> = {};
+          snap.forEach(d => { next[d.id] = { installerId: d.id, ...(d.data() as any) }; });
+          setSuggestMap(next);
+        },
+        onErr("jobSuggestions")
+      ),
+      onSnapshot(
+        collection(db, "adminDailyStats"),
+        snap => {
+          const next: Record<string, AdminDailyStats> = {};
+          snap.forEach(d => { const data = d.data() as any; if (data?.installerId) next[data.installerId] = data; });
+          setDailyStatsMap(next);
+        },
+        onErr("adminDailyStats")
+      ),
+      onSnapshot(
+        query(collection(db, "companyVisits"), where("category", "==", "complaint_visit")),
+        snap => {
+          const docs = snap.docs
+            .map(d => {
+              const data = d.data() as any;
+              if (!data.slotDate) return null;
+              return {
+                id: d.id,
+                customerId: data.customerId || "",
+                dealDocId: data.dealId || "",
+                dealId: data.dealId || "",
+                customerName: data.customerSnapshot?.name || data.customerName || "Unknown",
+                customerAddress: data.location?.address || data.customerAddress || data.customerSnapshot?.address || "",
+                dealName: data.dealSnapshot?.title || data.dealName || "",
+                typeOfVisit: data.complaintType || data.typeOfVisit || "complaint",
+                assignedSalesPerson: data.assignedSalesPerson || null,
+                createdAt: data.approvedAt || data.createdAt || "",
+                createdBy: data.createdBy || "",
+                status: (data.approvalStatus || data.status || "approved").toLowerCase(),
+                slotDate: data.slotDate || "",
+                slotLabel: data.slotLabel || "",
+                dueDate: data.dueDate || data.slotDate || "",
+                assignedTo: data.assignedTo || data.assignedInstaller?.id || "",
+                _isScheduledComplaint: true,
+              } as unknown as EnrichedDealVisit;
+            })
+            .filter(Boolean) as EnrichedDealVisit[];
+          setCompanyScheduledVisits(docs);
+        },
+        onErr("companyScheduledVisits")
+      ),
     ];
     return () => unsubs.forEach(u => u());
   }, []);
@@ -1847,6 +1912,26 @@ export default function AllVisitsPage() {
       toast(r.success ? { title: "Deleted" } : { variant: "destructive", title: "Error", description: r.message });
     } catch (e: any) { toast({ variant: "destructive", title: "Error", description: e.message }); }
   };
+
+  const combinedVisits = React.useMemo(() => {
+    const isScheduled = (v: EnrichedDealVisit) =>
+      (v as any)._isScheduledComplaint === true ||
+      (Boolean(v.slotDate) && (
+        v.typeOfVisit?.toLowerCase() === "complaint" ||
+        Boolean((v as any).complaintType) ||
+        Boolean((v as any).complianceApprovalStatus)
+      ));
+    const scheduledComplaints = [
+      ...companyScheduledVisits,
+      ...allVisits.filter(isScheduled),
+    ].sort((a, b) => {
+      const aAt = (a as any).scheduledAt || (a as any).slotDate || "";
+      const bAt = (b as any).scheduledAt || (b as any).slotDate || "";
+      return bAt.localeCompare(aAt);
+    });
+    const rest = allVisits.filter(v => !isScheduled(v));
+    return [...scheduledComplaints, ...rest];
+  }, [allVisits, companyScheduledVisits]);
 
   if (loading) {
     return (
@@ -2047,7 +2132,7 @@ export default function AllVisitsPage() {
         {/* All Visits Tab */}
         <TabsContent value="all">
           <AllVisitsTable
-            visits={allVisits}
+            visits={combinedVisits}
             installers={installers}
             assigneeNameById={assigneeNameById}
             onAssign={openAssign}

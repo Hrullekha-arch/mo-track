@@ -29,6 +29,7 @@ import {
   formatDateTime,
   getQueueDelayLabel,
 } from "../pmsCore";
+import { buildEmbellishmentForm } from "../utils/pmsHelpers";
 
 type PmsOperationsTabsProps = {
   vm: any;
@@ -886,7 +887,7 @@ export function PmsOperationsTabs({ vm }: PmsOperationsTabsProps) {
                             Boolean(row.currentJobId);
                           const manualDoneLabel = canManualDone
                             ? "Manual Done"
-                            : "Manual Done only after Cutting / Assembly";
+                            : "Manual Done only at checkpoints: after Cutting or before Q&Q";
                           return (
                             <Fragment key={row.key}>
                               <TableRow>
@@ -1118,6 +1119,7 @@ export function PmsOperationsTabs({ vm }: PmsOperationsTabsProps) {
                                                 : stepPlan?.plannedEnd
                                             );
                                             const stepPerson = stepPlan?.personName;
+                                            const stepMachine = stepPlan?.machineName;
                                             const tone = isDone
                                               ? "bg-green-400 border-green-500 text-green-950"
                                               : isInProgress
@@ -1151,6 +1153,12 @@ export function PmsOperationsTabs({ vm }: PmsOperationsTabsProps) {
                                                       <div>Start: {stepStart}</div>
                                                       <div>End: {stepEnd}</div>
                                                       <div>Person: {stepPerson || "-"}</div>
+                                                      <div>Machine: {stepMachine || "-"}</div>
+                                                      {rawStepStatus === "WAITING" && !stepPerson && stepPlan?.noPlanReason && (
+                                                        <div className="mt-0.5 text-[9px] text-amber-600">
+                                                          {stepPlan.noPlanReason}
+                                                        </div>
+                                                      )}
                                                     </div>
                                                   </div>
                                                   {index < row.routingSteps.length - 1 && (

@@ -1265,7 +1265,7 @@ export async function updateStockQuantityAction(
             (transaction as any).purchaseEntryStatus
           );
           
-          const newLengthData: Partial<Stock> & { bcnDigits?: string } = {
+          const newLengthData: Partial<Stock> & { bcnDigits?: string; invoiceNo?: string } = {
               id: newLengthRef.id,
               lengthId: newLengthRef.id,
               lengthNo,
@@ -1288,6 +1288,7 @@ export async function updateStockQuantityAction(
               availableQty: transaction.quantityChange,
               reservedQty: 0,
               cutQty: 0,
+              invoiceNo: transaction.invoiceNo,
               poNumber: transaction.poNumber,
               salesman: transaction.salesman,
               purchaseEntryStatus,
@@ -1310,6 +1311,7 @@ export async function updateStockQuantityAction(
               stripUndefined({
                 id: lengthId,
                 poNumber: transaction.poNumber,
+                invoiceNo: transaction.invoiceNo,
                 status: purchaseEntryStatus,
                 purchaseEntryStatus,
                 stockId,
@@ -1957,6 +1959,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
                 bcn: bcn,
                 type: 'addition',
                 quantityChange: Number(data.originalLength ?? data.quantity) || 0,
+                invoiceNo: data.invoiceNo || data.tallyPoNumber || data.poNumber || data.inboundId || "",
                 createdAt: data.receivedAt || data.lastUpdatedAt || new Date().toISOString(),
                 salesman: data.salesman || 'N/A',
                 createdBy: "Inbound Process", // Or fetch from the original PR
@@ -2107,6 +2110,7 @@ export async function getStockTransactionHistoryPage(
                 bcn,
                 type: "addition",
                 quantityChange: quantity,
+                invoiceNo: data?.invoiceNo || data?.tallyPoNumber || data?.poNumber || data?.inboundId || "",
                 poNumber: data?.poNumber || "",
                 createdAt,
                 createdBy: data?.salesman || "Inbound Process",
@@ -2236,6 +2240,7 @@ export async function getAllStockTransactions(): Promise<StockTransaction[]> {
                 id: doc.id,
                 type: 'addition',
                 quantityChange: Number(data.quantity) || 0,
+                invoiceNo: data.invoiceNo || data.tallyPoNumber || data.poNumber || data.inboundId || "",
                 createdAt: data.lastUpdatedAt || new Date().toISOString(),
                 createdBy: data.salesman || "Inbound Process",
                 salesman: data.salesman || 'N/A',

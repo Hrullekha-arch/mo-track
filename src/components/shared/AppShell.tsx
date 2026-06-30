@@ -34,6 +34,10 @@ import {
   ShieldCheck,
   Sofa,
   BadgePercent,
+  Building2,
+  IndianRupee,
+  RotateCcw,
+  ArrowRightLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -71,9 +75,15 @@ export const navItems = [
     { href: "/dashboard/customers", icon: Contact, label: "Customers", roles: ['admin', 'employee'] },
     { href: "/dashboard/walk-in", icon: UserPlus, label: "Walk-in", roles: ['admin', 'employee'] },
     { href: "/dashboard/Sales", icon: ClipboardList, label: "Sales", roles: ['admin', 'employee'] },
+    { href: "/dashboard/payments", icon: IndianRupee, label: "Payments", roles: ['admin', 'Accounts'] },
+    { href: "/dashboard/sales-return", icon: RotateCcw, label: "Sales Returns", roles: ['admin', 'Accounts'] },
+    { href: "/dashboard/vendors", icon: Building2, label: "Vendors", roles: ['admin', 'employee'] },
     { href: "/dashboard/purchase", icon: ShoppingCart, label: "Purchase", roles: ['admin', 'employee'] },
+    { href: "/dashboard/purchase/bills", icon: FileText, label: "Vendor Bills", roles: ['admin', 'Accounts'] },
     { href: "/dashboard/inbound", icon: Archive, label: "Inbound", roles: ['admin', 'employee'] },
     { href: "/dashboard/inventory", icon: Warehouse, label: "Inventory", roles: ['admin', 'employee'] },
+    { href: "/dashboard/inventory/reorder", icon: PackageSearch, label: "Reorder", roles: ['admin', 'employee'] },
+    { href: "/dashboard/inventory/transfers", icon: ArrowRightLeft, label: "Stock Transfers", roles: ['admin', 'employee'] },
     { href: "/dashboard/Billing", icon: FileText, label: "Invoice", roles: ['admin', 'employee'] },
     //{ href: "/dashboard/cutting", icon: Scissors, label: "Cutting & Details", roles: ['admin', 'employee'] },
     { href: "/dashboard/all-orders", icon: Table, label: "Details", roles: ['admin'] },
@@ -287,6 +297,7 @@ function MobileUserMenu() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, role } = useAuth();
+  const showLeaveWidget = pathname === "/dashboard";
   const mobileNavItems = React.useMemo(() => {
     return navItems.filter((item) => {
       if (!user) return false;
@@ -354,7 +365,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
         </header>
         <main className="flex-1 overflow-y-auto">
-          <LeaveWidget />
+          {showLeaveWidget ? <LeaveWidget /> : null}
           {children}
         </main>
       </div>

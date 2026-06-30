@@ -69,7 +69,7 @@ const resolveWalkinStore = (walkin: Partial<Walkin_Customer> & Record<string, an
     walkin.storeName ||
     walkin.assignedStoreName ||
     walkin.salesmanStore ||
-    walkin.createdBy?.store ||
+    (walkin.createdBy as any)?.store ||
     ""
   ).trim();
   return resolved;
@@ -866,7 +866,7 @@ export default function WalkinDataPage() {
   const isAdmin        = user?.role === "admin";
   const isCrm          = user?.designation === "CRM";
   const isPC           = user?.designation === "PC";
-  const isSalesmanager = user?.designation === "salesmanager" || user?.designation === "headsalesmanager";
+  const isSalesmanager = user?.designation === "salesmanager" || (user?.designation as string) === "headsalesmanager";
   const canManage      = isCrm || isAdmin;
   const canAcknowledge = isAdmin || isSalesmanager;
 
@@ -1089,7 +1089,7 @@ export default function WalkinDataPage() {
 
   const getFiltered = (tab: string) =>
     branchFiltered
-      .filter(c => tab === "went-back" ? c.status === "went-back" : tab === "completed" ? c.status === "completed" : true)
+      .filter(c => tab === "went-back" ? (c.status as string) === "went-back" : tab === "completed" ? (c.status as string) === "completed" : true)
       .filter(c => { const q = search.toLowerCase(); return !q || `${(c as any).firstName} ${(c as any).familyName} ${(c as any).mobile}`.toLowerCase().includes(q); });
 
   const stats = {
@@ -1098,8 +1098,8 @@ export default function WalkinDataPage() {
     attended:  branchFiltered.filter(c => c.status === "Attended").length,
     handed:    branchFiltered.filter(c => c.status === "Handed Over").length,
     deal:      branchFiltered.filter(c => c.status === "Deal Created").length,
-    completed: branchFiltered.filter(c => c.status === "completed").length,
-    wentBack:  branchFiltered.filter(c => c.status === "went-back").length,
+    completed: branchFiltered.filter(c => (c.status as string) === "completed").length,
+    wentBack:  branchFiltered.filter(c => (c.status as string) === "went-back").length,
     // per-branch counts for the branch tabs (admin only)
     gcr:       walkinData.filter(c => (c as any).store === "MO GCR BRANCH").length,
     mg:        walkinData.filter(c => (c as any).store === "MO MG ROAD").length,
@@ -1110,7 +1110,7 @@ export default function WalkinDataPage() {
     const busy  = updatingId === c.id;
     const isAck = (c as any).acknowledgedStatus?.status === true || (c as any).acknowledgedStatus?.status === "true";
     const canCrmHandover = canManage && c.status === "Attended" && (c as any).attendedBy?.id === user?.id;
-    const canAdminChangeSalesman = isAdmin && c.status !== "completed";
+    const canAdminChangeSalesman = isAdmin && (c.status as string) !== "completed";
     const showSalesmanAssignment = canCrmHandover || canAdminChangeSalesman;
     const hasSalesman = Boolean(String((c as any).salesmanId || "").trim());
     const salesmanButtonLabel = isAdmin
@@ -1153,7 +1153,7 @@ export default function WalkinDataPage() {
             <span className="flex items-center gap-1 text-[11px] text-emerald-600 font-semibold">
               <BadgeCheck className="h-3.5 w-3.5" /> Acknowledged
             </span>
-          ) : c.status === "went-back" || (c as any).salesmanId === "X19M4xbMLbYNisf7ghBK2XTz36F2" ? (
+          ) : (c.status as string) === "went-back" || (c as any).salesmanId === "X19M4xbMLbYNisf7ghBK2XTz36F2" ? (
             <Button size="sm" variant="outline"
               className="h-7 gap-1 text-xs border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg"
               onClick={() => setWentBackCustomer(c)}>

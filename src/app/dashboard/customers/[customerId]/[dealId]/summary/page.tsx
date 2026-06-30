@@ -104,6 +104,7 @@ export default function SummaryPage() {
             }));
 
             const result = await processMeasurementSubmission({
+                customerId,
                 dealId,
                 selectionId,
                 rooms: payloadRooms,

@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
@@ -36,7 +35,6 @@ export interface StockAnalysisData {
     deadStock: { name: string; age: string; }[];
 }
 
-
 export interface ReportData {
     orders?: Order[];
     salesPerformance?: SalesPerformanceData[];
@@ -44,6 +42,14 @@ export interface ReportData {
     stockLedger?: StockTransaction[];
     profitLoss?: ProfitLossData[];
     stockAnalysis?: StockAnalysisData;
+}
+
+// Default to last 30 days when no date range selected
+function resolveRange(dateRange?: DateRange): { from: Date; to: Date } {
+    return {
+        from: dateRange?.from ?? subDays(new Date(), 30),
+        to: dateRange?.to ?? new Date(),
+    };
 }
 
 export async function getReportData(params: ReportParams): Promise<ReportData> {
@@ -55,7 +61,7 @@ export async function getReportData(params: ReportParams): Promise<ReportData> {
         case 'purchase-report':
             return { purchaseReport: await getPurchaseReport(params.dateRange) };
         case 'stock-ledger':
-            return { stockLedger: await getStockLedger() }; // Removed dateRange from here
+            return { stockLedger: await getStockLedger(params.dateRange) };
         case 'profit-loss':
             return { profitLoss: await getProfitLossReport(params.dateRange) };
         case 'stock-analysis':
@@ -67,24 +73,18 @@ export async function getReportData(params: ReportParams): Promise<ReportData> {
 
 async function getOrderSummary(dateRange?: DateRange, userId?: string): Promise<Order[]> {
     try {
-        let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = adminDb.collection('orders');
-
-        if (dateRange?.from) {
-            query = query.where('createdAt', '>=', dateRange.from.toISOString());
-        }
-        if (dateRange?.to) {
-            query = query.where('createdAt', '<=', dateRange.to.toISOString());
-        }
+        const { from, to } = resolveRange(dateRange);
+        let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = adminDb.collection('orders')
+            .where('createdAt', '>=', from.toISOString())
+            .where('createdAt', '<=', to.toISOString());
 
         if (userId && userId !== 'all') {
             query = query.where('salesPerson', '==', userId);
         }
 
-        const snapshot = await query.orderBy('createdAt', 'desc').get();
+        const snapshot = await query.orderBy('createdAt', 'desc').limit(500).get();
         const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-        
         return JSON.parse(JSON.stringify(orders));
-
     } catch (error) {
         console.error("Error fetching order summary:", error);
         return [];
@@ -94,19 +94,17 @@ async function getOrderSummary(dateRange?: DateRange, userId?: string): Promise<
 async function getSalesPerformance(dateRange?: DateRange): Promise<SalesPerformanceData[]> {
     try {
         const orders = await getOrderSummary(dateRange);
-
         const performanceMap = orders.reduce((acc, order) => {
             const salesman = order.salesPerson || 'Unknown';
             if (!acc[salesman]) {
-                acc[salesman] = { salesman: salesman, totalOrders: 0, totalValue: 0 };
+                acc[salesman] = { salesman, totalOrders: 0, totalValue: 0 };
             }
             acc[salesman].totalOrders += 1;
-            acc[salesman].totalValue += order.totalAmount || 0;
+            acc[salesman].totalValue += order.totalAmount || (order as any).grandTotal || 0;
             return acc;
         }, {} as Record<string, SalesPerformanceData>);
 
-        return Object.values(performanceMap).sort((a,b) => b.totalValue - a.totalValue);
-
+        return Object.values(performanceMap).sort((a, b) => b.totalValue - a.totalValue);
     } catch (error) {
         console.error("Error fetching sales performance:", error);
         return [];
@@ -115,37 +113,33 @@ async function getSalesPerformance(dateRange?: DateRange): Promise<SalesPerforma
 
 async function getPurchaseReport(dateRange?: DateRange): Promise<PurchaseRequest[]> {
     try {
-        let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = adminDb.collection('purchaseRequests');
-
-        if (dateRange?.from) {
-            query = query.where('createdAt', '>=', dateRange.from.toISOString());
-        }
-        if (dateRange?.to) {
-            query = query.where('createdAt', '<=', dateRange.to.toISOString());
-        }
-
-        const snapshot = await query.orderBy('createdAt', 'desc').get();
-        const requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
-        
-        return JSON.parse(JSON.stringify(requests));
+        const { from, to } = resolveRange(dateRange);
+        const snapshot = await adminDb.collection('purchaseRequests')
+            .where('createdAt', '>=', from.toISOString())
+            .where('createdAt', '<=', to.toISOString())
+            .orderBy('createdAt', 'desc')
+            .limit(300)
+            .get();
+        return JSON.parse(JSON.stringify(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest))));
     } catch (error) {
         console.error("Error fetching purchase report:", error);
         return [];
     }
 }
 
-async function getStockLedger(): Promise<StockTransaction[]> {
+// Stock transactions are stored in stocks/{stockId}/lengths subcollection
+async function getStockLedger(dateRange?: DateRange): Promise<StockTransaction[]> {
     try {
-        const stockAddedSnapshot = await adminDb.collectionGroup('stockAdded').get();
-        const stockSoldSnapshot = await adminDb.collectionGroup('stockSold').get();
-        
-        const addedTransactions = stockAddedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockTransaction));
-        const soldTransactions = stockSoldSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockTransaction));
-        
-        const allTransactions = [...addedTransactions, ...soldTransactions];
-        allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        const { from, to } = resolveRange(dateRange);
+        const snapshot = await adminDb.collectionGroup('lengths')
+            .where('createdAt', '>=', from.toISOString())
+            .where('createdAt', '<=', to.toISOString())
+            .orderBy('createdAt', 'desc')
+            .limit(300)
+            .get();
 
-        return JSON.parse(JSON.stringify(allTransactions));
+        const transactions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockTransaction));
+        return JSON.parse(JSON.stringify(transactions));
     } catch (error) {
         console.error("Error fetching stock ledger:", error);
         return [];
@@ -155,48 +149,57 @@ async function getStockLedger(): Promise<StockTransaction[]> {
 async function getProfitLossReport(dateRange?: DateRange): Promise<ProfitLossData[]> {
     try {
         const orders = await getOrderSummary(dateRange);
+        if (orders.length === 0) return [];
+
+        // Collect all unique stock IDs to batch-fetch (avoids N+1)
+        const stockIds = new Set<string>();
+        orders.forEach(order => {
+            if (order.fabricDetails) {
+                order.fabricDetails.forEach(item => {
+                    if (item.fabricName) stockIds.add(item.fabricName.replace(/\//g, '-'));
+                });
+            }
+        });
+
+        // Batch fetch stocks in chunks of 10 (Firestore getAll limit)
         const stockCache = new Map<string, Stock>();
+        const idArray = Array.from(stockIds);
+        const chunkSize = 10;
+        for (let i = 0; i < idArray.length; i += chunkSize) {
+            const chunk = idArray.slice(i, i + chunkSize);
+            const refs = chunk.map(id => adminDb.collection('stocks').doc(id));
+            if (refs.length > 0) {
+                const docs = await adminDb.getAll(...refs);
+                docs.forEach(doc => {
+                    if (doc.exists) stockCache.set(doc.id, doc.data() as Stock);
+                });
+            }
+        }
 
-        const profitLossData: ProfitLossData[] = [];
-
-        for (const order of orders) {
+        const profitLossData: ProfitLossData[] = orders.map(order => {
             let costOfGoods = 0;
             if (order.fabricDetails) {
-                for (const item of order.fabricDetails) {
-                    const stockId = item.fabricName.replace(/\//g, '-');
-                    let stockItem: Stock | undefined = stockCache.get(stockId);
-                    
-                    if (!stockItem) {
-                        const stockDoc = await adminDb.collection('stocks').doc(stockId).get();
-                        if (stockDoc.exists) {
-                            stockItem = stockDoc.data() as Stock;
-                            stockCache.set(stockId, stockItem);
-                        }
-                    }
-
+                order.fabricDetails.forEach(item => {
+                    const stockId = item.fabricName?.replace(/\//g, '-');
+                    const stockItem = stockId ? stockCache.get(stockId) : undefined;
                     if (stockItem) {
-                        const itemCost = (stockItem.rlPrice || 0) * parseFloat(item.quantity);
-                        costOfGoods += itemCost;
+                        costOfGoods += (stockItem.rlPrice || 0) * parseFloat(String(item.quantity || 0));
                     }
-                }
+                });
             }
-            
-            const totalAmount = order.totalAmount || 0;
-            const profit = totalAmount - costOfGoods;
-
-            profitLossData.push({
-                orderId: order.id,
-                customerName: order.customerName,
+            const totalAmount = order.totalAmount || (order as any).grandTotal || 0;
+            return {
+                orderId: order.crmOrderNo || order.orderNo || order.id,
+                customerName: order.customerName || order.customerSnapshot?.name || '',
                 orderDate: order.createdAt,
-                salesPerson: order.salesPerson,
-                totalAmount: totalAmount,
-                costOfGoods: costOfGoods,
-                profit: profit,
-            });
-        }
-        
-        return JSON.parse(JSON.stringify(profitLossData.sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime())));
+                salesPerson: order.salesPerson || 'Unknown',
+                totalAmount,
+                costOfGoods,
+                profit: totalAmount - costOfGoods,
+            };
+        });
 
+        return JSON.parse(JSON.stringify(profitLossData.sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime())));
     } catch (error) {
         console.error("Error fetching profit and loss report:", error);
         return [];
@@ -205,62 +208,72 @@ async function getProfitLossReport(dateRange?: DateRange): Promise<ProfitLossDat
 
 async function getStockAnalysis(dateRange?: DateRange): Promise<StockAnalysisData> {
     try {
-        const stockSoldQuery = adminDb.collectionGroup('stockSold');
-        let filteredSoldQuery: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = stockSoldQuery;
+        const { from, to } = resolveRange(dateRange);
 
-        if (dateRange?.from) {
-            filteredSoldQuery = filteredSoldQuery.where('createdAt', '>=', dateRange.from.toISOString());
-        }
-        if (dateRange?.to) {
-            filteredSoldQuery = filteredSoldQuery.where('createdAt', '<=', dateRange.to.toISOString());
-        }
-        
-        const stockSoldSnapshot = await filteredSoldQuery.get();
-        const soldTransactions = stockSoldSnapshot.docs.map(doc => doc.data() as StockTransaction);
+        // Top Selling: deduction transactions in the lengths subcollection
+        const soldSnapshot = await adminDb.collectionGroup('lengths')
+            .where('type', '==', 'deduction')
+            .where('createdAt', '>=', from.toISOString())
+            .where('createdAt', '<=', to.toISOString())
+            .limit(1000)
+            .get();
 
-        // Top Selling Products
-        const salesVolume = soldTransactions.reduce((acc, tx) => {
-            const itemName = tx.bcn || 'Unknown';
-            acc[itemName] = (acc[itemName] || 0) + Math.abs(tx.quantityChange);
-            return acc;
-        }, {} as Record<string, number>);
+        const soldTransactions = soldSnapshot.docs.map(doc => doc.data() as StockTransaction);
+
+        const salesVolume: Record<string, number> = {};
+        soldTransactions.forEach(tx => {
+            const name = tx.bcn || 'Unknown';
+            salesVolume[name] = (salesVolume[name] || 0) + Math.abs(tx.quantityChange);
+        });
 
         const topSellingProducts = Object.entries(salesVolume)
-            .map(([name, volume]) => ({ name, volume }))
+            .map(([name, volume]) => ({ name, volume: volume as number }))
             .sort((a, b) => b.volume - a.volume)
-            .slice(0, 5); // Top 5
+            .slice(0, 5);
 
-        // Dead Stock
-        const allStockSnapshot = await adminDb.collection('stocks').get();
-        const allStock = allStockSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Stock));
-        
-        // We need all sold transactions for this logic, regardless of date range.
-        const allSoldTransactions = (await adminDb.collectionGroup('stockSold').get()).docs.map(doc => doc.data() as StockTransaction);
-
-        const deadStockItems: { name: string; age: string; }[] = [];
+        // Dead Stock: items with qty > 0 but no recent sales
         const ninetyDaysAgo = subDays(new Date(), 90);
+        const allSoldSnap = await adminDb.collectionGroup('lengths')
+            .where('type', '==', 'deduction')
+            .orderBy('createdAt', 'desc')
+            .limit(2000)
+            .get();
 
-        allStock.forEach(stock => {
-            const lastSale = allSoldTransactions
-                .filter(tx => tx.bcn === stock.bcn)
-                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+        const lastSaleByBcn = new Map<string, Date>();
+        allSoldSnap.docs.forEach(doc => {
+            const tx = doc.data() as StockTransaction;
+            if (tx.bcn && !lastSaleByBcn.has(tx.bcn)) {
+                lastSaleByBcn.set(tx.bcn, new Date(tx.createdAt));
+            }
+        });
+
+        const allStockSnap = await adminDb.collection('stocks')
+            .where('availableQty', '>', 0)
+            .limit(200)
+            .get();
+
+        const deadStockItems: { name: string; age: string }[] = [];
+        allStockSnap.docs.forEach(doc => {
+            const stock = doc.data() as Stock;
+            const bcn = stock.bcn || doc.id;
+            const lastSale = lastSaleByBcn.get(bcn);
+            const stockDate = new Date(stock.createdAt || (stock as any).createdAt || Date.now());
 
             if (!lastSale) {
-                // Never sold
-                const age = differenceInDays(new Date(), new Date(stock.lastUpdatedAt));
-                deadStockItems.push({ name: stock.bcn || stock.itemName, age: `${age}+ days` });
-            } else if (new Date(lastSale.createdAt) < ninetyDaysAgo) {
-                // Not sold in the last 90 days
-                const age = differenceInDays(new Date(), new Date(lastSale.createdAt));
-                deadStockItems.push({ name: stock.bcn || stock.itemName, age: `${age} days` });
+                const age = differenceInDays(new Date(), stockDate);
+                if (age > 30) deadStockItems.push({ name: bcn, age: `${age} days` });
+            } else if (lastSale < ninetyDaysAgo) {
+                const age = differenceInDays(new Date(), lastSale);
+                deadStockItems.push({ name: bcn, age: `${age} days` });
             }
         });
 
         return {
             topSellingProducts,
-            deadStock: deadStockItems.sort((a, b) => parseInt(b.age) - parseInt(a.age)).slice(0, 5), // Top 5 oldest
+            deadStock: deadStockItems
+                .sort((a, b) => parseInt(b.age) - parseInt(a.age))
+                .slice(0, 5),
         };
-
     } catch (error) {
         console.error("Error fetching stock analysis:", error);
         return { topSellingProducts: [], deadStock: [] };

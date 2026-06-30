@@ -60,7 +60,7 @@ export function ProductForm({
   const [activeMainSection, setActiveMainSection] = useState("main");
   const [currentProducts, setCurrentProducts] = useState<DealProduct[]>(initialProducts || []);
   const [fabricCategoryGroup, setFabricCategoryGroup] = useState("MAIN");
-  const [currentBcnimsQty, setCurrentBcnimsQty] = useState([]);
+  const [currentBcnimsQty, setCurrentBcnimsQty] = useState<{ qty: number; date: string | null } | null>(null);
   const [imsSearching, setImsSearching] = useState(false);
 
   useEffect(() => {
@@ -196,7 +196,7 @@ useEffect(() => {
   const raw = localStorage.getItem("hardwarePayload");
   if (!raw) return;
 
-  let hardwareItems = [];
+  let hardwareItems: any[] = [];
 
   try {
     hardwareItems = JSON.parse(raw);
@@ -636,7 +636,7 @@ const handleStageItem = () => {
           return;
         }
         if (!html5QrCodeRef.current) {
-          html5QrCodeRef.current = new Html5Qrcode(scannerContainerId, { experimentalFeatures: { useOffscreenCanvas: true }, verbose: false });
+          html5QrCodeRef.current = new Html5Qrcode(scannerContainerId, { experimentalFeatures: { useOffscreenCanvas: true } as any, verbose: false });
         }
         if (hasCameraPermission) {
           startScanner();

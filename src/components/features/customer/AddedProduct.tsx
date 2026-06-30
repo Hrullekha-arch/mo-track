@@ -22,6 +22,7 @@ interface AddedProductProps {
   handleQuotationClick: () => void;
   handleUpdateSelectionStatus: (id: string, status: 'draft' | 'final') => void;
   setBlindDialogState: (state: { isOpen: boolean; roomName: string | null }) => void;
+  getProductKey?: (product: DealProduct) => string;
 }
 
 export default function AddedProduct({
@@ -39,6 +40,7 @@ export default function AddedProduct({
   handleQuotationClick,
   handleUpdateSelectionStatus,
   setBlindDialogState,
+  getProductKey: _getProductKey,
 }: AddedProductProps) {
   const toggleRoomSelection = (productsInRoom: any[], checked: boolean) => {
     const newSelection = { ...selectedRows };

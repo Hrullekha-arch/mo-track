@@ -9,7 +9,10 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { BarChart as RechartsBarChart, LineChart as RechartsLineChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { useState, useEffect, useMemo } from "react";
 import { DateRange } from "react-day-picker";
-import { getReportData, SalesPerformanceData, ProfitLossData, StockAnalysisData, Order, StockTransaction } from "./actions";
+import { subDays } from "date-fns";
+import { getReportData, SalesPerformanceData, ProfitLossData, StockAnalysisData } from "./actions";
+import { Order, StockTransaction } from "@/lib/types";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -19,7 +22,10 @@ const formatToINR = (value: number) => new Intl.NumberFormat('en-IN', { style: '
 
 
 export default function ReportsPage() {
-    const [dateRange, setDateRange] = useState<DateRange | undefined>();
+    const [dateRange, setDateRange] = useState<DateRange | undefined>({
+        from: subDays(new Date(), 30),
+        to: new Date(),
+    });
     const [orders, setOrders] = useState<Order[]>([]);
     const [salesPerformance, setSalesPerformance] = useState<SalesPerformanceData[]>([]);
     const [profitLoss, setProfitLoss] = useState<ProfitLossData[]>([]);
@@ -68,7 +74,7 @@ export default function ReportsPage() {
     const avgBasketSize = totalTransactions > 0 ? totalSales / totalTransactions : 0;
     
     const actionableInsights = useMemo(() => {
-        const insights = [];
+        const insights: string[] = [];
         if (stockAnalysis.topSellingProducts.length > 0) {
             const topProduct = stockAnalysis.topSellingProducts[0];
             insights.push(`Restock high-demand items like ${topProduct.name} immediately.`);

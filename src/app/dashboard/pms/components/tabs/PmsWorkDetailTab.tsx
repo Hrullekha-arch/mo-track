@@ -88,7 +88,7 @@ export function PmsWorkDetailTab({ ctx }: Props) {
                       Boolean(row.currentJobId);
                     const manualDoneTooltip = canManualDone
                       ? "Manual Done"
-                      : "Manual Done is only available for the two checkpoint steps after Cutting and after Assembly.";
+                      : "Manual Done is only available for the two checkpoint steps: after Cutting and before Q&Q.";
                     const isExpanded = Boolean(ctx.expandedWorkRows?.[row.key]);
 
                     return (
@@ -373,6 +373,12 @@ export function PmsWorkDetailTab({ ctx }: Props) {
                                                   )}
                                                 </div>
                                                 <div>Person: {stepPlan?.personName || "-"}</div>
+                                                <div>Machine: {stepPlan?.machineName || "-"}</div>
+                                                {rawStepStatus === "WAITING" && !stepPlan?.personName && stepPlan?.noPlanReason && (
+                                                  <div className="mt-0.5 text-[9px] text-amber-600">
+                                                    {stepPlan.noPlanReason}
+                                                  </div>
+                                                )}
                                               </div>
                                             </div>
                                             {index < row.routingSteps.length - 1 && (

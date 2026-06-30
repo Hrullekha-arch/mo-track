@@ -1,17 +1,18 @@
 
 "use client";
 
-import { Deal, DealProduct, Selection } from "@/lib/types";
+import { Customer, Deal, DealProduct, Selection, User } from "@/lib/types";
 import { format } from "date-fns";
-import Image from "next/image";
 
 interface PrintableSelectionProps {
     selection: Selection;
     deal: Deal | null;
-    products: DealProduct[];
+    products?: DealProduct[];
+    customer?: Customer | null;
+    salesmen?: User[];
 }
 
-export function PrintableSelection({ selection, deal, products }: PrintableSelectionProps) {
+export function PrintableSelection({ selection, deal }: PrintableSelectionProps) {
     
     // Filter the products based on the selection's productIds
     const selectedProducts = selection.products;

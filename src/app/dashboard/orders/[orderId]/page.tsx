@@ -514,7 +514,7 @@ function useOrderItems(
           };
         }
 
-        let status: ItemStatus;
+        let status: ItemStatus = { kind: "pending_po" };
 
         const matchedInvoice = invoiceSnaps.docs.find((d) => {
           const inv = d.data() as Invoice;

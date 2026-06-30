@@ -20,11 +20,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 export function ReceiptsTab({
   customerId,
   dealId,
+  receipts: initialReceipts = [],
+  onRefresh,
 }: {
   customerId: string;
   dealId: string;
+  receipts?: Receipt[];
+  onRefresh?: () => void;
 }) {
-  const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [receipts, setReceipts] = useState<Receipt[]>(initialReceipts);
   const [loading, setLoading] = useState(true);
 
   const fetchReceipts = useCallback(async () => {

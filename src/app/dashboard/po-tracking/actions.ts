@@ -174,8 +174,8 @@ export async function updateFollowUpStatus(
 
     if (linkedPoNumber) {
       inboundRef = adminDb.collection('inbounds').doc(linkedPoNumber);
-      const inboundDoc = await inboundRef.get();
-      if (inboundDoc.exists) inboundData = inboundDoc.data() as typeof inboundData;
+      const inboundDoc = await inboundRef!.get();
+      if (inboundDoc.exists) inboundData = inboundDoc.data() as (InboundRequest & { stockDetails?: any[] });
     }
 
     // ── 3. Build inbound update payload (pure computation, no extra reads) ──

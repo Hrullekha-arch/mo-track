@@ -19,7 +19,8 @@ import {
   X,
   ZoomIn,
 } from "lucide-react";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, collectionGroup, onSnapshot, query, where } from "firebase/firestore";
+import type { DealVisit } from "@/lib/types";
 
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
@@ -33,7 +34,22 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { saveComplaintApprovalAction, type ComplaintChargeType } from "./actions";
+import { saveComplaintApprovalAction, saveVisitComplaintApprovalAction, type ComplaintChargeType } from "./actions";
+import { getCompliancesAction, type ComplianceSubmission } from "./compliance-actions";
+
+const COMPLAINT_TYPE_LABELS: Record<string, string> = {
+  "product-defect": "Product Defect",
+  "installation-issue": "Installation Issue",
+  "measurement-error": "Measurement Error",
+  "color-mismatch": "Color Mismatch",
+  "damaged-delivery": "Damaged During Delivery",
+  "delay-complaint": "Delay Complaint",
+  "other-complaint": "Other",
+};
+
+const PRIORITY_LABELS: Record<string, string> = {
+  low: "Low", medium: "Medium", high: "High", urgent: "Urgent",
+};
 
 type ApprovalFilter = "all" | "pending" | "approved" | "chargeable" | "free";
 
@@ -80,6 +96,9 @@ type ComplaintVisitRow = {
   approvedBy?: ApproverInfo;
   approval?: ComplaintApproval;
   photoUrls: string[];
+  _isSubcollection?: boolean;
+  _customerId?: string;
+  _dealId?: string;
 };
 
 /* ─── helpers ─── */
@@ -340,6 +359,81 @@ function StatCard({ label, value, accent }: { label: string; value: number; acce
   );
 }
 
+/* ─── Compliance Cards ─── */
+function ComplianceCards({ compliances, loading }: { compliances: ComplianceSubmission[]; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-52 w-full rounded-2xl" />)}
+      </div>
+    );
+  }
+  if (compliances.length === 0) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 py-12 text-center text-slate-400">
+        <ShieldAlert className="mx-auto h-8 w-8 opacity-30 mb-2" />
+        <p className="text-sm">No compliance submissions yet.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {compliances.map((c) => (
+        <div key={c.id} className="rounded-2xl border border-slate-200 bg-white shadow-sm p-5 space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="font-semibold text-slate-900 text-sm">{c.customerName || "—"}</p>
+              <p className="text-xs text-slate-400 font-mono mt-0.5">Deal: {c.dealId}</p>
+            </div>
+            {c.typeOfReturn && (
+              <span className="rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5 text-[11px] font-semibold flex-shrink-0">
+                {c.typeOfReturn}
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-1 text-sm">
+            <div className="flex gap-2">
+              <span className="text-slate-400 w-20 flex-shrink-0">Salesman</span>
+              <span className="text-slate-700 font-medium">{c.salesman || "—"}</span>
+            </div>
+            <div className="flex gap-2">
+              <span className="text-slate-400 w-20 flex-shrink-0">Item</span>
+              <span className="text-slate-700 font-medium">{c.item || "—"}</span>
+            </div>
+            {c.returnSubOptions?.length > 0 && (
+              <div className="flex gap-2">
+                <span className="text-slate-400 w-20 flex-shrink-0">Sub-type</span>
+                <span className="text-slate-700">{c.returnSubOptions.join(", ")}</span>
+              </div>
+            )}
+            {c.descriptionForReturn && (
+              <div className="flex gap-2">
+                <span className="text-slate-400 w-20 flex-shrink-0">Description</span>
+                <span className="text-slate-700 line-clamp-2">{c.descriptionForReturn}</span>
+              </div>
+            )}
+          </div>
+
+          {c.imageUrls?.length > 0 && (
+            <div className="flex gap-1.5 flex-wrap mt-1">
+              {c.imageUrls.map((url, i) => (
+                <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                  <img src={url} alt={`img-${i}`} className="h-12 w-12 rounded-lg object-cover border border-slate-200 hover:opacity-80 transition" />
+                </a>
+              ))}
+            </div>
+          )}
+
+          <p className="text-[11px] text-slate-400 pt-1 border-t border-slate-100">
+            {c.createdAt ? formatDateSafe(c.createdAt) : "—"}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ─── Main Page ─── */
 export default function ComplainApprovalPage() {
   const { user, role } = useAuth();
@@ -350,17 +444,87 @@ export default function ComplainApprovalPage() {
   const hasAccess =
     normalizedRole === "admin" ||
     normalizedRole === "headsalesmanager" ||
-    normalizedDesignation === "headsalesmanager";
+    normalizedDesignation === "headsalesmanager" ||
+    normalizedDesignation === "salesmanager";
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [complaints, setComplaints] = React.useState<ComplaintVisitRow[]>([]);
+  const [compliances, setCompliances] = React.useState<ComplianceSubmission[]>([]);
+  const [compliancesLoading, setCompliancesLoading] = React.useState(true);
+  const [allComplaintVisitsRaw, setAllComplaintVisitsRaw] = React.useState<DealVisit[]>([]);
   const [selectedId, setSelectedId] = React.useState("");
   const [search, setSearch] = React.useState("");
   const [filter, setFilter] = React.useState<ApprovalFilter>("pending");
   const [chargeType, setChargeType] = React.useState<ComplaintChargeType>("free");
   const [chargeAmount, setChargeAmount] = React.useState("");
   const [approvalNote, setApprovalNote] = React.useState("");
+  const [selectedInstaller, setSelectedInstaller] = React.useState("");
+  const [installers, setInstallers] = React.useState<{ id: string; name: string }[]>([]);
+
+  React.useEffect(() => {
+    setCompliancesLoading(true);
+    getCompliancesAction().then((data) => {
+      setCompliances(data);
+      setCompliancesLoading(false);
+    });
+  }, []);
+
+  React.useEffect(() => {
+    const unsub = onSnapshot(
+      collectionGroup(db, "visits"),
+      (snapshot) => {
+        const data = snapshot.docs
+          .map((d) => {
+            const parts = d.ref.path.split('/');
+            return { id: d.id, ...d.data(), _customerId: parts[1], _dealId: parts[3] } as DealVisit & { _customerId: string; _dealId: string };
+          })
+          .filter((v) => v.typeOfVisit === "complaint");
+        data.sort((a, b) => new Date((b as any).createdAt || 0).getTime() - new Date((a as any).createdAt || 0).getTime());
+        setAllComplaintVisitsRaw(data);
+      },
+      () => setAllComplaintVisitsRaw([])
+    );
+    return () => unsub();
+  }, []);
+
+  const visitCompliances = React.useMemo<ComplianceSubmission[]>(() =>
+    allComplaintVisitsRaw.map((v: any) => ({
+      id: `visit_${v.id}`,
+      dealId: v.dealId || "",
+      customerName: v.customerSnapshot?.name || "",
+      salesman: v.assignedSalesPerson?.name || "",
+      item: v.complaintItem || "",
+      category: "complaint",
+      quantity: v.complaintQuantity || "",
+      typeOfReturn: COMPLAINT_TYPE_LABELS[v.complaintType || ""] || v.complaintType || "",
+      returnSubOptions: v.complaintPriority ? [`Priority: ${PRIORITY_LABELS[v.complaintPriority] || v.complaintPriority}`] : [],
+      descriptionForReturn: v.complaintDescription || "",
+      imageUrls: [],
+      createdAt: v.createdAt || "",
+    })),
+  [allComplaintVisitsRaw]);
+
+  const visitComplaintRows = React.useMemo<ComplaintVisitRow[]>(() =>
+    allComplaintVisitsRaw.map((v: any) => ({
+      id: v.id,
+      createdAt: v.createdAt || "",
+      customerId: v._customerId,
+      customerName: v.customerSnapshot?.name || undefined,
+      complaintType: COMPLAINT_TYPE_LABELS[v.complaintType || ""] || v.complaintType || undefined,
+      complaintSubType: v.complaintPriority ? (PRIORITY_LABELS[v.complaintPriority] || v.complaintPriority) : undefined,
+      workNote: v.complaintDescription || undefined,
+      approvalStatus: v.complianceApprovalStatus || undefined,
+      pendingApproval: !v.complianceApprovalStatus,
+      chargeType: v.complianceChargeType || undefined,
+      chargeAmount: v.complianceChargeAmount || undefined,
+      createdBy: v.assignedSalesPerson?.name || undefined,
+      photoUrls: [],
+      _isSubcollection: true,
+      _customerId: v._customerId,
+      _dealId: v._dealId,
+    })),
+  [allComplaintVisitsRaw]);
 
   React.useEffect(() => {
     if (!hasAccess) { setLoading(false); return; }
@@ -421,24 +585,40 @@ export default function ComplainApprovalPage() {
     return () => unsub();
   }, [hasAccess, toast]);
 
-  React.useEffect(() => {
-    if (!complaints.length) { setSelectedId(""); return; }
-    if (!selectedId || !complaints.some((r) => r.id === selectedId)) setSelectedId(complaints[0].id);
-  }, [complaints, selectedId]);
-
-  const selectedComplaint = React.useMemo(() => complaints.find((r) => r.id === selectedId) || null, [complaints, selectedId]);
+  const allComplaints = React.useMemo<ComplaintVisitRow[]>(() =>
+    [...visitComplaintRows, ...complaints].sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()),
+  [visitComplaintRows, complaints]);
 
   React.useEffect(() => {
-    if (!selectedComplaint) { setChargeType("free"); setChargeAmount(""); setApprovalNote(""); return; }
+    if (!allComplaints.length) { setSelectedId(""); return; }
+    if (!selectedId || !allComplaints.some((r) => r.id === selectedId)) setSelectedId(allComplaints[0].id);
+  }, [allComplaints, selectedId]);
+
+  const selectedComplaint = React.useMemo(() => allComplaints.find((r) => r.id === selectedId) || null, [allComplaints, selectedId]);
+
+  React.useEffect(() => {
+    const unsub = onSnapshot(
+      query(collection(db, "users"), where("role", "==", "installer")),
+      (snap) => {
+        setInstallers(snap.docs.map((d) => ({ id: d.id, name: (d.data() as any).name || d.id })));
+      },
+      () => {}
+    );
+    return () => unsub();
+  }, []);
+
+  React.useEffect(() => {
+    if (!selectedComplaint) { setChargeType("free"); setChargeAmount(""); setApprovalNote(""); setSelectedInstaller(""); return; }
     setChargeType(getChargeType(selectedComplaint));
     const amt = getChargeAmount(selectedComplaint);
     setChargeAmount(amt > 0 ? String(amt) : "");
     setApprovalNote(selectedComplaint.approval?.note || selectedComplaint.approvalNote || "");
+    setSelectedInstaller((selectedComplaint as any).approval?.assignedInstaller?.id || (selectedComplaint as any).assignedInstaller?.id || "");
   }, [selectedComplaint?.id]);
 
   const filteredComplaints = React.useMemo(() => {
     const q = search.trim().toLowerCase();
-    return complaints.filter((row) => {
+    return allComplaints.filter((row) => {
       if (filter === "pending" && !isPending(row)) return false;
       if (filter === "approved" && !isApproved(row)) return false;
       if (filter === "chargeable" && getChargeType(row) !== "chargeable") return false;
@@ -447,11 +627,11 @@ export default function ComplainApprovalPage() {
       return [row.customerName, row.customerPhone, row.customerEmail, row.customerCode, row.complaintType, row.id]
         .filter(Boolean).join(" ").toLowerCase().includes(q);
     });
-  }, [complaints, filter, search]);
+  }, [allComplaints, filter, search]);
 
-  const pendingCount = complaints.filter(isPending).length;
-  const approvedCount = complaints.length - pendingCount;
-  const chargeableCount = complaints.filter((r) => getChargeType(r) === "chargeable").length;
+  const pendingCount = allComplaints.filter(isPending).length;
+  const approvedCount = allComplaints.length - pendingCount;
+  const chargeableCount = allComplaints.filter((r) => getChargeType(r) === "chargeable").length;
 
   const handleSaveApproval = async () => {
     if (!selectedComplaint || !user?.id) return;
@@ -462,13 +642,29 @@ export default function ComplainApprovalPage() {
     }
     setSaving(true);
     try {
-      const result = await saveComplaintApprovalAction({
-        visitId: selectedComplaint.id,
-        chargeType,
-        chargeAmount: chargeType === "chargeable" ? amount : 0,
-        approvalNote: approvalNote.trim(),
-        actor: { id: user.id, name: user.name, email: user.email },
-      });
+      const actor = { id: user.id, name: user.name, email: user.email };
+      const installerPayload = selectedInstaller
+        ? { id: selectedInstaller, name: installers.find((i) => i.id === selectedInstaller)?.name || selectedInstaller }
+        : undefined;
+      const result = selectedComplaint._isSubcollection
+        ? await saveVisitComplaintApprovalAction({
+            customerId: selectedComplaint._customerId!,
+            dealId: selectedComplaint._dealId!,
+            visitId: selectedComplaint.id,
+            chargeType,
+            chargeAmount: chargeType === "chargeable" ? amount : 0,
+            approvalNote: approvalNote.trim(),
+            assignedInstaller: installerPayload,
+            actor,
+          })
+        : await saveComplaintApprovalAction({
+            visitId: selectedComplaint.id,
+            chargeType,
+            chargeAmount: chargeType === "chargeable" ? amount : 0,
+            approvalNote: approvalNote.trim(),
+            assignedInstaller: installerPayload,
+            actor,
+          });
       if (!result.success) {
         toast({ variant: "destructive", title: "Approval failed", description: result.message });
         return;
@@ -485,16 +681,13 @@ export default function ComplainApprovalPage() {
 
   if (!hasAccess) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <div className="max-w-md w-full rounded-2xl border border-rose-100 bg-white p-8 shadow-sm text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-50">
-            <ShieldAlert className="h-7 w-7 text-rose-500" />
+      <div className="min-h-screen bg-slate-50 p-6">
+        <div className="mx-auto max-w-screen-lg space-y-6">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900">Compliance Submissions</h1>
+            <p className="text-sm text-slate-500 mt-0.5">All submitted compliance records.</p>
           </div>
-          <h2 className="text-lg font-semibold text-slate-900">Access Restricted</h2>
-          <p className="mt-2 text-sm text-slate-500">
-            Only <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">admin</code> and{" "}
-            <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">headsalesmanager</code> users can access this page.
-          </p>
+          <ComplianceCards compliances={[...visitCompliances, ...compliances].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())} loading={compliancesLoading} />
         </div>
       </div>
     );
@@ -516,7 +709,7 @@ export default function ComplainApprovalPage() {
             </div>
             {/* Stats */}
             <div className="flex flex-wrap gap-2">
-              <StatCard label="Total" value={complaints.length} accent="#6366f1" />
+              <StatCard label="Total" value={allComplaints.length} accent="#6366f1" />
               <StatCard label="Pending" value={pendingCount} accent="#f59e0b" />
               <StatCard label="Approved" value={approvedCount} accent="#10b981" />
               <StatCard label="Chargeable" value={chargeableCount} accent="#3b82f6" />
@@ -612,7 +805,7 @@ export default function ComplainApprovalPage() {
                           </p>
                           <div className="mt-2 flex items-center justify-between">
                             <p className="text-[11px] text-slate-400">{formatDateSafe(row.createdAt, "dd MMM yyyy")}</p>
-                            <p className="text-[11px] text-slate-400">{row.createdBy || "Unknown User"}</p>
+                            <p className="text-[11px] text-slate-400">{(row as any).createdBy || "Unknown User"}</p>
                             <p className="text-[11px] font-semibold" style={{ color: ct === "chargeable" ? "#3b82f6" : "#10b981" }}>
                               {ct === "chargeable" ? formatCurrency(getChargeAmount(row)) : "Free"}
                             </p>
@@ -681,7 +874,7 @@ export default function ComplainApprovalPage() {
                       <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Visit</p>
                       <InfoRow icon={CalendarDays} label="Visit date" value={formatDateSafe(selectedComplaint.visitDate, "dd MMM yyyy")} />
                       <InfoRow icon={Clock3} label="Created" value={formatDateSafe(selectedComplaint.createdAt)} />
-                      <InfoRow icon={User2} label="Created by" value={selectedComplaint.createdBy || "Unknown User"} />
+                      <InfoRow icon={User2} label="Created by" value={(selectedComplaint as any).createdBy || "Unknown User"} />
                     </div>
                   </div>
 
@@ -791,6 +984,27 @@ export default function ComplainApprovalPage() {
                       </div>
                     </div>
                   )}
+
+                  {/* Installer */}
+                  <div className="space-y-2">
+                    <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      Select The Installer
+                    </Label>
+                    <Select value={selectedInstaller} onValueChange={setSelectedInstaller}>
+                      <SelectTrigger className="rounded-xl border-slate-200 focus:ring-indigo-400">
+                        <SelectValue placeholder="Select an installer…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {installers.length === 0 ? (
+                          <SelectItem value="__none" disabled>No installers found</SelectItem>
+                        ) : (
+                          installers.map((inst) => (
+                            <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
                   {/* Note */}
                   <div className="space-y-2">

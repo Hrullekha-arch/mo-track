@@ -41,3 +41,158 @@
  GET /dashboard/hr 200 in 427ms (next.js: 6ms, application-code: 421ms)
 ✓ Compiled in 420ms
  GET /dashboard/hr 200 in 85ms (next.js: 6ms, application-code: 80ms)
+○ Compiling /dashboard ...
+ GET /dashboard 200 in 11.7s (next.js: 10.4s, application-code: 1287ms)
+○ Compiling /api/orders/syncOrderSheet ...
+ POST /api/orders/syncOrderSheet 200 in 23.0s (next.js: 19.3s, application-code: 3.7s)
+ POST /dashboard 200 in 23.0s (next.js: 14ms, application-code: 23.0s)
+ POST /api/walkin/syncWalkinSheet 200 in 23.0s (next.js: 19.7s, application-code: 3.4s)
+ GET /dashboard/hr 200 in 371ms (next.js: 44ms, application-code: 327ms)
+○ Compiling /dashboard/meca ...
+ GET /dashboard/meca 200 in 7.9s (next.js: 7.8s, application-code: 86ms)
+ POST /dashboard/meca 200 in 6.9s (next.js: 5ms, application-code: 6.9s)
+  └─ ƒ getMecaData({"from":"2026-04-16T18:30:00.000Z","to":"2026-05-16T18:29:59.999Z"}) in 6831ms src/app/dashboard/meca/actions.ts
+ POST /dashboard/meca 200 in 6.8s (next.js: 17ms, application-code: 6.8s)
+  └─ ƒ getMecaData({"from":"2026-04-16T18:30:00.000Z","to":"2026-05-16T18:29:59.999Z"}) in 6765ms src/app/dashboard/meca/actions.ts
+Order sheet sync failed: Error: The service is currently unavailable.
+    at async POST (src\app\api\orders\syncOrderSheet\route.ts:992:9)
+  990 |     if (rowsToUpdate.length > 0) {
+  991 |       for (const chunk of chunkArray(rowsToUpdate, MAX_BATCH_UPDATE_ROWS)) {
+> 992 |         await sheets.spreadsheets.values.batchUpdate({
+      |         ^
+  993 |           spreadsheetId: sheetId,
+  994 |           requestBody: {
+  995 |             valueInputOption: "USER_ENTERED", {
+  config: {
+    url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values:batchUpdate',
+    method: 'POST',
+    apiVersion: '',
+    userAgentDirectives: [ [Object] ],
+    paramsSerializer: [Function (anonymous)],
+    data: { valueInputOption: 'USER_ENTERED', data: [Array] },
+    headers: {
+      'x-goog-api-client': 'gdcl/7.2.0 gl-node/22.22.0',
+      'Accept-Encoding': 'gzip',
+      'User-Agent': 'google-api-nodejs-client/7.2.0 (gzip)',
+      Authorization: '<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.',
+      'Content-Type': 'application/json'
+    },
+    params: {},
+    validateStatus: [Function (anonymous)],
+    retry: true,
+    body: '{"valueInputOption":"USER_ENTERED","data":[{"range":"Sheet2!A2395:R2395","values":[["16 Mar 2026, 13:46:45","THE LEELA AMBIENCE GURGAON","91-1244771234","S 2243-SR NO 1","Vishal Dubey","10277","AMBIENCE ISLAND NATIONAL HIGHWAY 8 GURGAON, GURGAON, Tikampur, Haryana, 122006","50346","","16 Mar 2026, 13:48:22","16 Mar 2026, 13:54:47","16 Mar 2026, 13:51:16","16 Mar 2026, 13:52:24","16 Mar 2026, 15:11:24","Instock","Delivery","27930","Pending"]]},{"range":"Sheet2!A2396:R2396","values":[["16 Mar 2026, 13:46:45","THE LEELA AMBIENCE GURGAON","91-1244771234","S 2243-SR NO 2","Vishal Dubey","10277","AMBIENCE ISLAND NATIONAL HIGHWAY 8 GURGAON, GURGAON, Tikampur, Haryana, 122006","50346","","16 Mar 2026, 13:48:22","16 Mar 2026, 13:54:47","16 Mar 2026, 13:51:16","16 Mar 2026, 13:52:24","16 Mar 2026, 15:11:24","Instock","Delivery","27930","Pending"]]},{"range":"Sheet2!A2894:R2894","values":[["26 Mar 2026, 11:41:25","TILAK RAJ JUNEJA ","9711689180","OLD BLIND ","TAPESHWAR","10421","","","","","","","","","","","","Complete"]]},{"range":"Sheet2!A1177:R1177","values":[["31 Jan 2026, 16:08:02","TINA KHURANA","9958181444","SOFA ","TAPESHWAR","7594","","","01 Feb 2026, 16:11:31","","","","","","","","",""]]},{"range":"Sheet2!A3375:R3375","values":[["04 Apr 2026, 10:21:13","TINA MALIK ","9891485393","VENICE ROLL MODULE HANGER-SR NO 48","SHIV DAYAL","10540","B-467 I FLOOR OPP.DPS  SUSHANT LOK PHASE 1  GURUGRAM","50697","","04 Apr 2026, 10:30:08","04 Apr 2026, 11:00:10","04 Apr 2026, 10:45:30","04 Apr 2026, 10:51:01","04 Apr 2026, 11:02:11","Instock","Stitching","5724","Pending"]]},{"range":"Sheet2!A788:R788","values":[["05 Feb 2026, 16:42:50","TINA","7836990969","FABRIC ","RAJESH BHATIA","4352","","","","","","","","","","","","Complete"]]},{"range":"Sheet2!A4109:R4109","values":[["04 Apr 2026, 17:55:46","TREHAN HOSPITALITY AND REALITY PRIVATE LIMITED","9911316153","NATURALS LINEN-SHADE 01","MURARI SINGH","10562","cc-190 cedar crest nirvana county sec 50 ggn City : GURGAON","50903","11 Apr 2026, 18:33:47","04 Apr 2026, 19:06:28","13 Apr 2026, 12:18:20","13 Apr 2026, 11:29:05","13 Apr 2026, 11:29:24","13 Apr 2026, 13:36:27","Instock","Stitching","107711.62","Complete"]]},{"range":"Sheet2!A4110:R4110","values":[["04 Apr 2026, 17:55:46","TREHAN HOSPITALITY AND REALITY PRIVATE LIMITED","9911316153","TEXTILE COATED BLACK OUT CLR-801 WHITE","MURARI SINGH","10562","cc-190 cedar crest nirvana county sec 50 ggn City : GURGAON","50903","11 Apr 2026, 18:33:47","04 Apr 2026, 19:06:28","13 Apr 2026, 12:18:20","13 Apr 2026, 11:29:05","13 Apr 2026, 11:29:24","13 Apr 2026, 13:36:27","Instock","Stitching","107711.62","Complete"]]},{"range":"Sheet2!A4111:R4111","values":[["04 Apr 2026, 17:55:46","TREHAN HOSPITALITY AND REALITY PRIVATE LIMITED","9911316153","Textile Fabric 52084340","MURARI SINGH","10562","cc-190 cedar crest nirvana county sec 50 ggn City : GURGAON","50903","11 Apr 2026, 18:33:47","04 Apr 2026, 19:06:28","13 Apr 2026, 12:18:20","13 Apr 2026, 11:29:05","13 Apr 2026, 11:29:24","13 Apr 2026, 13:36:27","Instock","Stitching","107711.62","Complete"]]},{"range":"Sheet2!A4112:R4112","values":[["04 Apr 2026, 17:55:46","TREHAN HOSPITALITY AND REALITY PRIVATE LIMITED","9911316153","THREE PLEAT STITCHING- REG","MURARI SINGH","10562","cc-190 cedar crest nirvana county sec 50 ggn City : GURGAON","50903","11 Apr 2026, 18:33:47","04 Apr 2026, 19:06:28","13 Apr 2026, 12:18:20","13 Apr 2026, 11:29:05","13 Apr 2026, 11:29:24","13 Apr 2026, 13:36:27","Instock","Stitching","107711.62","Complete"]]},{"range":"Sheet2!A6156:R6156","values":[["11 May 2026, 16:16:55","TREHAN HOSPITALITY AND REALITY PRIVATE LIMITED","9911316153","CASSIA sr no 107","MURARI SINGH","11007","cc-190 cedar crest nirvana county sec 50 ggn City : GURGAON","51523","","11 May 2026, 16:23:01","11 May 2026, 18:00:08","","11 May 2026, 16:23:21","11 May 2026, 18:12:54","Outstock","Stitching","10818.60","Pending"]]},{"range":"Sheet2!A6157:R6157","values":[["11 May 2026, 16:16:55","TREHAN HOSPITALITY AND REALITY PRIVATE LIMITED","9911316153","Cinthia # 103","MURARI SINGH","11007","cc-190 cedar crest nirvana county sec 50 ggn City : GURGAON","51523","","11 May 2026, 16:23:01","11 May 2026, 18:00:08","","11 May 2026, 16:23:21","11 May 2026, 18:12:54","Outstock","Stitching","10818.60","Pending"]]},{"range":"Sheet2!A239:R239","values":[["29 Jan 2026, 12:25:37","TREHAN HOSPITALITY AND REALITY PRIVATE LIMITED","9911316153","BLUE OCEAN#38","MURARI SINGH","7845","cc-190 cedar crest nirvana county sec 50 ggn City : GURGAON","6285","03 Apr 2026, 17:14:23","02 Feb 2026, 15:14:28","08 Feb 2026, 16:30:27","","08 Feb 2026, 15:56:29","09 Feb 2026, 10:49:50","Outstock","Stitching","64233.84","Complete"]]},{"range":"Sheet2!A240:R240","values":[["29 Jan 2026, 12:25:37","TREHAN HOSPITALITY AND REALITY PRIVATE LIMITED","9911316153","sofa-stitching-charges","MURARI SINGH","7845","cc-190 cedar crest nirvana county sec 50 ggn City : GURGAON","6285","03 Apr 2026, 17:14:23","02 Feb 2026, 15:14:28","08 Feb 2026, 16:30:27","","08 Feb 2026, 15:56:29","09 Feb 2026, 10:49:50","Outstock","Stitching","64233.84","Complete"]]},{"range":"Sheet2!A2422:R2422","values":[["16 Mar 2026, 16:30:29","TRIMURA INTERIOR ","9899570042","BOOK DELIVERY ","PAWAN SHARMA","10283","","","","","","","","","","","","Complete"]]},{"range":"Sheet2!A5677:R5677","values":[["04 May 2026, 12:51:35","TRISH PRATHI","9818163222","CURTAIN FABRIC-P3114 V5","ASHISH YADAV","10925","D- 301 PIONEER PRESIDER SECTOR 62","51372","04 May 2026, 17:07:03","04 May 2026, 17:49:56","04 May 2026, 17:54:08","","04 May 2026, 17:50:37","04 May 2026, 17:59:53","Instock","Stitching","55106.25","Complete"]]},{"range":"Sheet2!A5678:R5678","values":[["04 May 2026, 12:51:35","TRISH PRATHI","9818163222","DELUXE SATIN-232","ASHISH YADAV","10925","D- 301 PIONEER PRESIDER SECTOR 62","51372","04 May 2026, 17:07:03","04 May 2026, 17:49:56","04 May 2026, 17:54:08","","04 May 2026, 17:50:37","04 May 2026, 17:59:53","Instock","Stitching","55106.25","Complete"]]},{"range":"Sheet2!A5679:R5679","values":[["04 May 2026, 12:51:35","TRISH PRATHI","9818163222","THREE PLEAT STITCHING- REG","ASHISH YADAV","10925","D- 301 PIONEER PRESIDER SECTOR 62","51372","04 May 2026, 17:07:03","04 May 2026, 17:49:56","04 May 2026, 17:54:08","","04 May 2026, 17:50:37","04 May 2026, 17:59:53","Instock","Stitching","55106.25","Complete"]]},{"range":"Sheet2!A5662:R5662","values":[["04 May 2026, 16:01:43","TRISH PRATHI","9818163222","WalkIn","ASHISH YADAV","10931","","","","","","","","","","","",""]]},{"range":"Sheet2!A6299:R6299","values":[["04 May 2026, 17:49:19","TULIKA SHARAN ","9811132067","BLIND STITCHING CHARGES - REG","MURARI SINGH","10937","49/202 heritage city ggn, GURGAON, Haryana","51564","06 May 2026, 13:29:25","05 May 2026, 14:16:00","","","13 May 2026, 18:20:04","06 May 2026, 11:00:20","Outstock","Stitching","8256.90","Pending"]]},{"range":"Sheet2!A1453:R1453","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","OREA-OREA PLAIN 701","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A1454:R1454","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","KENZI SR NO 911","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A1455:R1455","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","KENZI SR NO 908","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A1456:R1456","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","PIXEL IBIZA # 707","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A5730:R5730","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","DELUXE SATIN-235","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A4977:R4977","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","BRASS ANTIQUE ROD 25MM","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A1459:R1459","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","JAWAJA LUXE JAWAJ46","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A3117:R3117","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","eyelet-curtain-sttiching-charges","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A2906:R2906","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","belt-stitching-charges","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A3205:R3205","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","channel-installation-charges","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A2753:R2753","values":[["24 Feb 2026, 14:42:25","Tanmay Vyas","09818583166","Park Lane KN39 # 810","RAJESH BHATIA","10019","A-1604, A-TOWER 16TH FLOOR .IRCO VICTORY VALLEY SEC-67","50462","","24 Feb 2026, 14:46:31","23 Mar 2026, 18:03:49","23 Mar 2026, 13:28:13","23 Mar 2026, 13:53:07","23 Mar 2026, 19:28:58","Instock","Delivery","7393.50","Complete"]]},{"range":"Sheet2!A2754:R2754","values":[["24 Feb 2026, 14:42:25","Tanmay Vyas","09818583166","COTTON LINING-MARKIN","RAJESH BHATIA","10019","A-1604, A-TOWER 16T'... 154794 more characters,
+    responseType: 'unknown',
+    errorRedactor: [Function: defaultErrorRedactor],
+    retryConfig: {
+      currentRetryAttempt: 0,
+      retry: 3,
+      httpMethodsToRetry: [Array],
+      noResponseRetries: 2,
+      retryDelayMultiplier: 2,
+      timeOfFirstRequest: 1778912239219,
+      totalTimeout: 9007199254740991,
+      maxRetryDelay: 9007199254740991,
+      statusCodesToRetry: [Array]
+    }
+  },
+  response: {
+    config: {
+      url: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values:batchUpdate',
+      method: 'POST',
+      apiVersion: '',
+      userAgentDirectives: [Array],
+      paramsSerializer: [Function (anonymous)],
+      data: [Object],
+      headers: [Object],
+      params: {},
+      validateStatus: [Function (anonymous)],
+      retry: true,
+      body: '{"valueInputOption":"USER_ENTERED","data":[{"range":"Sheet2!A2395:R2395","values":[["16 Mar 2026, 13:46:45","THE LEELA AMBIENCE GURGAON","91-1244771234","S 2243-SR NO 1","Vishal Dubey","10277","AMBIENCE ISLAND NATIONAL HIGHWAY 8 GURGAON, GURGAON, Tikampur, Haryana, 122006","50346","","16 Mar 2026, 13:48:22","16 Mar 2026, 13:54:47","16 Mar 2026, 13:51:16","16 Mar 2026, 13:52:24","16 Mar 2026, 15:11:24","Instock","Delivery","27930","Pending"]]},{"range":"Sheet2!A2396:R2396","values":[["16 Mar 2026, 13:46:45","THE LEELA AMBIENCE GURGAON","91-1244771234","S 2243-SR NO 2","Vishal Dubey","10277","AMBIENCE ISLAND NATIONAL HIGHWAY 8 GURGAON, GURGAON, Tikampur, Haryana, 122006","50346","","16 Mar 2026, 13:48:22","16 Mar 2026, 13:54:47","16 Mar 2026, 13:51:16","16 Mar 2026, 13:52:24","16 Mar 2026, 15:11:24","Instock","Delivery","27930","Pending"]]},{"range":"Sheet2!A2894:R2894","values":[["26 Mar 2026, 11:41:25","TILAK RAJ JUNEJA ","9711689180","OLD BLIND ","TAPESHWAR","10421","","","","","","","","","","","","Complete"]]},{"range":"Sheet2!A1177:R1177","values":[["31 Jan 2026, 16:08:02","TINA KHURANA","9958181444","SOFA ","TAPESHWAR","7594","","","01 Feb 2026, 16:11:31","","","","","","","","",""]]},{"range":"Sheet2!A3375:R3375","values":[["04 Apr 2026, 10:21:13","TINA MALIK ","9891485393","VENICE ROLL MODULE HANGER-SR NO 48","SHIV DAYAL","10540","B-467 I FLOOR OPP.DPS  SUSHANT LOK PHASE 1  GURUGRAM","50697","","04 Apr 2026, 10:30:08","04 Apr 2026, 11:00:10","04 Apr 2026, 10:45:30","04 Apr 2026, 10:51:01","04 Apr 2026, 11:02:11","Instock","Stitching","5724","Pending"]]},{"range":"Sheet2!A788:R788","values":[["05 Feb 2026, 16:42:50","TINA","7836990969","FABRIC ","RAJESH BHATIA","4352","","","","","","","","","","","","Complete"]]},{"range":"Sheet2!A4109:R4109","values":[["04 Apr 2026, 17:55:46","TREHAN HOSPITALITY AND REALITY PRIVATE LIMITED","9911316153","NATURALS LINEN-SHADE 01","MURARI SINGH","10562","cc-190 cedar crest nirvana county sec 50 ggn City : GURGAON","50903","11 Apr 2026, 18:33:47","04 Apr 2026, 19:06:28","13 Apr 2026, 12:18:20","13 Apr 2026, 11:29:05","13 Apr 2026, 11:29:24","13 Apr 2026, 13:36:27","Instock","Stitching","107711.62","Complete"]]},{"range":"Sheet2!A4110:R4110","values":[["04 Apr 2026, 17:55:46","TREHAN HOSPITALITY AND REALITY PRIVATE LIMITED","9911316153","TEXTILE COATED BLACK OUT CLR-801 WHITE","MURARI SINGH","10562","cc-190 cedar crest nirvana county sec 50 ggn City : GURGAON","50903","11 Apr 2026, 18:33:47","04 Apr 2026, 19:06:28","13 Apr 2026, 12:18:20","13 Apr 2026, 11:29:05","13 Apr 2026, 11:29:24","13 Apr 2026, 13:36:27","Instock","Stitching","107711.62","Complete"]]},{"range":"Sheet2!A4111:R4111","values":[["04 Apr 2026, 17:55:46","TREHAN HOSPITALITY AND REALITY PRIVATE LIMITED","9911316153","Textile Fabric 52084340","MURARI SINGH","10562","cc-190 cedar crest nirvana county sec 50 ggn City : GURGAON","50903","11 Apr 2026, 18:33:47","04 Apr 2026, 19:06:28","13 Apr 2026, 12:18:20","13 Apr 2026, 11:29:05","13 Apr 2026, 11:29:24","13 Apr 2026, 13:36:27","Instock","Stitching","107711.62","Complete"]]},{"range":"Sheet2!A4112:R4112","values":[["04 Apr 2026, 17:55:46","TREHAN HOSPITALITY AND REALITY PRIVATE LIMITED","9911316153","THREE PLEAT STITCHING- REG","MURARI SINGH","10562","cc-190 cedar crest nirvana county sec 50 ggn City : GURGAON","50903","11 Apr 2026, 18:33:47","04 Apr 2026, 19:06:28","13 Apr 2026, 12:18:20","13 Apr 2026, 11:29:05","13 Apr 2026, 11:29:24","13 Apr 2026, 13:36:27","Instock","Stitching","107711.62","Complete"]]},{"range":"Sheet2!A6156:R6156","values":[["11 May 2026, 16:16:55","TREHAN HOSPITALITY AND REALITY PRIVATE LIMITED","9911316153","CASSIA sr no 107","MURARI SINGH","11007","cc-190 cedar crest nirvana county sec 50 ggn City : GURGAON","51523","","11 May 2026, 16:23:01","11 May 2026, 18:00:08","","11 May 2026, 16:23:21","11 May 2026, 18:12:54","Outstock","Stitching","10818.60","Pending"]]},{"range":"Sheet2!A6157:R6157","values":[["11 May 2026, 16:16:55","TREHAN HOSPITALITY AND REALITY PRIVATE LIMITED","9911316153","Cinthia # 103","MURARI SINGH","11007","cc-190 cedar crest nirvana county sec 50 ggn City : GURGAON","51523","","11 May 2026, 16:23:01","11 May 2026, 18:00:08","","11 May 2026, 16:23:21","11 May 2026, 18:12:54","Outstock","Stitching","10818.60","Pending"]]},{"range":"Sheet2!A239:R239","values":[["29 Jan 2026, 12:25:37","TREHAN HOSPITALITY AND REALITY PRIVATE LIMITED","9911316153","BLUE OCEAN#38","MURARI SINGH","7845","cc-190 cedar crest nirvana county sec 50 ggn City : GURGAON","6285","03 Apr 2026, 17:14:23","02 Feb 2026, 15:14:28","08 Feb 2026, 16:30:27","","08 Feb 2026, 15:56:29","09 Feb 2026, 10:49:50","Outstock","Stitching","64233.84","Complete"]]},{"range":"Sheet2!A240:R240","values":[["29 Jan 2026, 12:25:37","TREHAN HOSPITALITY AND REALITY PRIVATE LIMITED","9911316153","sofa-stitching-charges","MURARI SINGH","7845","cc-190 cedar crest nirvana county sec 50 ggn City : GURGAON","6285","03 Apr 2026, 17:14:23","02 Feb 2026, 15:14:28","08 Feb 2026, 16:30:27","","08 Feb 2026, 15:56:29","09 Feb 2026, 10:49:50","Outstock","Stitching","64233.84","Complete"]]},{"range":"Sheet2!A2422:R2422","values":[["16 Mar 2026, 16:30:29","TRIMURA INTERIOR ","9899570042","BOOK DELIVERY ","PAWAN SHARMA","10283","","","","","","","","","","","","Complete"]]},{"range":"Sheet2!A5677:R5677","values":[["04 May 2026, 12:51:35","TRISH PRATHI","9818163222","CURTAIN FABRIC-P3114 V5","ASHISH YADAV","10925","D- 301 PIONEER PRESIDER SECTOR 62","51372","04 May 2026, 17:07:03","04 May 2026, 17:49:56","04 May 2026, 17:54:08","","04 May 2026, 17:50:37","04 May 2026, 17:59:53","Instock","Stitching","55106.25","Complete"]]},{"range":"Sheet2!A5678:R5678","values":[["04 May 2026, 12:51:35","TRISH PRATHI","9818163222","DELUXE SATIN-232","ASHISH YADAV","10925","D- 301 PIONEER PRESIDER SECTOR 62","51372","04 May 2026, 17:07:03","04 May 2026, 17:49:56","04 May 2026, 17:54:08","","04 May 2026, 17:50:37","04 May 2026, 17:59:53","Instock","Stitching","55106.25","Complete"]]},{"range":"Sheet2!A5679:R5679","values":[["04 May 2026, 12:51:35","TRISH PRATHI","9818163222","THREE PLEAT STITCHING- REG","ASHISH YADAV","10925","D- 301 PIONEER PRESIDER SECTOR 62","51372","04 May 2026, 17:07:03","04 May 2026, 17:49:56","04 May 2026, 17:54:08","","04 May 2026, 17:50:37","04 May 2026, 17:59:53","Instock","Stitching","55106.25","Complete"]]},{"range":"Sheet2!A5662:R5662","values":[["04 May 2026, 16:01:43","TRISH PRATHI","9818163222","WalkIn","ASHISH YADAV","10931","","","","","","","","","","","",""]]},{"range":"Sheet2!A6299:R6299","values":[["04 May 2026, 17:49:19","TULIKA SHARAN ","9811132067","BLIND STITCHING CHARGES - REG","MURARI SINGH","10937","49/202 heritage city ggn, GURGAON, Haryana","51564","06 May 2026, 13:29:25","05 May 2026, 14:16:00","","","13 May 2026, 18:20:04","06 May 2026, 11:00:20","Outstock","Stitching","8256.90","Pending"]]},{"range":"Sheet2!A1453:R1453","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","OREA-OREA PLAIN 701","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A1454:R1454","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","KENZI SR NO 911","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A1455:R1455","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","KENZI SR NO 908","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A1456:R1456","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","PIXEL IBIZA # 707","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A5730:R5730","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","DELUXE SATIN-235","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A4977:R4977","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","BRASS ANTIQUE ROD 25MM","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A1459:R1459","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","JAWAJA LUXE JAWAJ46","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A3117:R3117","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","eyelet-curtain-sttiching-charges","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A2906:R2906","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","belt-stitching-charges","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A3205:R3205","values":[["06 Feb 2026, 16:41:01","TUNA AGARWAL","9899939108","channel-installation-charges","SAROJ KUMAR DAS","8383","","","16 Feb 2026, 16:54:10","24 Feb 2026, 13:23:48","","24 Feb 2026, 16:14:57","","","","","39348.46","Complete"]]},{"range":"Sheet2!A2753:R2753","values":[["24 Feb 2026, 14:42:25","Tanmay Vyas","09818583166","Park Lane KN39 # 810","RAJESH BHATIA","10019","A-1604, A-TOWER 16TH FLOOR .IRCO VICTORY VALLEY SEC-67","50462","","24 Feb 2026, 14:46:31","23 Mar 2026, 18:03:49","23 Mar 2026, 13:28:13","23 Mar 2026, 13:53:07","23 Mar 2026, 19:28:58","Instock","Delivery","7393.50","Complete"]]},{"range":"Sheet2!A2754:R2754","values":[["24 Feb 2026, 14:42:25","Tanmay Vyas","09818583166","COTTON LINING-MARKIN","RAJESH BHATIA","10019","A-1604, A-TOWER 16T'... 154794 more characters,
+      responseType: 'unknown',
+      errorRedactor: [Function: defaultErrorRedactor]
+    },
+    data: { error: [Object] },
+    headers: {
+      'alt-svc': 'h3=":443"; ma=2592000,h3-29=":443"; ma=2592000',
+      'content-encoding': 'gzip',
+      'content-type': 'application/json; charset=UTF-8',
+      date: 'Sat, 16 May 2026 06:17:19 GMT',
+      server: 'ESF',
+      'transfer-encoding': 'chunked',
+      vary: 'Origin, X-Origin, Referer',
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'SAMEORIGIN',
+      'x-l2-request-path': 'l2-managed-6',
+      'x-xss-protection': '0'
+    },
+    status: 503,
+    statusText: 'Service Unavailable',
+    request: {
+      responseURL: 'https://sheets.googleapis.com/v4/spreadsheets/11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA/values:batchUpdate'
+    }
+  },
+  error: undefined,
+  status: 503,
+  code: 503,
+  errors: [
+    {
+      message: 'The service is currently unavailable.',
+      domain: 'global',
+      reason: 'backendError'
+    }
+  ]
+}
+ GET /dashboard/hr 200 in 41ms (next.js: 4ms, application-code: 37ms)
+[browser] [2026-05-16T06:30:32.894Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x253e9285 transport errored. Name: undefined Message: undefined
+[browser] [2026-05-16T06:30:45.111Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x253e9286 transport errored. Name: undefined Message: undefined
+[browser] [2026-05-16T06:31:03.310Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x253e9287 transport errored. Name: undefined Message: undefined
+[browser] [2026-05-16T06:31:15.504Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x253e9288 transport errored. Name: undefined Message: undefined
+[browser] [2026-05-16T06:31:33.722Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x253e9289 transport errored. Name: undefined Message: undefined
+[browser] [2026-05-16T06:31:45.942Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x253e928a transport errored. Name: undefined Message: undefined
+[browser] [2026-05-16T06:32:04.120Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x253e928b transport errored. Name: undefined Message: undefined
+[browser] [2026-05-16T06:32:22.301Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x253e928c transport errored. Name: undefined Message: undefined
+[browser] [2026-05-16T06:32:40.526Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x253e928d transport errored. Name: undefined Message: undefined
+[browser] [2026-05-16T06:33:03.520Z]  @firebase/firestore: Firestore (11.9.0): WebChannelConnection RPC 'Listen' stream 0x253e928e transport errored. Name: undefined Message: undefined
+✓ Compiled in 2.4s
+○ Compiling /dashboard/selectionForm ...
+ GET /dashboard/selectionForm 200 in 9.2s (next.js: 5.8s, application-code: 3.4s)
+ GET /dashboard/selectionForm 200 in 244ms (next.js: 18ms, application-code: 227ms)
+○ Compiling /_not-found/page ...
+ GET /dashboard/selectionForm 404 in 1076ms (next.js: 31ms, application-code: 1044ms)
+ GET /dashboard/selectionForm 404 in 5.2s (next.js: 3.7s, application-code: 1523ms)
+ GET /dashboard/selectionForm 404 in 329ms (next.js: 138ms, application-code: 191ms)
+ GET /dashboard/selectionForm 404 in 325ms (next.js: 241ms, application-code: 84ms)
+ GET /dashboard/selectionForm 404 in 335ms (next.js: 48ms, application-code: 287ms)
+ GET /dashboard/selectionForm 404 in 1171ms (next.js: 115ms, application-code: 1057ms)
+✓ Compiled in 2.1s
+ GET /dashboard/selectionForm 404 in 1554ms (next.js: 951ms, application-code: 603ms)
+ GET /dashboard/selectionForm 404 in 74ms (next.js: 14ms, application-code: 61ms)
+ GET /dashboard/selectionForm 404 in 800ms (next.js: 11ms, application-code: 789ms)
+ GET /dashboard/selectionForm 404 in 436ms (next.js: 105ms, application-code: 331ms)
+ GET /dashboard/selectionform 200 in 4.2s (next.js: 3.3s, application-code: 832ms)
+ GET /dashboard/selectionForm 404 in 219ms (next.js: 16ms, application-code: 203ms)
+ GET /dashboard/selectionForm 404 in 251ms (next.js: 10ms, application-code: 241ms)
+ GET /dashboard/selectionForm 404 in 63ms (next.js: 6ms, application-code: 57ms)
+ GET /dashboard/selectionForm 404 in 3.5s (next.js: 1728ms, application-code: 1732ms)
+ GET /dashboard/selectionForm 404 in 1313ms (next.js: 1071ms, application-code: 242ms)
+ GET /dashboard/selectionForm 404 in 1316ms (next.js: 821ms, application-code: 496ms)
+ GET /dashboard/selectionForm 404 in 1313ms (next.js: 1170ms, application-code: 144ms)
+ GET /dashboard/selectionForm 404 in 1460ms (next.js: 31ms, application-code: 1429ms)
+ GET /dashboard/selectionForm 404 in 1570ms (next.js: 134ms, application-code: 1436ms)
+ GET /dashboard/selectionForm 404 in 259ms (next.js: 31ms, application-code: 228ms)
+ GET /dashboard/selectionForm 404 in 804ms (next.js: 317ms, application-code: 488ms)
+ GET /dashboard/selectionForm 404 in 395ms (next.js: 12ms, application-code: 382ms)
+ GET /dashboard/selectionForm 404 in 565ms (next.js: 38ms, application-code: 527ms)
+ GET /dashboard/selectionForm 404 in 555ms (next.js: 158ms, application-code: 397ms)
+ GET /dashboard/selectionForm 404 in 550ms (next.js: 212ms, application-code: 339ms)
+ GET /dashboard/selectionForm 404 in 560ms (next.js: 100ms, application-code: 460ms)
+ GET /dashboard/selectionForm 404 in 155ms (next.js: 22ms, application-code: 134ms)
+ GET /dashboard/selectionForm 404 in 316ms (next.js: 12ms, application-code: 304ms)
+⚠ Found a change in next.config.ts. Restarting the server to apply the changes...
+▲ Next.js 16.2.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.0.201:3000
+- Environments: .env.local, .env
+✓ Ready in 1736ms
+
+[?25h
