@@ -175,19 +175,6 @@ export async function createDealOrderAction(
       sections,
       overallSummary,
     } = buildOrderPricingFromQuotation(quotation);
-    const quotationTotal = coerceNumber(quotation.totalAmount, Number.NaN);
-    if (
-      Number.isFinite(quotationTotal) &&
-      Math.abs(overallSummary.grandTotal - quotationTotal) > 1
-    ) {
-      return {
-        success: false,
-        message:
-          `Quotation pricing is inconsistent. Item total Rs. ${overallSummary.grandTotal.toFixed(2)} ` +
-          `does not match quotation total Rs. ${quotationTotal.toFixed(2)}. Please correct the quotation before conversion.`,
-      };
-    }
-
     const workflowMilestones = buildWorkflowMilestones(orderType, creator);
 
     const isVasOnly = normalItems.length === 0 && vasItems.length > 0;
@@ -294,23 +281,48 @@ export async function createDealOrderAction(
         return legacy;
       })(),
       isAcknowledged: true,
-      status: isVasOnly ? 'Approved' : 'Pending Approval',
+      status: 'Approved',
+      approvedAt: now,
+      approvedBy: { id: creator.id, name: creator.name },
       dealOrderDocId: newDealOrderRef.id,
       storeName: quotation.store,
-      fabricDetails: rawNormalItems.map((item: any, index: number) => {
-        const bcn = item.bcn ?? item.collectionBrand ?? item.description ?? "N/A";
-        return {
-          lineId: String(item.lineId || item.itemId || `line-${index + 1}`),
-          bcn,
-          itemName: item.description ?? item.salesDescription ?? bcn,
-          fabricName: bcn,
-          quantity: String(item.qty ?? item.quantity ?? 0),
-          status: 'pending for po',
-          isInStock: null,
-          rate: coerceNumber(item.exclusiveRate ?? item.rate),
-          discountPercent: coerceNumber(item.discountPercent),
-        };
-      }),
+      fabricDetails: (() => {
+        const approvedStockRef = adminDb.collection('approvedStock');
+        return rawNormalItems.map((item: any, index: number) => {
+          const bcn = String(item.bcn ?? item.collectionBrand ?? item.description ?? 'N/A').trim();
+          const itemName = String(item.description ?? item.salesDescription ?? bcn ?? 'N/A').trim() || 'N/A';
+          const lineId = String(item.lineId || item.itemId || `line-${index + 1}`);
+          const newDocRef = approvedStockRef.doc();
+          const approvedStockId = newDocRef.id;
+          const fabricDetail = {
+            lineId,
+            bcn: bcn || undefined,
+            itemName,
+            fabricName: bcn || itemName,
+            quantity: String(item.qty ?? item.quantity ?? 0),
+            status: 'pending for po' as const,
+            isInStock: false,
+            rate: coerceNumber(item.exclusiveRate ?? item.rate),
+            discountPercent: coerceNumber(item.discountPercent),
+            approvedStockId,
+          };
+          batch.set(newDocRef, {
+            orderId,
+            crmOrderNo: quotation.quotationNo,
+            dealId: dealData.dealId || dealId,
+            lineId,
+            customerName: quotation.customerName,
+            salesPerson: salesmanName,
+            fabricName: bcn || itemName,
+            quantity: fabricDetail.quantity,
+            status: 'Pending Stock Verification',
+            createdAt: now,
+            createdBy: creator,
+            itemDetail: fabricDetail,
+          });
+          return fabricDetail;
+        });
+      })(),
       totalAmount: overallSummary.grandTotal || quotation.totalAmount,
       vasDetails: legacyVasDetails,
       representativeId: representativeId,
@@ -359,7 +371,7 @@ export async function createDealOrderAction(
 
     return {
       success: true,
-      message: isVasOnly ? 'VAS Order created. Generate invoice from the invoice screen when ready.' : 'Order created and sent for approval.',
+      message: 'Order created and approved. Items sent for stock verification.',
       order: JSON.parse(JSON.stringify(newOrder)),
     };
   } catch (error: any) {

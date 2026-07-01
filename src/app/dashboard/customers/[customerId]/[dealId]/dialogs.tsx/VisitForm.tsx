@@ -278,7 +278,7 @@ export function VisitForm({
   React.useEffect(() => {
     if (!deal && !customer) return;
     const representativeId = (deal as any)?.assignedSalesPerson?.id || (deal as any)?.representativeId;
-    const matchedSalesman = salesmen.find((s) => s.id === representativeId);
+    const matchedSalesman = salesman.find((s) => s.id === representativeId);
     const salesmanName = matchedSalesman?.name || (deal as any)?.assignedSalesPerson?.name || "";
     const itemName = (deal as any)?.title || (deal as any)?.dealName || "";
 
@@ -289,7 +289,7 @@ export function VisitForm({
       salesman: salesmanName || f.salesman,
       item: itemName || f.item,
     }));
-  }, [deal, customer, dealId, salesmen]);
+  }, [deal, customer, dealId, salesman]);
 
   const RETURN_SUB_OPTIONS: Record<string, string[]> = {
     Alteration: ["Fitting Issue", "Length Adjustment", "Width Adjustment", "Style Change"],
@@ -1695,7 +1695,7 @@ const OtherVisitContent = (
                   <SelectValue placeholder="Select salesman" />
                 </SelectTrigger>
                 <SelectContent side="bottom" avoidCollisions={false}>
-                  {salesmen.map((s) => (
+                  {salesman.map((s) => (
                     <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -1875,7 +1875,7 @@ const OtherVisitContent = (
                   toast({ title: "Compliance Submitted", description: "Compliance record created successfully." });
                   setComplianceOpen(false);
                   const repId = (deal as any)?.assignedSalesPerson?.id || (deal as any)?.representativeId;
-                  const matched = salesmen.find((s) => s.id === repId);
+                  const matched = salesman.find((s) => s.id === repId);
                   setComplianceForm({
                     dealId: dealId || "",
                     customerName: customer?.name || "",

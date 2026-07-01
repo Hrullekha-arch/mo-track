@@ -28,6 +28,7 @@ import {
   ChevronRight,
   X,
   AlertTriangle,
+  AlertCircle,
   CheckCircle2,
   ShoppingBag,
   Users,
@@ -2486,6 +2487,7 @@ const AllocatorDashboard = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [inbounds, setInbounds] = useState<InboundRequest[]>([]);
   const [complaintVisits, setComplaintVisits] = useState<DealVisit[]>([]);
+  const [measurementErrorComplaints, setMeasurementErrorComplaints] = useState<DealVisit[]>([]);
   const [approvedComplaints, setApprovedComplaints] = useState<DealVisit[]>([]);
   const [receivingVisit, setReceivingVisit] = useState<DealVisit | null>(null);
   const [followUpVisit, setFollowUpVisit] = useState<DealVisit | null>(null);
@@ -2561,6 +2563,12 @@ const AllocatorDashboard = () => {
         );
         received.sort((a, b) => new Date((b as any).complianceReceivedAt).getTime() - new Date((a as any).complianceReceivedAt).getTime());
         setComplaintVisits(received);
+
+        const measurementErrors = all.filter(
+          (v) => v.typeOfVisit === "complaint" && v.complaintType === "measurement-error"
+        );
+        measurementErrors.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        setMeasurementErrorComplaints(measurementErrors);
 
         const approved = all.filter(
           (v) => v.typeOfVisit === "complaint" && (v as any).complianceApprovalStatus === "Approved"
@@ -2832,6 +2840,68 @@ const AllocatorDashboard = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Measurement Error Complaints — show immediately when complaint type is measurement-error */}
+      {measurementErrorComplaints.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-orange-500" />
+                  Measurement Error Complaints
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Complaint visits raised with measurement error — requires allocator action
+                </p>
+              </div>
+              <Badge className="bg-orange-100 text-orange-700 border border-orange-200 hover:bg-orange-100">
+                {measurementErrorComplaints.length} Pending
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs uppercase text-muted-foreground">
+                    <th className="pb-2 pr-4 text-left font-medium">Deal ID</th>
+                    <th className="pb-2 pr-4 text-left font-medium">Customer</th>
+                    <th className="pb-2 pr-4 text-left font-medium">Salesman</th>
+                    <th className="pb-2 pr-4 text-left font-medium">Item</th>
+                    <th className="pb-2 pr-4 text-left font-medium">Qty</th>
+                    <th className="pb-2 pr-4 text-left font-medium">Description</th>
+                    <th className="pb-2 pr-4 text-left font-medium">Priority</th>
+                    <th className="pb-2 text-left font-medium">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {measurementErrorComplaints.map((v) => (
+                    <tr key={v.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                      <td className="py-2.5 pr-4 font-medium">{v.dealId || "—"}</td>
+                      <td className="py-2.5 pr-4">{v.customerSnapshot?.name || "—"}</td>
+                      <td className="py-2.5 pr-4">{v.assignedSalesPerson?.name || "—"}</td>
+                      <td className="py-2.5 pr-4">{v.complaintItem || "—"}</td>
+                      <td className="py-2.5 pr-4">{v.complaintQuantity || "—"}</td>
+                      <td className="py-2.5 pr-4 max-w-[200px]">
+                        <p className="text-xs text-muted-foreground line-clamp-2">{v.complaintDescription || "—"}</p>
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        {v.complaintPriority ? (
+                          <Badge variant="outline" className="text-xs capitalize">{v.complaintPriority}</Badge>
+                        ) : "—"}
+                      </td>
+                      <td className="py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                        {v.createdAt ? format(new Date(v.createdAt), "dd MMM yyyy") : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Approved Complaints — visible to CRM after Sales Manager approval */}
       <Card>

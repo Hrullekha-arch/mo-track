@@ -434,9 +434,11 @@ function ComplianceInboundTable() {
                     <TableCell>{v.complaintItem || "—"}</TableCell>
                     <TableCell>{v.complaintQuantity || "—"}</TableCell>
                     <TableCell>
-                      {v.complaintType
-                        ? <Badge variant="secondary" className="text-xs">{COMPLAINT_TYPE_LABELS[v.complaintType] || v.complaintType}</Badge>
-                        : "—"}
+                      <Badge variant="secondary" className="text-xs">
+                        {v.complaintType
+                          ? (COMPLAINT_TYPE_LABELS[v.complaintType] || v.complaintType)
+                          : "Complaint Visit"}
+                      </Badge>
                     </TableCell>
                     <TableCell>
                       {v.complaintPriority
@@ -445,7 +447,7 @@ function ComplianceInboundTable() {
                     </TableCell>
                     <TableCell className="max-w-[200px]">
                       <p className="text-xs text-muted-foreground line-clamp-2">
-                        {v.complaintDescription || "—"}
+                        {v.complaintDescription || (v as any).remark || "—"}
                       </p>
                     </TableCell>
                     <TableCell>
@@ -521,7 +523,7 @@ export default function InboundPage() {
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="pending">Pending Inbound</TabsTrigger>
           <TabsTrigger value="completed">Completed Inbound</TabsTrigger>
-          <TabsTrigger value="compliance">Compliance Inbound</TabsTrigger>
+          <TabsTrigger value="compliance">Inbound Compliance</TabsTrigger>
         </TabsList>
       </Tabs>
 

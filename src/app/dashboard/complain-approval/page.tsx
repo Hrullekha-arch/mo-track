@@ -601,8 +601,6 @@ export default function ComplainApprovalPage() {
     if (!selectedId || !allComplaints.some((r) => r.id === selectedId)) setSelectedId(allComplaints[0].id);
   }, [allComplaints, selectedId]);
 
-  const selectedComplaint = React.useMemo(() => allComplaints.find((r) => r.id === selectedId) || null, [allComplaints, selectedId]);
-
   React.useEffect(() => {
     const unsub = onSnapshot(
       query(collection(db, "users"), where("role", "==", "installer")),

@@ -409,7 +409,7 @@ function ConvertToOrderContent() {
     try {
       const result = await createDealOrderAction(customerId, dealId, dataForConfirmation, { id: user.id, name: user.name }, orderType);
       if (result.success) {
-        toast({ title: "Order Created!", description: "The sales order has been sent for approval." });
+        toast({ title: "Order Created!", description: "Order approved and visible in the Orders Dashboard." });
         router.push(`/dashboard/customers/${customerId}/${dealId}?tab=orders`);
       } else {
         toast({ variant: 'destructive', title: 'Creation Failed', description: result.message });

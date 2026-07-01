@@ -1185,7 +1185,8 @@ export default function WalkinDataPage() {
 
   const normalizedRole = String(user?.role || "").trim().toLowerCase();
   const normalizedDesignation = String(user?.designation || "").trim().toLowerCase();
-  const isAdmin        = normalizedRole === "admin";
+  const hasAdminPermissions = Boolean((user as any)?.permissions?.includes("/dashboard/users"));
+  const isAdmin        = normalizedRole === "admin" || hasAdminPermissions;
   const isCrm          = normalizedRole === "crm" || normalizedDesignation === "crm";
   const isPC           = normalizedRole === "pc" || normalizedDesignation === "pc";
   const isEA           = normalizedRole === "ea" || normalizedDesignation === "ea";
@@ -1214,8 +1215,8 @@ export default function WalkinDataPage() {
     (user as any)?.branch ||
     ""
   ).trim();
-  // Admin, PC, EA and MD can review every store and switch branch views.
-  const canSeeAllBranches = isAdmin || isPC || isEA || isMD;
+  // Admin, PC, EA, MD, Sales Managers and Allocators can review every store and switch branch views.
+  const canSeeAllBranches = isAdmin || isPC || isEA || isMD || isSalesmanager || isAllocator;
 
   // Set initial branch tab based on user's store
   useEffect(() => {
@@ -1228,7 +1229,7 @@ export default function WalkinDataPage() {
   useEffect(() => {
     if (!user?.id) { setWalkinData([]); setLoading(false); return; }
     setLoading(true);
-    const q = isAdmin || isSalesmanager || isPC || isEA || isMD || isAllocator
+    const q = isAdmin || isCrm || isSalesmanager || isPC || isEA || isMD || isAllocator
       ? query(collection(db, "Walkin_Customer"))
       : query(collection(db, "Walkin_Customer"), where("createdById", "==", user.id));
     const unsub = onSnapshot(q,
@@ -1425,8 +1426,8 @@ export default function WalkinDataPage() {
     if (canSeeAllBranches) {
       return activeBranch === "all" ? true : (c as any).store === activeBranch;
     }
-    // Non-admin: only see their own store
-    return (c as any).store === userStore;
+    // Non-admin: only see their own store; fall back to all if no store is configured
+    return !userStore || (c as any).store === userStore;
   });
 
   const resolveDateMs = (raw: unknown): Date | null => {

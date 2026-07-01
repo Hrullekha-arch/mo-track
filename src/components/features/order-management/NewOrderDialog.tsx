@@ -241,8 +241,8 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         createdBy: { id: user.id, name: user.name },
         otp: Math.floor(1000 + Math.random() * 9000).toString(),
         handledByCrm: crmUserId,
-        isAcknowledged: true, // It is created within the system
-        status: 'Pending Approval', // Goes to approval first
+        isAcknowledged: true,
+        status: 'Approved',
         fabricDetails: values.fabricDetails || [],
       };
       

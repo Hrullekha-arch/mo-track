@@ -912,7 +912,7 @@ export function OrdersTable() {
     }
 
     constraints.push(where("isAcknowledged", "==", true));
-    constraints.push(where("status", "==", "Approved"));
+    constraints.push(where("status", "in", ["Approved", "Pending Approval"]));
 
     const normalizedOrderNo = serverFilters.orderNo
       .trim()

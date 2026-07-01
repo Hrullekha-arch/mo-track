@@ -342,6 +342,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       registrations.forEach((registration) => {
         void registration.unregister();
       });
+    });
 
     if ("caches" in window) {
       void caches.keys().then((keys) => {
